@@ -1,0 +1,25 @@
+{
+  "defaultProvider": "ollama",
+  "defaultModel": "qwen3.8:27b",
+  "defaultThinkingLevel": "low",
+
+  "defaultTools": [
+    "read",
+    "grep",
+    "find",
+    "ls",
+    "edit",
+    "write",
+    "bash"
+  ],
+
+  "compaction": {
+    "enabled": true,
+    "reserveTokens": 8192,
+    "keepRecentTokens": 12000
+  },
+
+  "branchSummary": {
+    "reserveTokens": 8192
+  }
+}
