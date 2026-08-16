@@ -1,14 +1,31 @@
+# Show available project commands.
+[default]
+help:
+    @just --list
+
+# Run Python tests.
 test:
     uv run pytest
 
-check:
+# Run Python lint checks.
+lint:
     uv run ruff check .
-    uv run pyright
-    cd web && bun run lint
-    cd web && bun run typecheck
 
-train-smoke:
-    uv run python -m trainer.train configs/smoke.yaml
+# Verify Python formatting without modifying files.
+format-check:
+    uv run ruff format --check .
 
-eval-smoke:
-    uv run python -m trainer.eval configs/smoke.yaml
+# Format Python code.
+format:
+    uv run ruff format .
+    uv run ruff check --fix .
+
+# Run strict Python type checking.
+typecheck:
+    uv run basedpyright
+
+# Run all non-mutating Python validation.
+check: lint format-check typecheck
+
+# Run the complete Python validation suite.
+verify: check test
