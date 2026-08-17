@@ -1,8 +1,8 @@
 {
   "defaultProvider": "ollama",
-  "defaultModel": "qwen3.8:27b",
-  "enabledModels": ["ollama/qwen3.8:27b-mlx", "ollama/gemma4:e4b"],
-  "defaultThinkingLevel": "low",
+  "defaultModel": "gemma4:12b-mlx",
+  "enabledModels": ["ollama/gemma4:12b-mlx", "ollama/qwen3.5:9b-mlx"],
+  "defaultThinkingLevel": "high",
 
   "defaultTools": [
     "read",
