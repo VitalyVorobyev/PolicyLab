@@ -60,6 +60,7 @@ Do not:
 * rename unrelated APIs;
 * reorganize directories without need;
 * introduce infrastructure for hypothetical future requirements.
+* manually reformat code when the project formatter can do it automatically;
 
 If the requested implementation would violate `docs/architecture.md`, do not silently work around the architecture. Report the conflict.
 
@@ -126,25 +127,35 @@ uv run pytest tests/path/to/relevant_test.py
 uv run pytest tests/path/to/relevant_test.py -k specific_test
 ```
 
-After the implementation is complete, run:
+After the implementation is functionally complete:
 
-```text
-just verify
-```
+1. Run:
 
-`just verify` is the authoritative completion check for Python code.
+   ```text
+   just format
+   ```
 
-If frontend validation commands exist for the affected code, run those as well.
+   Use the project formatter and automatic safe lint fixes instead of manually reformatting code.
+
+2. Run:
+
+   ```text
+   just verify
+   ```
+
+   `just verify` is the authoritative completion check for Python code.
+
+3. If `just verify` fails:
+   - fix only the remaining real issues;
+   - do not manually fight formatting that `just format` can handle;
+   - rerun the relevant focused check;
+   - rerun `just verify`.
+
+4. If frontend validation commands exist for the affected code, run those as well.
 
 Do not claim validation succeeded unless the command actually completed successfully.
 
-If validation fails:
-
-1. determine whether the failure was caused by your change;
-2. fix problems caused by your change;
-3. rerun the relevant check.
-
-Do not suppress lint, typing, or test failures merely to finish the task.
+Do not suppress lint, typing, formatting, or test failures merely to finish the task.
 
 ## 8. Review the diff
 

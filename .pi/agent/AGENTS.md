@@ -10,3 +10,4 @@
 - Do not modify secrets, credentials, deployment configuration, or production data unless explicitly requested.
 - Keep explanations concise.
 - For non-trivial tasks, form a short plan before editing.
+- Use `just format` for formatting and safe automatic lint fixes; do not spend agent iterations manually reformatting code.
