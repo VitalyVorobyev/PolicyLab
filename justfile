@@ -58,6 +58,39 @@ gravity-m3-probe run_id="gravity-free-return-dv-probe-v1" workers="10":
 gravity-m3-web-map map_run="gravity-free-return-map-2d-grid-v1" run_id="gravity-free-return-map-2d-grid-v1-web":
     uv run python -m phasespace.gravity.free_return_export --runs-dir runs web-map --map-run {{map_run}} --run-id {{run_id}}
 
+# M4 smoke run (pre-freeze, never comparative): every method at <= 2^8 propagations (seed 9001) plus cost probes.
+gravity-m4-smoke run_id="gravity-m4-smoke-v1" budget="256" workers="1":
+    uv run python -m phasespace.gravity.m4 --runs-dir runs smoke --run-id {{run_id}} --budget {{budget}} --workers {{workers}}
+
+# M4 frozen-protocol stages: each refuses unless protocol.md says `frozen` and --confirm-frozen is passed.
+# Tuning grid (seeds 9101-9102): just gravity-m4-tune --confirm-frozen
+gravity-m4-tune *args:
+    uv run python -m phasespace.gravity.m4 --runs-dir runs stage --stage tune {{args}}
+
+# Pilot (seeds 9201-9203) with the tuned configurations: just gravity-m4-pilot --configs MS=0,MBH=1,DE=0,T=2,T2=0 --confirm-frozen
+gravity-m4-pilot *args:
+    uv run python -m phasespace.gravity.m4 --runs-dir runs stage --stage pilot {{args}}
+
+# Main comparison (seeds 1001-1010): just gravity-m4-main --configs ... --confirm-frozen
+gravity-m4-main *args:
+    uv run python -m phasespace.gravity.m4 --runs-dir runs stage --stage main {{args}}
+
+# One M4 run: just gravity-m4-run --stage main --method T --config-index 1 --seed 1011 --confirm-frozen
+gravity-m4-run *args:
+    uv run python -m phasespace.gravity.m4 --runs-dir runs search {{args}}
+
+# M4 coverage ground truth (protocol 5.3 a-c, K1 check): just gravity-m4-groundtruth --confirm-frozen
+gravity-m4-groundtruth *args:
+    uv run python -m phasespace.gravity.m4 --runs-dir runs groundtruth {{args}}
+
+# M4 oracle-seeded continuation reference CC*: just gravity-m4-ccstar --confirm-frozen
+gravity-m4-ccstar *args:
+    uv run python -m phasespace.gravity.m4 --runs-dir runs ccstar {{args}}
+
+# M4 re-check + execution-error tolerance of a run: just gravity-m4-robustness <run_id> T_E --confirm-frozen
+gravity-m4-robustness run errors *args:
+    uv run python -m phasespace.gravity.m4 --runs-dir runs robustness --run-id {{run}} --errors {{errors}} {{args}}
+
 # Install the website's pinned dependencies (npm, from web/package-lock.json).
 web-install:
     cd web && npm ci

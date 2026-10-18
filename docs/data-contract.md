@@ -378,4 +378,39 @@ A manifest must include `validation` (see `Validation` above) when `validated`, 
 
 Store independently versioned experiment definitions containing: predeclared candidate parameterization, feasibility thresholds, objective and descriptor bounds, budget measured in numerical propagations (and wall-clock as secondary), seed list, held-out perturbation distribution, numerical solver settings, and statistical analysis procedure.
 
+**M4 runs (additive; `python -m phasespace.gravity.m4`, protocol `docs/studies/gravity-atlas/protocol.md`).** M4 manifests add one optional field, `m4`, and use only the existing artifact kind `sample_table`. Runs without it remain valid. M4 runs stay local under `runs/`; none is published, so the website validator does not check `m4` yet.
+
+```ts
+interface Manifest { /* ... */ m4?: M4Block; }
+
+interface M4Block {
+  protocol_path: string;       // "docs/studies/gravity-atlas/protocol.md"
+  protocol_version: string;    // e.g. "v1"
+  protocol_status: string;     // the protocol's Status row when the run was made ("draft" |
+                               // "frozen"); only "frozen" runs can be comparative evidence
+  config_sha256: string;       // sha256 of the canonical JSON (sorted keys, compact) of
+                               // phasespace.gravity.m4.config.PROTOCOL: every declared constant
+  stage: "smoke" | "tune" | "pilot" | "main" | "reference" | "ground_truth" | "robustness";
+  methods: M4Method[];         // one per method in the run; [] for ground_truth / robustness
+}
+
+interface M4Method {
+  name: "D" | "MS" | "MBH" | "DE" | "CC" | "CCstar" | "T" | "T2";
+  config: Record<string, unknown>;  // the method's hyperparameters as plain JSON ({} for D)
+  seed: number;                // the run seed (Sobol scrambling and method streams)
+  budget: number;              // propagation budget N (the CC* safety cap for CCstar)
+  propagations: number;        // propagations used; every evaluation counts, cache hits do not
+  status: "budget_used" | "stopped_early";
+  evaluations_path: string;    // sample_table: one row per propagation, in budget order
+  catalog_path: string;        // sample_table: catalog per checkpoint (10 x 10) and the final
+                               // 20 x 20 sensitivity catalog
+}
+```
+
+- `random_seed` is the run seed (method runs), the GT map seed (`ground_truth`) or the error-draw seed (`robustness`).
+- `evaluations*.json` columns: index, purpose tag, unit-cube coordinates, physical departure, M4 outcome (the M3 outcome, or `numerical_failure` when the scaled Jacobi gate of protocol 5.2 fails), M3 outcome, gate flag, the M3 record quantities, the time at which h_vp is evaluated, entry sense, Jacobi scale S and relative drift, nfev, e, the 10 × 10 cell, and per-propagation wall time (the only non-reproducible column). The `ground_truth` run stores feasible propagations only.
+- Metrics carry budget counters (`propagations`, `cache_hits`, `rhs_evaluations`), numerical health (`numerical_failures`, `gate_failures`), cost (`wall_time_hours`, `propagation_time_hours`, `overhead_fraction`) and the method's own counters (`counter_*`), prefixed by the lower-case method name when a run holds several methods (smoke runs).
+- A `robustness` run holds `robustness.json` (one row per catalog elite and error draw: re-checked cell and index, singular-Jacobian flag, uncorrected feasibility, chord convergence, commanded |Δv|, feasibility with the exact and with the executed correction, iterations, nfev). Its metrics record the re-check counts and the Gates-model MCC execution-error parameters (`mcc_gates_*`, decision D24); its limitations name the injection and execution error sets and their seeds.
+- A run made before the protocol is frozen states in `limitations` that it is not comparative evidence.
+
 Prefer schema validation on producer and consumer sides (Python + TypeScript). Avoid generating a complicated cross-language framework before first two consumers exist.
