@@ -52,6 +52,8 @@
 
 **D19 — Web stack (M2).** Vite + React + strict TypeScript + Tailwind, npm with exact pins, a hand-written history router, self-hosted fonts (no third-party requests), Vitest + Playwright checks. `just verify` runs Python and web checks. Static output deployable to Cloudflare Pages with SPA fallback; deployment itself awaits the author's approval.
 
+**D20 — M3 definitions accepted (2026-10-18; see `studies/gravity-atlas/m3-feasibility-design.md`).** Default DE440 / 384,400 km system; 185 km circular parking orbit; single impulse. Feasible free return: closest lunar approach 100–30,000 km altitude, then an inbound crossing of a 121.92 km altitude Earth entry shell, within 10 days (50,000 km shell only as a declared fallback). Search space: 2-D (departure phase, Δv 3.00–3.25 km/s) for M3 feasibility; 3-D (adding impulse angle ±10°) for the M4 comparison, because a 2-D archive is near-trivial. M4 objective: entry flight-path-angle error; Δv is reported, not optimized. Deployment deferred until there is a free-return result.
+
 ## Conditions for revising the plan
 
 A milestone may change only because of observed source state, physical feasibility, research data, runtime limits or a clear user product choice. Document each meaningful change and its reason. Do not enlarge scope simply because implementing another framework sounds elegant.

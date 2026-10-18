@@ -51,3 +51,6 @@ coverage.xml
 *.tmp
 *.swp
 *~
+
+# Paywalled literature (local only)
+docs/studies/*/papers/

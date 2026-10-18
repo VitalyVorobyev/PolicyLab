@@ -17,13 +17,25 @@
   state exactly at a primary) and the solver could not continue;
 - ``evaluation_limit``: more than `max_evaluations` right-hand-side evaluations were
   needed (e.g. a near-singular pass with collisions disabled); no trajectory is returned;
-- ``solver_failure``: any other unsuccessful solver exit.
+- ``solver_failure``: any other unsuccessful solver exit, including a ValueError raised
+  inside `solve_ivp` (recorded in `message`; nothing is propagated). Event location
+  cannot raise one (see below), so this is a guard that keeps batch runs alive.
 
 Periapsis events: for each enabled body, h = (r - r_body) . v (rotating-frame position
 relative to the body dotted with the rotating-frame velocity; the bodies are fixed in
 this frame) crossing zero from negative to positive. Residual blind spot: a periapsis
 whose h changes sign twice within one solver step (an apsis pair inside a single step)
 is not detected.
+
+Event values at step ends: `solve_ivp` decides that an event is active from its values at
+the accepted step states, then brackets the root with brentq on the step's dense output.
+For LSODA the dense output at the step ends is not bit-identical to the accepted states,
+so an event value that is zero or tiny there (e.g. h(t0) = 0 for a tangential departure
+from a circular orbit, an exact apsis) could get a bracket with no sign change and brentq
+raised. Every event therefore returns, at the two current step-end times, the value it
+computed from the accepted state, so the bracket always agrees with the sign test. A
+zero at t0 thus yields an event at exactly t0 when the function moves to the crossing
+side (scipy's convention: g_old = 0 counts on either side), independently of the method.
 """
 
 from __future__ import annotations
@@ -166,27 +178,54 @@ class _Body:
         return math.hypot(float(y[0]) - self.x, float(y[1])) - self.radius
 
 
-class _DistanceEvent:
-    """solve_ivp event g = distance(body) - radius; terminal, inward only."""
+class _StepConsistentEvent:
+    """A solve_ivp event whose values at the current step ends come from accepted states.
+
+    solve_ivp (forward in time) evaluates every event at t0 and at each newly accepted
+    step end, always at a time later than any earlier evaluation, before root finding;
+    brentq then evaluates only inside [t_old, t]. A call at a new maximum time is
+    therefore an accepted state: its value is kept for that time and the previous step
+    end. Later calls at either of those two times (the bracket ends) return the kept
+    value instead of re-evaluating the dense output, which for LSODA can differ there.
+    """
+
+    terminal: bool
+    direction: float
 
     def __init__(self, body: _Body) -> None:
         self.body = body
-        self.terminal = True
-        self.direction = INWARD
+        self._ends: tuple[tuple[float, float], ...] = ()
+
+    def value(self, y: FloatArray) -> float:
+        raise NotImplementedError
 
     def __call__(self, t: float, y: FloatArray) -> float:
+        for t_end, g_end in self._ends:
+            if t == t_end:
+                return g_end
+        g = self.value(y)
+        if not self._ends or t > self._ends[-1][0]:
+            self._ends = (*self._ends[-1:], (t, g))
+        return g
+
+
+class _DistanceEvent(_StepConsistentEvent):
+    """solve_ivp event g = distance(body) - radius; terminal, inward only."""
+
+    terminal = True
+    direction = INWARD
+
+    def value(self, y: FloatArray) -> float:
         return self.body.surface_gap(y)
 
 
-class _PeriapsisEvent:
+class _PeriapsisEvent(_StepConsistentEvent):
     """solve_ivp event h = (r - r_body) . v; non-terminal, negative -> positive only."""
 
-    def __init__(self, body: _Body) -> None:
-        self.body = body
-        self.terminal = False
-        self.direction = PERIAPSIS
+    terminal = False
+    direction = PERIAPSIS
 
-    def __call__(self, t: float, y: FloatArray) -> float:
+    def value(self, y: FloatArray) -> float:
         return (float(y[0]) - self.body.x) * float(y[2]) + float(y[1]) * float(y[3])
 
 
@@ -371,6 +410,14 @@ def propagate(
             Termination.EVALUATION_LIMIT,
             rhs.evaluations,
             f"more than {max_evaluations} right-hand-side evaluations",
+        )
+    except ValueError as error:
+        # Inputs are validated above, so this is a failure inside the solver or its event
+        # location; record it rather than abort the caller (e.g. a batch of propagations).
+        return unpropagated(
+            Termination.SOLVER_FAILURE,
+            rhs.evaluations,
+            f"solve_ivp raised ValueError: {error}",
         )
 
     t_arr = np.asarray(sol.t, dtype=np.float64)
