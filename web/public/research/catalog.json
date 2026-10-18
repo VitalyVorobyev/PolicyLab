@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "studies": [
+    {
+      "study_id": "gravity-atlas",
+      "title": "Gravity Atlas",
+      "status": "active",
+      "runs": [
+        {
+          "run_id": "gravity-l1-lyapunov-reference-v2",
+          "path": "gravity-atlas/l1-lyapunov-reference-v2",
+          "label": "Earth–Moon L1 Lyapunov orbit (JPL catalog reference)"
+        }
+      ]
+    },
+    {
+      "study_id": "last-library",
+      "title": "The Last Library",
+      "status": "planned",
+      "runs": []
+    },
+    {
+      "study_id": "algorithm-forge",
+      "title": "Algorithm Forge",
+      "status": "planned",
+      "runs": []
+    },
+    {
+      "study_id": "constitution-machine",
+      "title": "Constitution Machine",
+      "status": "conditional",
+      "runs": []
+    }
+  ]
+}

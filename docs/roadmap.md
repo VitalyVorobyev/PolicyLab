@@ -16,7 +16,7 @@ Hex prototype, Hex docs and the Pi local-LLM configuration archived on branch `a
 
 **Done when:** the study states its nearest prior work and how it differs.
 
-## M1 — Physics core (D13: before any viewer)
+## M1 — Physics core (D13: before any viewer) — done 2026-10-18
 
 **Goal:** trustworthy computed trajectories exist before anything is displayed.
 
@@ -27,7 +27,7 @@ Hex prototype, Hex docs and the Pi local-LLM configuration archived on branch `a
 
 **Done when:** a validated reference artifact exists and its checks are reproducible with one command.
 
-## M2 — Visible public preview with real data
+## M2 — Visible public preview with real data — built 2026-10-18 (not yet deployed)
 
 **Goal:** recognizable, beautiful public-facing site showing only computed data.
 

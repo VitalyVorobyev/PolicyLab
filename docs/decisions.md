@@ -50,6 +50,8 @@
 
 **D18 — Venue: arXiv preprint + interactive site.** No conference target; publish when the evidence is ready. Rigor bar unchanged (D09).
 
+**D19 — Web stack (M2).** Vite + React + strict TypeScript + Tailwind, npm with exact pins, a hand-written history router, self-hosted fonts (no third-party requests), Vitest + Playwright checks. `just verify` runs Python and web checks. Static output deployable to Cloudflare Pages with SPA fallback; deployment itself awaits the author's approval.
+
 ## Conditions for revising the plan
 
 A milestone may change only because of observed source state, physical feasibility, research data, runtime limits or a clear user product choice. Document each meaningful change and its reason. Do not enlarge scope simply because implementing another framework sounds elegant.

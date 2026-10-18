@@ -1,0 +1,295 @@
+{
+  "schema_version": 1,
+  "run_id": "gravity-l1-lyapunov-reference-v2",
+  "study_id": "gravity-atlas",
+  "experiment_id": "cr3bp-l1-lyapunov-reference-v2",
+  "status": "validated",
+  "created_at": "2026-10-18T11:52:59Z",
+  "source": {
+    "repository": "VitalyVorobyev/PolicyLab",
+    "git_commit": "733e4d6edaba013a88b7c10f8708696d5807caf4",
+    "git_dirty": false,
+    "generator": "phasespace.gravity.export",
+    "generator_version": "0.1.0"
+  },
+  "environment": {
+    "python": "3.12.12",
+    "python_implementation": "CPython",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "machine": "arm64"
+  },
+  "model": {
+    "name": "planar-cr3bp",
+    "coordinate_frame": "barycentric_synodic",
+    "units": "normalized_cr3bp",
+    "mu": 0.01215058560962404,
+    "length_scale_km": 389703.264829278,
+    "length_scale_convention": "jpl_periodic_orbits_catalog",
+    "time_scale_seconds": 382981.289129055,
+    "velocity_scale_km_s": 1.0175517078536906,
+    "system_name": "earth-moon-jpl-periodic-orbits-catalog",
+    "constants_source": "mu, lunit, tunit, radius_secondary: NASA/JPL Three-Body Periodic Orbits API (https://ssd-api.jpl.nasa.gov/periodic_orbits.api?sys=earth-moon&family=lyapunov&libr=1, retrieved 2026-10-18); Earth radius 6371.0 km from the NASA NSSDCA Earth Fact Sheet",
+    "primaries": {
+      "earth": {
+        "x": -0.01215058560962404,
+        "y": 0.0,
+        "radius_km": 6371.0
+      },
+      "moon": {
+        "x": 0.987849414390376,
+        "y": 0.0,
+        "radius_km": 1737.1
+      }
+    },
+    "assumptions": [
+      "circular_primaries",
+      "massless_spacecraft",
+      "planar",
+      "unit_angular_rate_counterclockwise"
+    ]
+  },
+  "solver": {
+    "name": "DOP853",
+    "rtol": 1e-12,
+    "atol": 1e-12,
+    "dense_output": true,
+    "max_evaluations": 1000000,
+    "collision_events": {
+      "earth_radius_km": 6371.0,
+      "moon_radius_km": 1737.1,
+      "function": "distance_minus_radius",
+      "direction": "decreasing",
+      "terminal": true,
+      "grazing_detection": "periapsis_below_radius",
+      "start_inside": "not_propagated"
+    },
+    "comparisons": [
+      {
+        "role": "tight_tolerance",
+        "name": "DOP853",
+        "rtol": 1e-13,
+        "atol": 1e-13
+      },
+      {
+        "role": "independent_integrator",
+        "name": "LSODA",
+        "rtol": 1e-13,
+        "atol": 1e-13
+      }
+    ],
+    "monodromy": {
+      "name": "DOP853",
+      "rtol": 1e-13,
+      "atol": 1e-13
+    },
+    "differential_correction": {
+      "name": "DOP853",
+      "rtol": 1e-13,
+      "atol": 1e-13,
+      "half_period_abs_vx_tolerance": 1e-11,
+      "continuation_steps": 10,
+      "initial_guess": "linear_l1_lyapunov_then_x0_continuation",
+      "convergence": {
+        "iterations_final_member": 4,
+        "half_period_abs_vx": 5.637797086815999e-15
+      }
+    }
+  },
+  "random_seed": null,
+  "artifacts": [
+    {
+      "kind": "trajectory",
+      "path": "trajectory.json",
+      "sha256": "4f4655c91643eecc25bd6319a5835114a0d6a797ecb8b978b730405daea2fa53"
+    }
+  ],
+  "metrics": {
+    "period_normalized": {
+      "value": 2.8624598979521805,
+      "unit": "normalized_cr3bp",
+      "definition": "orbit period"
+    },
+    "period_days": {
+      "value": 12.688293770809597,
+      "unit": "day",
+      "definition": "orbit period; time_scale_seconds = 382981.289129055 s, 1 day = 86400 s"
+    },
+    "jacobi_constant": {
+      "value": 3.1461810559171237,
+      "unit": "normalized_cr3bp",
+      "definition": "Jacobi constant of the initial state"
+    },
+    "initial_x_km": {
+      "value": 317636.39406271616,
+      "unit": "km",
+      "definition": "barycentric x of the initial perpendicular x-axis crossing; km via length_scale_km = 389703.264829278 km (jpl_periodic_orbits_catalog)"
+    },
+    "initial_vy_km_s": {
+      "value": 0.22098310695413217,
+      "unit": "km/s",
+      "definition": "rotating-frame vy at the initial state; km/s via velocity_scale_km_s = 1.0175517078536906 km/s (jpl_periodic_orbits_catalog)"
+    },
+    "x_extent_km": {
+      "value": 22172.48519687845,
+      "unit": "km",
+      "definition": "max(x) - min(x) of samples; km via length_scale_km = 389703.264829278 km (jpl_periodic_orbits_catalog)"
+    },
+    "y_extent_km": {
+      "value": 77778.88647987567,
+      "unit": "km",
+      "definition": "max(y) - min(y) of samples; km via length_scale_km = 389703.264829278 km (jpl_periodic_orbits_catalog)"
+    },
+    "min_earth_distance_km": {
+      "value": 322371.51694200886,
+      "unit": "km",
+      "definition": "min Earth-center distance of samples; km via length_scale_km = 389703.264829278 km (jpl_periodic_orbits_catalog)"
+    },
+    "min_moon_distance_km": {
+      "value": 45223.934453938025,
+      "unit": "km",
+      "definition": "min Moon-center distance of samples; km via length_scale_km = 389703.264829278 km (jpl_periodic_orbits_catalog)"
+    },
+    "sample_count": {
+      "value": 1001,
+      "unit": "count",
+      "definition": "rows in trajectory.json"
+    },
+    "sample_step_normalized": {
+      "value": 0.0028624598979521804,
+      "unit": "normalized_cr3bp",
+      "definition": "uniform time step between samples"
+    },
+    "sample_step_hours": {
+      "value": 0.3045190504994303,
+      "unit": "hour",
+      "definition": "uniform time step between samples; time_scale_seconds = 382981.289129055 s, 1 day = 86400 s"
+    },
+    "monodromy_lambda_max": {
+      "value": 1808.930260461656,
+      "unit": "dimensionless",
+      "definition": "largest eigenvalue modulus of the computed monodromy matrix: growth per period of a perturbation along the unstable direction"
+    },
+    "monodromy_stability_index": {
+      "value": 904.4654066372826,
+      "unit": "dimensionless",
+      "definition": "(lambda_max + 1/lambda_max)/2 from the computed monodromy matrix"
+    },
+    "jpl_stability_index": {
+      "value": 904.465406637648,
+      "unit": "dimensionless",
+      "definition": "catalog stability index nu = (lambda_max + 1/lambda_max)/2 (> 1: unstable)"
+    }
+  },
+  "limitations": [
+    "Planar circular restricted three-body model: no lunar eccentricity, out-of-plane motion, solar or other perturbations, or ephemeris effects.",
+    "Constants follow the JPL periodic-orbit catalog (length unit 389703.264829278 km, not 384400 km; model.length_scale_convention) so the orbit is directly comparable with the catalog; km, day and km/s values depend on that convention.",
+    "Samples are a uniform-time resampling of the DOP853 dense-output interpolant for playback; accepted solver steps are not exported.",
+    "The orbit is strongly unstable: the largest monodromy eigenvalue is 1808.9 (catalog stability index (lambda + 1/lambda)/2 = 904.465406637648), so a small error along the unstable direction grows by that factor each period. The trajectory accuracy claim covers the exported single period only; Jacobi drift stays small even after a longer propagation has left the orbit, so it does not certify multi-period trajectories.",
+    "'validated' means the recorded numerical checks passed; it is not a new scientific result."
+  ],
+  "validation": {
+    "checks": [
+      {
+        "name": "periodicity_max_abs_state_error_one_period",
+        "observed": 1.579010359964439e-11,
+        "threshold": 1e-09,
+        "passed": true,
+        "definition": "max |s(T) - s(0)| over (x, y, vx, vy) after one computed period T"
+      },
+      {
+        "name": "jacobi_max_abs_drift_exported_samples",
+        "observed": 2.206679283744961e-12,
+        "threshold": 1e-10,
+        "passed": true,
+        "definition": "max |C(s_i) - C(s_0)| over the exported samples"
+      },
+      {
+        "name": "jacobi_max_abs_drift_3_periods",
+        "observed": 2.7609026176378393e-12,
+        "threshold": 1e-10,
+        "passed": true,
+        "definition": "max |C(t) - C(0)| at 3001 uniform times over 3 periods; a conservation check only: it does not detect departure from the unstable orbit"
+      },
+      {
+        "name": "tight_tolerance_max_abs_state_difference_samples",
+        "observed": 1.57220905131622e-11,
+        "threshold": 1e-09,
+        "passed": true,
+        "definition": "max |s - s_ref| over (x, y, vx, vy) at the exported sample times; s_ref: DOP853 rtol = atol = 1e-13"
+      },
+      {
+        "name": "independent_integrator_max_abs_state_difference_samples",
+        "observed": 2.205233645996946e-11,
+        "threshold": 1e-09,
+        "passed": true,
+        "definition": "max |s - s_ref| over (x, y, vx, vy) at the exported sample times; s_ref: LSODA rtol = atol = 1e-13"
+      },
+      {
+        "name": "jpl_catalog_abs_diff_vy0",
+        "observed": 3.7470027081099033e-14,
+        "threshold": 1e-10,
+        "passed": true,
+        "definition": "|vy0 - vy0_catalog| against the JPL catalog entry in validation.reference; vy0 is computed without catalog velocities"
+      },
+      {
+        "name": "jpl_catalog_abs_diff_period",
+        "observed": 7.327471962526033e-14,
+        "threshold": 1e-10,
+        "passed": true,
+        "definition": "|T - T_catalog| against the JPL catalog entry in validation.reference"
+      },
+      {
+        "name": "jpl_catalog_abs_diff_jacobi",
+        "observed": 1.6431300764452317e-14,
+        "threshold": 1e-10,
+        "passed": true,
+        "definition": "|C(s0) - C_catalog| against the JPL catalog entry in validation.reference. Not independent of jpl_catalog_abs_diff_vy0: x0 equals the catalog value and y0 = vx0 = 0, so the difference is |2 vy0 dvy0 + dvy0^2| up to the catalog's rounding of C; it checks only the Jacobi-constant convention"
+      },
+      {
+        "name": "jpl_catalog_rel_diff_stability_index",
+        "observed": 4.0398393764512245e-13,
+        "threshold": 1e-09,
+        "passed": true,
+        "definition": "|nu - nu_catalog| / nu_catalog with nu = (lambda_max + 1/lambda_max)/2 from the computed monodromy matrix (DOP853 rtol = atol = 1e-13)"
+      },
+      {
+        "name": "non_horizon_terminations_or_collision_events",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "collision events plus non-horizon terminations over the exported, tight, independent-integrator and multi-period propagations"
+      },
+      {
+        "name": "non_finite_sample_values",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "count of non-finite values in trajectory samples"
+      },
+      {
+        "name": "non_increasing_sample_times",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "count of consecutive sample times with t[i+1] <= t[i]"
+      }
+    ],
+    "validated_by": "phasespace.gravity.export automated checks (pass: observed <= threshold)",
+    "validated_at": "2026-10-18T11:52:59Z",
+    "reference": {
+      "source": "NASA/JPL Three-Body Periodic Orbits API",
+      "url": "https://ssd-api.jpl.nasa.gov/periodic_orbits.api?sys=earth-moon&family=lyapunov&libr=1",
+      "retrieved_on": "2026-10-18",
+      "family": "lyapunov",
+      "libration_point": 1,
+      "row_index": 2600,
+      "x0": 0.8150724480121228,
+      "vy0": 0.21717137836681638,
+      "period": 2.862459897952107,
+      "jacobi": 3.14618105591714,
+      "stability_index": 904.465406637648
+    }
+  }
+}

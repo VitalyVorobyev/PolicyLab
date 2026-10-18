@@ -1,0 +1,6 @@
+# Cloudflare Pages: serve the single-page app for client-side routes.
+# Static files (including /research/**/*.json) are matched first and never rewritten.
+# Unknown paths also fall back to index.html because the build has no top-level
+# 404.html (Pages' SPA default), and the app renders its own "not found" page.
+/gravity  /index.html  200
+/gravity/*  /index.html  200

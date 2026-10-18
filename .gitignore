@@ -44,6 +44,9 @@ coverage.xml
 # IDE
 .idea/
 
+# Agent worktrees (temporary git worktrees created by coding agents)
+.claude/worktrees/
+
 # Temporary files
 *.tmp
 *.swp

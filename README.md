@@ -4,7 +4,7 @@ A small public laboratory of computational research studies at the intersection 
 
 Each study is a bounded investigation: a falsifiable question, credible baselines, validated numerical models, matched compute budgets, an interactive viewer for the evidence, and a readable report that includes limitations and null results.
 
-> **Status:** early. No research results yet. The first study, **Gravity Atlas** (diverse Earth–Moon trajectories in the planar circular restricted three-body problem), is in literature review; the physics core comes next.
+> **Status:** early. No research results yet. The first study, **Gravity Atlas** (diverse Earth–Moon trajectories in the planar circular restricted three-body problem), has finished its literature scan; its planar CR3BP physics core is validated against the NASA/JPL periodic-orbit catalog, and a static viewer renders the validated reference run. Next: free-return feasibility (M3).
 
 ## Studies
 
@@ -25,6 +25,17 @@ Requires [uv](https://docs.astral.sh/uv/) and [just](https://just.systems/).
 just verify   # lint, format check, strict typecheck, tests
 just format   # apply formatting and safe lint fixes
 ```
+
+## Website
+
+`web/` holds the static research site: a gallery of studies and the Gravity Atlas viewer, which renders the validated Earth–Moon L1 Lyapunov reference orbit from versioned, checksummed run files. See [`web/README.md`](web/README.md) to run, test, publish a run, and deploy to Cloudflare Pages. It needs Node.js 22.12 or newer.
+
+```bash
+just web-install   # install pinned web dependencies
+just web-dev       # local dev server
+```
+
+`just verify` runs the Python checks and the web checks and build.
 
 ## History
 

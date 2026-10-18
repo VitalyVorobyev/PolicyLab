@@ -1,0 +1,129 @@
+@import "@fontsource-variable/source-serif-4/opsz.css";
+@import "@fontsource-variable/source-serif-4/opsz-italic.css";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "tailwindcss";
+
+/*
+ * Phase Space tokens.
+ * Paper and ink for reading; one navy canvas for looking at data; one amber accent for
+ * "where you are / what you can act on". Status colors are always paired with icon + text.
+ */
+@theme {
+  --font-serif: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+
+  --color-paper: #f1f3f4;
+  --color-sheet: #fbfcfc;
+  --color-ink: #0f1b2a;
+  --color-graphite: #4a5666;
+  --color-quiet: #6b7685;
+  --color-rule: #d2d8de;
+  --color-rule-strong: #b5bec8;
+
+  --color-canvas: #0c1829;
+  --color-canvas-raised: #13223a;
+  --color-canvas-grid: #1d2e48;
+  --color-canvas-axis: #3a4e6b;
+  --color-canvas-text: #a8b5c7;
+  --color-canvas-strong: #e4e9f0;
+
+  --color-accent: #e3a72f;
+  --color-accent-strong: #f0bb4f;
+  --color-accent-ink: #7f5300;
+
+  --color-valid: #1d6a48;
+  --color-caution: #8c4a0e;
+  --color-danger: #a12b2b;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  a {
+    color: inherit;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  .on-canvas :focus-visible {
+    outline-color: var(--color-accent-strong);
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  }
+}
+
+@layer components {
+  .numeric {
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum" 1, "lnum" 1;
+  }
+  .prose-link {
+    text-decoration: underline;
+    text-decoration-color: var(--color-rule-strong);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
+  }
+  .prose-link:hover {
+    text-decoration-color: var(--color-accent);
+  }
+
+  /* Time slider: thin track, square amber thumb, large hit area. */
+  .time-slider {
+    appearance: none;
+    background: transparent;
+    width: 100%;
+    height: 2.25rem;
+    cursor: pointer;
+  }
+  .time-slider::-webkit-slider-runnable-track {
+    height: 2px;
+    background: var(--color-canvas-axis);
+  }
+  .time-slider::-moz-range-track {
+    height: 2px;
+    background: var(--color-canvas-axis);
+  }
+  .time-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -6px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    border: 2px solid var(--color-canvas);
+  }
+  .time-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    border: 2px solid var(--color-canvas);
+  }
+}
