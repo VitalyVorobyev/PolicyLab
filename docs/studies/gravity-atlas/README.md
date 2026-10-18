@@ -4,18 +4,23 @@
 **Status:** first study; experiment design provisional until the feasibility milestone completes.  
 **RL required?** No. Explicitly *not* part of the first comparison.
 
-## Nearest prior work (to be confirmed in roadmap S3)
+## Nearest prior work
 
-- Beeson, Li & Sinha (2024), arXiv 2412.20023: treat preliminary low-thrust trajectory design as a search for diverse high-quality solutions, using deep generative models; benchmarked on the CR3BP and compared with multi-start. Not MAP-Elites, and not focused on robustness to changed constraints.
-- No published MAP-Elites / quality-diversity study on three-body trajectory design was found in a first search (2026-10-18). This is a weak negative and needs a proper scan.
+See [`literature.md`](literature.md) (S3 scan, 2026-10-18). In short: no quality-diversity / MAP-Elites work on spacecraft trajectories was found. The closest work generates diverse CR3BP solutions with generative models (Beeson, Li & Sinha 2024 and follow-ups) or builds robustness into single solutions (Sinha & Beeson 2025). Classical free-return families come from continuation (Pavlak 2010; Jesick & Ocampo 2011). Still to read before the protocol is frozen: the 2026 Du & Li "controllable set" papers (paywalled).
 
-Provisional reframing: the contribution is the **robustness under held-out perturbations** of an illuminated archive, compared against multi-start and against a population or generative baseline at matched budgets — not diversity per se, which prior work already targets.
+## Research question (D16, adopted 2026-10-18)
 
-## Research question
+> At matched propagation budgets, does a MAP-Elites archive of planar CR3BP free returns contain more solutions that remain feasible under held-out injection errors (with a declared correction budget) and under held-out constraint changes than descriptor-binned multi-start / monotonic basin hopping / differential evolution, a continuation-family catalog, and a dense quasi-random map?
+
+Robustness is measured as two separate quantities (D17): *execution-error tolerance* and *changed-constraint availability*. Integrator-setting sensitivity is a numerical-validity check only. Publication target: arXiv preprint + interactive site (D18).
+
+The terms **free-return-like** and **robust** require precise operational definitions below. Do not imply NASA mission certification or publish novelty claims in advance.
+
+<details><summary>Original handoff question (superseded)</summary>
 
 > Does maintaining a diverse archive of feasible Earth–Moon free-return-like trajectories improve the availability of useful, robust solutions when mission constraints change, relative to strong multi-start conventional optimization under matched compute budgets?
 
-The terms **free-return-like** and **robust** require precise operational definitions below. Do not imply NASA mission certification or publish novelty claims in advance.
+</details>
 
 ## Scientific model / conventions
 
@@ -58,6 +63,8 @@ Use a documented Earth–Moon distance and gravitational parameter convention; r
 
 Compare at equal propagation/evaluation budgets:
 
+Baselines adopted in D16 (supersede the list below where they differ): dense quasi-random map of the decision space (coverage ground truth and budget-matched baseline), descriptor-binned multi-start, monotonic basin hopping, differential evolution, and a continuation-family catalog. The generative baseline is deferred.
+
 - **B1 (required):** multi-start local optimization / shooting with penalized feasibility objective.
 - **B2 (recommended):** differential evolution (or another credible population search baseline).
 - **T (candidate):** MAP-Elites / quality-diversity archive search.
@@ -97,3 +104,28 @@ Choose MAP-Elites descriptors with **scientific meaning** and variation in feasi
 - Nunes et al., *Designing trajectories in the Earth–Moon system: A Levenberg–Marquardt approach* (2026, higher fidelity and CR3BP transitions): https://doi.org/10.1016/j.actaastro.2026.07.020
 
 This literature is **background, not proof of a research gap**. Do a focused nearest-neighbor literature search and cite specific related work before finalizing the study protocol.
+
+## M1 implementation notes
+
+Code: `src/phasespace/gravity/` (`system`, `dynamics`, `units`, `propagation`, `periodic`, `reference`, `export`); tests: `tests/gravity/`.
+
+**Constants.** The system is always an explicit `EarthMoonSystem` argument.
+
+- Project default `EARTH_MOON`: GM_earth = 398600.435507 and GM_moon = 4902.800118 km³/s² (JPL DE440, https://ssd.jpl.nasa.gov/astro_par.html), length unit 384 400 km (NASA NSSDCA Moon Fact Sheet semimajor axis), time unit derived as `sqrt(L³/(GM_earth+GM_moon))` = 375 190.26 s, so mu = 0.0121505844 and the velocity unit is 1.024547 km/s. Collision radii are the NSSDCA volumetric mean radii, 6371.0 km and 1737.4 km.
+- `JPL_EARTH_MOON` reproduces the JPL Three-Body Periodic Orbits catalog exactly: mu = 1.215058560962404e-2, lunit = 389 703.264829278 km, tunit = 382 981.289129055 s, Moon radius 1737.1 km (Earth radius: 6371.0 km, which the catalog does not give). Its lunit is not 384 400 km. Its mu differs from the DE440 ratio by about 1e-7 relative, and lunit³/tunit² matches the DE440 GM sum to better than 1e-8.
+
+**Reference.** Three Earth–Moon L1 Lyapunov orbits (rows 2400, 2600 and 2800, Jacobi 3.097 to 3.178, stability indices 535 to 1215) from https://ssd-api.jpl.nasa.gov/periodic_orbits.api?sys=earth-moon&family=lyapunov&libr=1, fetched 2026-10-18 and stored verbatim in `tests/gravity/fixtures/jpl_earth_moon_l1_lyapunov.json` together with the SHA-256 of the full response. Tests never use the network.
+
+**Numerics and thresholds** (normalized units; a check passes when `observed <= threshold`):
+
+- Propagation uses DOP853 with rtol = atol = 1e-12. The comparison set uses 1e-10. Differential correction uses 1e-13 and stops at |vx| < 1e-11 at the half-period crossing.
+- Collision events are terminal and fire only on inward crossings (direction -1). Termination is one of `horizon`, `earth_collision`, `moon_collision`, `non_finite`, `evaluation_limit` (1e6 RHS evaluations by default) or `solver_failure`.
+- Periodicity after one period: 1e-9. Observed values are 2e-11 to 9e-11 for the JPL states and 1.6e-11 for the export. These orbits amplify errors roughly by their stability index (about 10³) per period, so 1e-9 leaves a 10–60× margin over the observed error and is still far below any visible effect.
+- Jacobi drift: 1e-10 over 3 periods. Observed values are at most about 2.5e-11 for the fixtures and 2.8e-12 for the export. The run stops at 3 periods because, by about the 4th period, the unstable orbit has amplified errors enough to leave the orbit.
+- Agreement between the two tolerance sets: 1e-7 on the final state after one period (observed about 2e-9).
+- Agreement with JPL: |Δvy0| and |Δperiod| ≤ 1e-9 in the export and 1e-10 in the tests, |ΔC| ≤ 1e-10. Observed differences are 4e-14, 7e-14 and 2e-14. The catalog lists 15–17 significant digits. The orbit is computed without catalog velocities, from a linear L1 guess plus 10-step continuation in x0; only x0 is taken from the catalog, to select the family member.
+- L1, L2 and L3 positions agree with the catalog to 1e-14 and with an independent `numpy.roots` solution of the classical quintics to 1e-12.
+
+**Reproduce.** `just verify` (all checks, about 2 s) and `just gravity-reference` (or `uv run python -m phasespace.gravity.export --out runs/<run_id>`). The export writes `manifest.json` and `trajectory.json` (schema v1, 1001 samples at a uniform step of T/1000, about 0.30 h) into a new directory and refuses to reuse an existing one. Its status is `validated` only if every recorded check passes. `source.git_dirty` records uncommitted changes, so regenerate after committing for a clean provenance record.
+
+**Not yet validated against an independent reference:** L2 Lyapunov orbits (the only check is self-consistent periodicity) and propagation near the primaries other than the collision-event geometry.

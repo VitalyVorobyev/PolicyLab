@@ -6,7 +6,7 @@ Timings below are *planning ranges*, not deadlines or promises. Complete one ver
 
 Hex prototype, Hex docs and the Pi local-LLM configuration archived on branch `archive/policylab-hex`; package renamed to `phasespace`; handoff documents promoted to `docs/` (D10, D11).
 
-## S3 — Gravity literature scan and reframing
+## S3 — Gravity literature scan and reframing (done 2026-10-18: D16–D18)
 
 **Goal:** confirm the research question is worth asking before writing solver code.
 

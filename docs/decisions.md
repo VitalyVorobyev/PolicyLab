@@ -44,6 +44,12 @@
 
 **D15 — World order.** After Gravity Atlas: The Last Library (open angle: a byte budget on inherited memory, compared with Cook et al. 2024), then Algorithm Forge (crowded field; teaching/showcase value), then Constitution Machine (conditional).
 
+**D16 — Gravity Atlas question reframed (after S3 scan, `studies/gravity-atlas/literature.md`).** At matched propagation budgets, does a MAP-Elites archive of planar CR3BP free returns contain more solutions that remain feasible under held-out injection errors (with a declared correction budget) and under held-out constraint changes than descriptor-binned multi-start / monotonic basin hopping / differential evolution, a continuation-family catalog, and a dense quasi-random map? The dense map serves both as coverage ground truth and as a budget-matched baseline. A generative (CVAE/diffusion) baseline is deferred.
+
+**D17 — Robustness split in two.** (1) *Execution-error tolerance*: remains feasible after a declared small correction budget under held-out injection errors. (2) *Changed-constraint availability*: the archive still holds a feasible solution when mission constraints change. Integrator-setting sensitivity is a numerical-validity check, not a robustness metric.
+
+**D18 — Venue: arXiv preprint + interactive site.** No conference target; publish when the evidence is ready. Rigor bar unchanged (D09).
+
 ## Conditions for revising the plan
 
 A milestone may change only because of observed source state, physical feasibility, research data, runtime limits or a clear user product choice. Document each meaningful change and its reason. Do not enlarge scope simply because implementing another framework sounds elegant.
