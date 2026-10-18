@@ -98,7 +98,7 @@ def classify(res, sys) -> Verdict:            # pure function of a PropagationRe
 F(θ, Δv) = [(h_p − 1000 km)/1000 km, (h_vp − 38 km)/10 km].
 
 - h_vp is used instead of γ_S because it stays defined and continuous when the trajectory just misses the shell. When the trajectory does not reach the shell, h_vp is evaluated at the first post-lunar Earth periapsis.
-- 38 km is the vacuum perigee our spherical model gives for Apollo 11's entry state: 11.032 km/s, −6.48° at 400 000 ft, from Table 7-VII (computed). Apollo targeted the same quantity: a nominal transearth perigee altitude of 20.4 nmi = 37.8 km (§7.4.8).
+- Our spherical model gives a vacuum perigee of 38.5 km for Apollo 11's entry state: 11.032 km/s, −6.48° at 400 000 ft, from Table 7-VII (computed; corrected from "38 km" during M3). Apollo targeted the same quantity: a nominal transearth perigee altitude of 20.4 nmi = 37.8 km (§7.4.8). The declared target stays at the round value of 38 km.
 - h_p* = 1000 km is a round, in-band value of the same magnitude as Apollo 11's post-TLI pericynthion: predicted 718.9 nmi = 1331 km, achieved 896.3 nmi = 1660 km.
 - The target is a declared design point. It does not reproduce Apollo.
 
@@ -264,26 +264,34 @@ Run `runs/gravity-free-return-map-2d-grid-pre2`: 720 × 126 = 90 720 tangential 
 |---|---|---|
 | Feasible | 161 | 0.18 % |
 | No return within 10 d | 64 681 | |
-| Return, perilune out of band | 22 281 | |
+| Return, perilune out of band¹ | 22 281 | |
 | Return before lunar encounter | 3 314 | |
 | Moon collision | 283 | |
 | Numerical failure | 0 | |
+
+¹ "Perilune out of band" also covers returns with no real lunar flyby. In those, the closest Moon periapsis is only a far Moon-relative distance minimum, for example while the spacecraft is near the Earth.
 
 Max Jacobi drift at accepted steps over the feasible samples: 7.5e-10.
 
 The superseded run `…-pre1` gave identical counts. It was produced before review fixes that changed the vacuum-perigee column and must not be used.
 
-**Structure.** The feasible set is a thin band along the high-Δv edge of the Moon-collision boundary. It holds two families.
+**Structure: at least two families at this resolution.** The feasible set is a thin band along the high-Δv edge of the Moon-collision boundary. The 2 m/s grid under-resolves it and probably misses thinner feasible regions altogether.
 
-- **(A) Figure-eight circumlunar** (156 points):
+- **(A) Lunar passage sense −1** (156 grid points):
   - θ = 225.5–247°, Δv = 3.146–3.178 km/s;
   - h_p runs from 188 km near the collision edge up to 30 000 km;
-  - t_ret = 5.7–10 d; the passage sense in the rotating frame is −1.
-- **(B) Slow passages** (5 points, opposite passage sense +1):
+  - t_ret = 5.7–10 d;
+  - only 1–6 feasible Δv cells per θ column (6 at θ = 227–231°).
+- **(B) Lunar passage sense +1** (5 grid points):
   - θ = 248–254°, Δv = 3.130–3.132 km/s;
-  - h_p = 28 000–30 000 km and t_ret = 9.8–10 d, so they sit at the band and T_MAX edges and are probably cut by them.
+  - h_p = 28 000–30 000 km and t_ret = 9.8–10 d, at the band and T_MAX edges.
 
-The grid resolves family (A) only to 1–3 Δv cells in width.
+**Fine Δv probe.** Run `runs/gravity-free-return-dv-probe-pre4` (`just gravity-m3-probe`; 0.02 m/s steps over Δv = 3.120–3.190 km/s at θ = 229° and 251°; 7 002 propagations; 106 s).
+- At θ = 229°, family (A) is one contiguous band, Δv = 3.15724–3.16860 km/s. That is 569 points, a width of 11.4 m/s, consistent with the 6 grid cells.
+- At θ = 251°, family (B) exists only in a window Δv = 3.13078–3.13114 km/s. That is 19 points, a width of 0.36–0.40 m/s.
+- The grid's 5 (B) points are therefore aliasing hits on a sub-cell window. The grid cannot measure (B)'s extent.
+
+The D16 coverage ground truth will need adaptive refinement at band edges. This is an M4-protocol item, to be frozen before any comparison.
 
 ### S2: targeting
 
@@ -299,20 +307,29 @@ Starts were the 10 feasible grid points with the smallest ‖F‖. The method wa
 
 ### S3: candidates and validation
 
-| | c1 (`gravity-free-return-c1-pre3`) | c2 (`gravity-free-return-c2-pre3`) |
+| | c1 (`gravity-free-return-c1-pre4`) | c2 (`gravity-free-return-c2-pre4`) |
 |---|---|---|
 | θ, Δv | 229.142241°, 3.1567704 km/s | 225.816259°, 3.1780111 km/s |
 | h_p (target 1000 km), t_moon | 1000.000 km, 3.060 d | 1000.000 km, 2.607 d |
 | t_ret, speed at the shell, γ_S | 6.1217 d, 11.0078 km/s, −6.485° | 6.4311 d, 10.9945 km/s, −6.477° |
 | Vacuum perigee (target 38 km) | 38.000 km | 38.000 km |
-| Family | (A), figure-eight, sense −1 | (A), figure-eight, sense −1 |
+| Family; lunar passage sense | (A); −1 | (A); −1 |
+| Entry sense (Earth-relative inertial angular momentum at the shell) | +1, posigrade | −1, retrograde |
+| Δv margin to the nearest infeasible Δv (fixed θ), non-gating | below 0.0093 m/s (beyond: no return, i.e. skip-out); above 11.3 m/s (no return) | below 2.26 m/s (perilune out of band); above 0.031 m/s (no return) |
+| h_p margin to the band edges, non-gating | 900 km / 29 000 km | 900 km / 29 000 km |
 
 **Checks passed, for both candidates:**
 - predicates hold, with margins, under the run, DOP853 1e-13 and LSODA 1e-13;
 - |Δh_p| ≤ 5.0e-6 km, against a threshold of 1e-2 km;
 - |Δt_ret| ≤ 1.8e-4 s, against 0.1 s;
 - shell-crossing position difference ≤ 4.9e-4 km, against 1e-2 km;
-- Jacobi drift over 10⁵ dense samples ≤ 8.0e-10 (run), 8.0e-11 (tight) and 1.4e-10 (LSODA), against 1e-9;
+- entry agreement with the tight and LSODA runs:
+  - speed ≤ 7.9e-11 km/s, against 1e-6 km/s (1 mm/s);
+  - flight-path angle ≤ 2.1e-6°, against 1e-3°;
+  - vacuum perigee ≤ 5.5e-5 km, against 0.05 km.
+
+  These checks were added after review. The thresholds come from integrator-agreement physics, not from the observed values: Jacobi conservation bounds the speed, and the 10 m crossing-point separation bounds the angle through the local-horizontal rotation and the path curvature. The two-body sensitivities of a near-parabolic entry (≈ 25 km/deg, ≈ 1.2 km per m/s) then bound the perigee. The derivations are in the `free_return_validation.py` constants;
+- Jacobi drift over 10⁵ dense samples ≤ 8.0e-10 (run), 8.0e-11 (tight) and 1.4e-10 (LSODA), against 1e-9. **The margin is small:** c1's run passes by only a factor of 1.26 (7.96e-10), c2's by 1.75. The M3 threshold is not changed after the fact;
 - brute-force perilune vs the event ≤ 2.3e-11 km, against 1e-3 km;
 - no dense sample inside the shell or the Moon;
 - samples finite and strictly increasing.
@@ -325,22 +342,33 @@ Starts were the 10 feasible grid points with the smallest ‖F‖. The method wa
 - The §5 threshold came from a single pilot sample with h_p = 293 km.
 
 *New definition.* The backward DOP853 1e-13 integration starts from the **exported run's** return-shell state, so the check covers the exported trajectory, not the tight one. It runs to t = 0 and gives Δs₀ = s₀,back − s₀. With f = ds/dt at s₀ (normalized rotating frame):
-- τ = (Δs₀·f)/(f·f) is the along-track time shift;
-- r = Δs₀ − τ f is the transverse remainder.
+- τ = (Δs₀·f)/(f·f), the time-shift-like component;
+- r = Δs₀ − τ f, the remainder.
 
-Three gating checks replace the max-norm:
+τ is a projection in the unweighted normalized 4-D metric. At the parking orbit f = (v, a) with |a| ≈ 3.4e3 ≫ |v| ≈ 10.6, so in effect τ ≈ (Δv·a)/|a|², the velocity error along the local, nearly radial acceleration divided by |a|. A pure time shift and such a velocity error cannot be told apart. Position-only errors land almost entirely in the remainder.
 
-| Check | Threshold | Physical basis | c1 | c2 |
+Three gating checks replace the max-norm. All three are **reversibility bounds, not accuracy bounds on the observables**. Departure errors are amplified through the flyby: 1 mm/s at departure moves h_p by ≈ 0.6 km and h_vp by ≈ 10 km at the candidates' sensitivities. Observable accuracy rests on the forward agreement checks.
+
+| Check | Threshold | Meaning | c1 | c2 |
 |---|---|---|---|---|
-| \|τ\| | 1 ms | 100× the 0.1 s return-time check; ≈ 11 m along the ~11 km/s departure arc | 0.127 ms | 0.096 ms |
-| \|r_pos\| | 1 m | 10× the 10 m perilune and return-position checks | 6.2 cm | 10.5 cm |
-| \|r_vel\| (rotating frame) | 1 mm/s | ≈ 1e-7 of the departure speed | 0.053 mm/s | 0.089 mm/s |
-
-The velocity threshold bounds reversibility, not observable accuracy. At the candidates' local sensitivities, 1 mm/s at departure would move h_p by ≈ 0.6 km and h_vp by ≈ 10 km. Accuracy rests on the forward agreement checks.
+| \|τ\| | 1 ms | Admits a velocity error along a of up to \|a\|·1 ms ≈ 9 mm/s, or the equivalent time shift; 100× below the 0.1 s return-time threshold | 0.127 ms | 0.096 ms |
+| \|r_pos\| | 1 m | Departure-position reversibility | 6.2 cm | 10.5 cm |
+| \|r_vel\| (rotating frame) | 1 mm/s | Departure-velocity reversibility transverse to a; ≈ 1e-7 of the departure speed | 0.053 mm/s | 0.089 mm/s |
 
 The old criterion stays in each manifest as the non-gating metric `superseded_check_backward_max_abs_initial_state_error`, with its threshold and verdict. The backward diagnostics from the tight run are also kept as metrics. The decomposition is tested against an independent RK4 time shift with a known transverse offset (`tests/gravity/test_gravity_backward_decomposition.py`).
 
-**Result.** All checks pass for both candidates, and the re-validated runs `gravity-free-return-c1-pre3` and `gravity-free-return-c2-pre3` are `validated` (dirty tree).
+**Result.** All checks pass for both candidates, and the re-validated runs `gravity-free-return-c1-pre4` and `gravity-free-return-c2-pre4` are `validated` (dirty tree). The earlier `…-pre3` runs lack the entry checks and margins.
+
+**Thin margins (disclosed).**
+- c1 sits about 9 mm/s in Δv from skip-out.
+- c2 sits about 31 mm/s from a no-return edge.
+- c1's Jacobi gate passes by a factor of only 1.26.
+
+The numerical margins of 10³–10⁴ quoted below apply to the integrator-agreement checks only.
+
+**M4 protocol must-freeze.** Before any M4 data is produced, the protocol must freeze:
+- a scaled Jacobi criterion, for example relative to the magnitude of the terms of C along the trajectory or tied to integrator tolerance, instead of the absolute 1e-9;
+- adaptive band-edge refinement for the coverage ground truth.
 
 **Plausibility vs Apollo 11 (not validation).**
 
@@ -370,16 +398,16 @@ The feasible samples occupy **27 of 100 cells** of the provisional 10 × 10 desc
 
 | Criterion | Result |
 |---|---|
-| 1. A candidate passes every §5 check | Met under the redefined backward check (c1 and c2, `…-pre3`). Under the original max-norm it was not met, and that value is still recorded. |
+| 1. A candidate passes every §5 check | Met under the redefined backward check, with the added entry checks (c1 and c2, `…-pre4`). Under the original max-norm it was not met, and that value is still recorded. |
 | 2. Re-export reproduces observables | Met, bit-identical. |
 | 3. S4 occupies ≥ 10 of 100 cells | Met, 27 cells. |
-| 4. Budget ≤ 2.5 × 10⁵ propagations | Met: S1 90 720 + S2 7 355 (2 000 at cap 200 + 5 355 at cap 1000) + S3 about 10 + S4 131 072 ≈ 229 160. A clean regeneration at cap 1000 needs about 227 000. Not counted as evidence: the superseded `pre1` map (90 720) and the re-runs (`…-rerun`, `…-pre3`, 5 355 each). |
+| 4. Budget ≤ 2.5 × 10⁵ propagations | Met: S1 90 720 + S2 7 355 (2 000 at cap 200 + 5 355 at cap 1000) + S3 about 10 + S4 131 072 ≈ 229 160. A clean regeneration at cap 1000 needs about 227 000. The fine probe adds 7 002 and the Δv-margin diagnostics about 50 per candidate. Not counted as evidence: the superseded `pre1` map (90 720) and the re-runs (`…-rerun`, `…-pre3`, `…-pre4`, 5 355 each). |
 
 **Assessment: GO, pending the clean-commit regeneration.** Two changes to the design were made, and both are disclosed above:
 - the backward check was redefined;
 - the S2 cap was raised from 200 to 1000.
 
-None of the negative outcomes (a)–(c) applies. Integrator agreement passes by margins of 10³–10⁴. The evidence runs must still be regenerated from a clean commit.
+None of the negative outcomes (a)–(c) applies. The agreement checks pass by margins of 10³–10⁴. The Jacobi gate (factor 1.26 for c1) and the physical Δv margins are thin, as disclosed above. The evidence runs must still be regenerated from a clean commit.
 
 ### Reproduce (from a clean commit)
 
@@ -387,6 +415,7 @@ None of the negative outcomes (a)–(c) applies. Integrator agreement passes by 
 just gravity-m3-map gravity-free-return-map-2d-grid-v1
 just gravity-m3-candidates gravity-free-return-map-2d-grid-v1 v1        # cap 1000 is the default
 just gravity-m3-sobol gravity-free-return-map-3d-sobol17-v1 20261018
+just gravity-m3-probe gravity-free-return-dv-probe-v1
 ```
 
 The candidate command writes `gravity-free-return-search-v1` and `gravity-free-return-c{1,2}-v1`. The full tables (`samples.json`: 19 MB for S1, 34 MB for S4) stay local under `runs/`.

@@ -83,6 +83,50 @@ class GridDesign:
         ]
 
 
+DV_PROBE: Final = GridDesign(
+    phase_min_deg=229.0,
+    phase_step_deg=22.0,
+    n_phase=2,
+    delta_v_min_km_s=3.120,
+    delta_v_step_km_s=0.00002,
+    n_delta_v=3501,
+)
+"""Fine delta-v probe: theta = 229 and 251 deg, delta-v 3.120-3.190 km/s at 0.02 m/s.
+
+Resolves the feasible-band widths that the S1 grid (2 m/s) aliases: family (A) at
+229 deg and the narrow window of family (B) at 251 deg (7002 propagations)."""
+
+
+def feasible_intervals(
+    records: Sequence[FreeReturnRecord],
+) -> dict[float, list[tuple[float, float, int]]]:
+    """Contiguous feasible runs per phase, in delta-v order: (first, last, count).
+
+    `records` must come from a phase-major grid (rows of one phase consecutive and sorted
+    by delta-v). A run of n points at step d spans at least (n - 1) d and at most (n + 1) d.
+    """
+    out: dict[float, list[tuple[float, float, int]]] = {}
+    current: list[FreeReturnRecord] = []
+    phase: float | None = None
+
+    def close() -> None:
+        if current and phase is not None:
+            out[phase].append((current[0].delta_v_km_s, current[-1].delta_v_km_s, len(current)))
+        current.clear()
+
+    for r in records:
+        if r.phase_deg != phase:
+            close()
+            phase = r.phase_deg
+            out.setdefault(phase, [])
+        if r.feasible:
+            current.append(r)
+        else:
+            close()
+    close()
+    return out
+
+
 @dataclass(frozen=True, slots=True)
 class SobolDesign:
     """Scrambled Sobol sample of 2**log2_samples points in the 3-D box (S4 defaults)."""

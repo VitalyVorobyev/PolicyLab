@@ -43,7 +43,7 @@ from phasespace.gravity.free_return_search import (
     refine,
     select_starts,
 )
-from phasespace.gravity.free_return_validation import validate_candidate
+from phasespace.gravity.free_return_validation import find_edge, validate_candidate
 
 FAKE_COMMIT = "0" * 40
 # Small grid around the pilot free-return region: feasible, collision and no-return cells.
@@ -255,3 +255,30 @@ def test_candidates_require_a_compatible_2d_map(tmp_path: Path) -> None:
     check_map_compatible(grid, DEFAULT_DEFINITION)
     with pytest.raises(ValueError):
         check_map_compatible(grid, FreeReturnDefinition(t_max_days=12.0))
+
+
+@pytest.mark.parametrize(("edge", "step"), [(0.37, 0.01), (1e-5, 1e-3), (2.5, 0.5)])
+def test_find_edge_locates_a_known_step(edge: float, step: float) -> None:
+    margin, evaluations = find_edge(lambda o: o < edge, step=step, tolerance=1e-9, max_offset=10)
+    assert edge <= margin <= edge + 1e-9
+    assert evaluations < 60
+
+
+def test_find_edge_reports_no_edge_within_range() -> None:
+    margin, _ = find_edge(lambda o: True, step=0.1, tolerance=1e-6, max_offset=1.0)
+    assert margin == math.inf
+
+
+def test_entry_agreement_checks_are_present_and_pass_on_the_pilot_sample() -> None:
+    validation = validate_candidate(227.63, 3.1628)
+    names = {c.name: c for c in validation.checks}
+    for ref in ("tight_tolerance", "independent_integrator"):
+        for quantity, threshold in (
+            ("entry_speed_km_s", 1e-6),
+            ("entry_flight_path_angle_deg", 1e-3),
+            ("entry_vacuum_perigee_km", 0.05),
+        ):
+            check = names[f"{ref}_abs_diff_{quantity}"]
+            assert check.threshold == threshold
+            assert check.passed
+    assert validation.entry_sense in (-1, 1)

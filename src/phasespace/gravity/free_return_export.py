@@ -66,11 +66,13 @@ from phasespace.gravity.free_return import (
     targeting_residual,
 )
 from phasespace.gravity.free_return_map import (
+    DV_PROBE,
     Column,
     GridDesign,
     SobolDesign,
     dumps_table,
     evaluate_points,
+    feasible_intervals,
     outcome_counts,
     record_from_row,
     records_table,
@@ -92,6 +94,8 @@ from phasespace.gravity.free_return_validation import (
     TIGHT_SOLVER,
     BackwardDiagnostic,
     CandidateValidation,
+    DeltaVEdge,
+    delta_v_edges,
     validate_candidate,
 )
 from phasespace.gravity.propagation import Termination
@@ -101,6 +105,7 @@ DEFAULT_RUNS_DIR: Final = Path("runs")
 SAMPLES_FILE: Final = "samples.json"
 TRAJECTORY_FILE: Final = "trajectory.json"
 MAP_2D_EXPERIMENT: Final = "cr3bp-free-return-map-2d-grid-v1"
+PROBE_EXPERIMENT: Final = "cr3bp-free-return-dv-probe-v1"
 DESIGN_PROPOSED_CAP: Final = 200
 """S2 propagation cap per start proposed in the M3 design (superseded default)."""
 FRAME: Final = "barycentric_synodic"
@@ -194,8 +199,12 @@ def build_map_documents(
     git_commit: str,
     git_dirty: bool,
     created_at: datetime,
+    experiment_id: str | None = None,
 ) -> tuple[dict[str, Any], bytes]:
-    """(manifest without artifacts, samples.json bytes) of a map run."""
+    """(manifest without artifacts, samples.json bytes) of a map run.
+
+    `experiment_id` overrides the design's default (e.g. for the fine delta-v probe).
+    """
     counts = outcome_counts(records)
     n = len(records)
     feasible = counts[Outcome.FEASIBLE]
@@ -224,8 +233,19 @@ def build_map_documents(
     metrics["workers"] = _metric(workers, "count", "worker processes (results do not depend on it)")
     metrics.update(_definition_metrics(definition))
     if isinstance(design, GridDesign):
-        experiment = MAP_2D_EXPERIMENT
+        experiment = MAP_2D_EXPERIMENT if experiment_id is None else experiment_id
         seed: int | None = None
+        if experiment_id == PROBE_EXPERIMENT:
+            for phase, runs in feasible_intervals(records).items():
+                key = f"{phase:g}".replace(".", "p")
+                metrics[f"phase_{key}_feasible_intervals"] = _metric(
+                    len(runs), "count", f"contiguous feasible delta-v runs at {phase:g} deg"
+                )
+                metrics[f"phase_{key}_feasible_points"] = _metric(
+                    sum(n for _, _, n in runs),
+                    "count",
+                    f"feasible delta-v samples at {phase:g} deg (times the step: band width)",
+                )
         metrics.update(
             {
                 "grid_phase_count": _metric(design.n_phase, "count", "phase grid points"),
@@ -304,6 +324,7 @@ def run_map(
     design: GridDesign | SobolDesign,
     *,
     workers: int,
+    experiment_id: str | None = None,
     definition: FreeReturnDefinition = DEFAULT_DEFINITION,
     git_commit: str,
     git_dirty: bool,
@@ -325,6 +346,7 @@ def run_map(
         git_commit=git_commit,
         git_dirty=git_dirty,
         created_at=datetime.now(UTC),
+        experiment_id=experiment_id,
     )
     written = write_run_directory(out_dir, manifest, [("sample_table", SAMPLES_FILE, table)])
     return written, records
@@ -453,8 +475,12 @@ def build_candidate_documents(
     git_commit: str,
     git_dirty: bool,
     created_at: datetime,
+    edges: tuple[DeltaVEdge, DeltaVEdge] | None = None,
 ) -> tuple[dict[str, Any], bytes]:
-    """(manifest without artifacts, trajectory.json bytes) of one candidate run."""
+    """(manifest without artifacts, trajectory.json bytes) of one candidate run.
+
+    `edges` (from `delta_v_edges`) adds the non-gating delta-v margin metrics.
+    """
     system = definition.system
     rec = validation.records[0]
     run = validation.run
@@ -500,6 +526,22 @@ def build_candidate_documents(
             rec.lunar_passage_sense,
             "dimensionless",
             "sign of the rotating-frame Moon-relative angular momentum at perilune",
+        ),
+        "entry_sense": _metric(
+            validation.entry_sense,
+            "dimensionless",
+            "sign of the Earth-relative inertial angular momentum at the return shell "
+            "(+1 posigrade, -1 retrograde)",
+        ),
+        "perilune_margin_to_band_min_km": _metric(
+            rec.perilune_altitude_km - definition.perilune_band_km[0],
+            "km",
+            "non-gating: h_p minus the lower perilune band edge",
+        ),
+        "perilune_margin_to_band_max_km": _metric(
+            definition.perilune_band_km[1] - rec.perilune_altitude_km,
+            "km",
+            "non-gating: upper perilune band edge minus h_p",
         ),
         "return_shell_crossing_time_days": _metric(
             rec.return_time_days, "day", f"inbound return-shell crossing time after TLI; {days}"
@@ -574,6 +616,17 @@ def build_candidate_documents(
             "the tight-tolerance (DOP853 1e-13) run's",
         ),
     }
+    if edges is not None:
+        for side, edge in zip(("below", "above"), edges, strict=True):
+            beyond = "none found" if edge.outcome_beyond is None else edge.outcome_beyond.value
+            metrics[f"delta_v_margin_{side}_km_s"] = _metric(
+                edge.margin_km_s,
+                "km/s",
+                f"non-gating: delta-v decrease/increase ({side}) at fixed phase and impulse "
+                "angle to the first infeasible value (doubling steps from 1 mm/s up to 50 m/s, "
+                f"bisected to 0.01 mm/s, {edge.propagations} propagations); outcome beyond "
+                f"the edge: {beyond}",
+            )
     # Metrics are only included when actually computed (finite).
     metrics = {k: v for k, v in metrics.items() if math.isfinite(v["value"])}
     timestamp = _timestamp(created_at)
@@ -658,6 +711,9 @@ def run_candidates(
         validation = validate_candidate(
             r.final.phase_deg, r.final.delta_v_km_s, r.final.impulse_angle_deg, definition
         )
+        edges = delta_v_edges(
+            r.final.phase_deg, r.final.delta_v_km_s, r.final.impulse_angle_deg, definition
+        )
         manifest, trajectory = build_candidate_documents(
             run_id,
             validation,
@@ -669,6 +725,7 @@ def run_candidates(
             git_commit=git_commit,
             git_dirty=git_dirty,
             created_at=datetime.now(UTC),
+            edges=edges,
         )
         write_run_directory(
             runs_dir / run_id, manifest, [("trajectory", TRAJECTORY_FILE, trajectory)]
@@ -769,7 +826,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     p_map = sub.add_parser("map", help="evaluate a dense map and write it as a run")
     p_map.add_argument("--run-id", required=True)
-    p_map.add_argument("--design", choices=("grid2d", "sobol3d"), default="grid2d")
+    p_map.add_argument(
+        "--design",
+        choices=("grid2d", "sobol3d", "dvprobe"),
+        default="grid2d",
+        help="grid2d: S1 grid; sobol3d: S4 Sobol map; dvprobe: fine delta-v probe at "
+        "theta = 229 and 251 deg (0.02 m/s)",
+    )
     p_map.add_argument("--seed", type=int, help="Sobol scrambling seed (required for sobol3d)")
     p_map.add_argument("--log2-samples", type=int, default=17)
     p_cand = sub.add_parser("candidates", help="refine, validate and export candidates")
@@ -800,14 +863,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         if (runs_dir / run_id).exists():
             parser.error(f"{runs_dir / run_id} already exists; runs are never overwritten")
         design: GridDesign | SobolDesign
+        experiment_id: str | None = None
         if args.design == "grid2d":
             design = GridDesign()
+        elif args.design == "dvprobe":
+            design = DV_PROBE
+            experiment_id = PROBE_EXPERIMENT
         else:
             if args.seed is None:
                 parser.error("--seed is required for --design sobol3d")
             design = SobolDesign(seed=int(args.seed), log2_samples=int(args.log2_samples))
-        manifest, _ = run_map(
-            runs_dir / run_id, design, workers=workers, git_commit=commit, git_dirty=dirty
+        manifest, records = run_map(
+            runs_dir / run_id,
+            design,
+            workers=workers,
+            experiment_id=experiment_id,
+            git_commit=commit,
+            git_dirty=dirty,
         )
         m = manifest["metrics"]
         print(
@@ -819,6 +891,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         for key, metric in m.items():
             if key.startswith("outcome_"):
                 print(f"  {key}: {metric['value']}")
+        if experiment_id == PROBE_EXPERIMENT:
+            step = DV_PROBE.delta_v_step_km_s * 1000.0
+            for phase, runs in feasible_intervals(records).items():
+                for lo, hi, count in runs:
+                    print(
+                        f"  theta {phase:g} deg: feasible delta-v {lo:.5f}-{hi:.5f} km/s "
+                        f"({count} points, width {(count - 1) * step:.2f}-{(count + 1) * step:.2f}"
+                        " m/s)"
+                    )
         return 0
 
     results, exported = run_candidates(

@@ -63,7 +63,8 @@ T_MAX_DAYS: Final = 10.0
 TARGET_PERILUNE_ALTITUDE_KM: Final = 1000.0
 """M3 targeting design point for the perilune altitude (declared, not Apollo's value)."""
 TARGET_VACUUM_PERIGEE_ALTITUDE_KM: Final = 38.0
-"""M3 targeting design point for the vacuum perigee (Apollo 11 entry state, computed)."""
+"""M3 targeting design point for the vacuum perigee: a round value between Apollo 11's
+targeted 37.8 km and the 38.5 km our spherical model gives for its entry state."""
 RESIDUAL_SCALES_KM: Final = (1000.0, 10.0)
 """Scales of the two targeting residuals (perilune, vacuum perigee)."""
 
@@ -183,6 +184,12 @@ def osculating_perigee_radius(rel_inertial: FloatArray, gm: float) -> float:
 def earth_relative_inertial(state: FloatArray, t: float, mu: float) -> FloatArray:
     """Earth-relative inertial state (x, y, vx, vy) of a rotating-frame state at time t."""
     return rotating_to_inertial(state, t, mu, origin="earth")
+
+
+def earth_angular_momentum_sign(state: FloatArray, t: float, mu: float) -> int:
+    """Sign of the Earth-relative inertial angular momentum (+1 posigrade, -1 retrograde)."""
+    x, y, vx, vy = (float(v) for v in earth_relative_inertial(state, t, mu))
+    return int(np.sign(x * vy - y * vx))
 
 
 def flight_path_angle_deg(rel_inertial: FloatArray) -> float:

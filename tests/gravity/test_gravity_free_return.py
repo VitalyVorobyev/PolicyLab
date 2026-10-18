@@ -14,6 +14,7 @@ from phasespace.gravity.free_return import (
     FreeReturnDefinition,
     Outcome,
     classify,
+    earth_angular_momentum_sign,
     evaluate,
     flight_path_angle_deg,
     osculating_perigee_radius,
@@ -183,7 +184,7 @@ def test_definition_rejects_shell_above_parking_orbit() -> None:
 
 def test_vacuum_perigee_of_apollo_11_entry_state() -> None:
     # Apollo 11 entry interface (Mission Report Table 7-VII): 11.032 km/s at -6.48 deg at
-    # 400 000 ft. Design section 4: vacuum perigee ~38 km (Apollo targeted 37.8 km). The
+    # 400 000 ft. Design section 4: vacuum perigee 38.5 km (Apollo targeted 37.8 km). The
     # reference here solves 2 E rp^2 + 2 GM rp - h^2 = 0 (vis-viva at perigee) in km.
     r, v, gamma = 6371.0 + 121.92, 11.032, math.radians(-6.48)
     gm = GM_EARTH_KM3_S2
@@ -195,7 +196,7 @@ def test_vacuum_perigee_of_apollo_11_entry_state() -> None:
     )
     rp = osculating_perigee_radius(state, 1.0 - MU) * L
     assert rp == pytest.approx(rp_ref, rel=1e-12)
-    assert rp - 6371.0 == pytest.approx(38.0, abs=1.0)
+    assert rp - 6371.0 == pytest.approx(38.5, abs=0.05)
     assert flight_path_angle_deg(state) == pytest.approx(-6.48, abs=1e-12)
 
 
@@ -291,3 +292,22 @@ def test_classify_rejects_a_different_horizon() -> None:
 def test_flight_path_angle_of_a_radial_state_is_clamped() -> None:
     assert flight_path_angle_deg(np.array([0.1, 0.0, -3.0, 0.0])) == -90.0
     assert flight_path_angle_deg(np.array([0.1 / 3.0, 0.1, -1.0, -3.0])) == pytest.approx(-90.0)
+
+
+@pytest.mark.parametrize(
+    ("vy_rot", "expected"),
+    [
+        (1.0, 1),  # posigrade in both frames
+        (-5.0, -1),  # retrograde in both frames
+        # Slightly negative in the rotating frame but posigrade inertially: the frame
+        # rotation adds w x r = +r (here 0.017) to vy, so vy_in = -0.01 + 0.017 > 0.
+        (-0.01, 1),
+    ],
+)
+def test_entry_sense_uses_the_inertial_frame(vy_rot: float, expected: int) -> None:
+    # Earth-relative position (r, 0) at t = 0; inertial vy = vy_rot + r (hand formula).
+    r = 0.017
+    state = np.array([-MU + r, 0.0, 0.0, vy_rot])
+    assert earth_angular_momentum_sign(state, 0.0, MU) == expected
+    # Rotating the frame (t != 0) does not change the sign.
+    assert earth_angular_momentum_sign(state, 1.234, MU) == expected

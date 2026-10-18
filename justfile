@@ -50,6 +50,10 @@ gravity-m3-sobol run_id="gravity-free-return-map-3d-sobol17-v1" seed="20261018" 
 gravity-m3-candidates map_run="gravity-free-return-map-2d-grid-v1" version="v1" cap="1000" workers="10":
     uv run python -m phasespace.gravity.free_return_export --runs-dir runs --workers {{workers}} candidates --map-run {{map_run}} --run-prefix gravity-free-return --version {{version}} --max-propagations-per-start {{cap}}
 
+# M3: fine delta-v probe (theta = 229 and 251 deg, 0.02 m/s, 7002 propagations) resolving feasible-band widths.
+gravity-m3-probe run_id="gravity-free-return-dv-probe-v1" workers="10":
+    uv run python -m phasespace.gravity.free_return_export --runs-dir runs --workers {{workers}} map --design dvprobe --run-id {{run_id}}
+
 # Install the website's pinned dependencies (npm, from web/package-lock.json).
 web-install:
     cd web && npm ci
