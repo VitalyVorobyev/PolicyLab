@@ -56,6 +56,19 @@ interface Manifest {
   termination?: Termination;         // termination of the propagation that produced the
                                      // trajectory artifact (M3 runs; distinguishes a
                                      // return from the horizon)
+  derived_from?: DerivedFrom;        // the run was derived from another run's artifact
+                                     // without new propagations (e.g. the web outcome grid);
+                                     // model, solver and random_seed are then the source's
+}
+
+interface DerivedFrom {        // provenance of a derived run (M3 web outcome grid)
+  run_id: string;              // source run id (pattern as Manifest.run_id)
+  experiment_id: string;       // source experiment
+  artifact_path: string;       // source artifact the derivation read (plain file name)
+  artifact_sha256: string;     // its sha256, verified by the generator before derivation
+  git_commit: string;          // source run's source.git_commit
+  git_dirty: boolean;          // source run's source.git_dirty
+  derivation: string;          // what was derived and how (lossless / no recomputation)
 }
 
 interface Source {
@@ -153,7 +166,8 @@ interface DifferentialCorrection extends SolverSettings {
 }
 
 interface Artifact {
-  kind: "trajectory" | "sample_table";   // "sample_table" added for M3 maps and searches
+  kind: "trajectory" | "sample_table" | "outcome_grid";
+      // "sample_table" added for M3 maps and searches; "outcome_grid" for the web map
   path: string;                // relative to the run directory; no "/", "\\" or ".." segments
   sha256: string;              // 64 lowercase hex characters of the file's exact bytes
 }
@@ -224,9 +238,42 @@ interface SampleTable {        // artifact of kind "sample_table" (row-major tab
   rows: (number | string | null)[][];  // one value per column; null = undefined for that
                                        // row (e.g. no return time without a return)
 }
+
+type FreeReturnOutcome =       // phasespace.gravity.free_return.Outcome
+  | "feasible" | "numerical_failure" | "invalid_start" | "moon_collision"
+  | "earth_collision" | "no_return_within_t_max" | "return_before_lunar_encounter"
+  | "perilune_out_of_band";
+
+interface OutcomeGrid {        // artifact of kind "outcome_grid": a lossless, compact
+                               // encoding of a 2-D grid map's per-cell outcomes
+  schema_version: 1;
+  run_id: string;              // equals manifest.run_id
+  phase_axis: GridAxis;        // name "phase_deg", unit "deg"
+  delta_v_axis: GridAxis;      // name "delta_v_km_s", unit "km/s"
+  impulse_angle_deg: number;   // of every cell
+  order: "phase_major";        // cell index = i_phase * delta_v_axis.count + i_delta_v
+  outcomes: FreeReturnOutcome[];  // code table, unique: code k means outcomes[k]
+  encoding: "base64_uint8";    // codes = base64 (RFC 4648, padded) of one uint8 per cell
+  codes: string;               // decodes to exactly phase_axis.count * delta_v_axis.count
+                               // bytes, each < outcomes.length
+  feasible: {                  // one row per cell with outcome "feasible", in index order
+    columns: SampleTable["columns"];  // first two: "phase_index", "delta_v_index" (count)
+    rows: number[][];          // finite numbers, one per column
+  };
+}
+
+interface GridAxis {
+  name: string;
+  unit: MetricUnit;
+  min: number;                 // value at index 0
+  step: number;                // > 0; value at index i = min + i * step
+  count: number;               // integer >= 1
+}
 ```
 
-**M3 additions (all optional, additive).** `MetricUnit` `"deg"`, `Manifest.termination`, `Solver.return_shell`, `Trajectory.events`, `Artifact.kind` `"sample_table"` and `SampleTable` were added for the Gravity Atlas M3 free-return runs (`phasespace.gravity.free_return_export`). Runs without them, such as the published M1 reference run, remain valid. **The website validator (`web/src/lib/data/`) does not accept these fields and values yet; it must be updated before any M3 run is published to `web/public/research/`.** Full map tables (`samples.json`, tens of MB) stay local under `runs/`; only binned summaries are meant for publication.
+**M3 additions (all optional, additive).** `MetricUnit` `"deg"`, `Manifest.termination`, `Solver.return_shell`, `Trajectory.events`, `Artifact.kind` `"sample_table"` and `SampleTable` were added for the Gravity Atlas M3 free-return runs (`phasespace.gravity.free_return_export`). Runs without them, such as the published M1 reference run, remain valid. The website validator (`web/src/lib/data/`) checks all of them. Full map tables (`samples.json`, tens of MB) stay local under `runs/`.
+
+**Web outcome grid (additive).** `Manifest.derived_from`, `Artifact.kind` `"outcome_grid"`, `FreeReturnOutcome` and `OutcomeGrid` were added so that the S1 map can be published without downsampling: `python -m phasespace.gravity.free_return_export web-map` (`just gravity-m3-web-map`) verifies the source map's `samples.json` sha256 and writes a new run holding every cell's outcome as base64 uint8 codes (~130 kB for 720 × 126 cells) plus the feasible cells' perilune altitude, encounter time, return time and passage sense, copied verbatim. Its status is `computed_unvalidated`, like its source.
 
 Notes:
 

@@ -2,7 +2,7 @@ import { CheckCircleIcon, DashedCircleIcon, ExternalIcon } from "../../component
 import { docUrl } from "../../lib/links";
 import { Link } from "../../lib/router";
 import { usePageTitle } from "../../lib/usePageTitle";
-import { OrbitThumbnail } from "./OrbitThumbnail";
+import { FeaturedCaption, OrbitThumbnail, useFeaturedRun } from "./OrbitThumbnail";
 import { STUDIES, STUDY_STATUS_LABEL, type StudySummary } from "./studies";
 
 function StudyStatus({ study }: { study: StudySummary }) {
@@ -17,6 +17,7 @@ function StudyStatus({ study }: { study: StudySummary }) {
 }
 
 function FeaturedStudy({ study }: { study: StudySummary }) {
+  const featured = useFeaturedRun();
   return (
     <article aria-labelledby="featured-title" className="grid gap-8 border-y border-rule py-10 lg:grid-cols-12 lg:gap-12">
       <div className="lg:col-span-5">
@@ -31,7 +32,7 @@ function FeaturedStudy({ study }: { study: StudySummary }) {
             to={study.route ?? "/"}
             className="inline-flex items-center rounded-sm bg-ink px-4 py-2.5 font-medium text-sheet no-underline hover:bg-canvas-raised"
           >
-            Open the orbit viewer
+            Open Gravity Atlas
           </Link>
           <a className="prose-link inline-flex items-center gap-1.5 text-graphite" href={docUrl(study.specPath)} rel="noreferrer">
             Study specification
@@ -43,10 +44,7 @@ function FeaturedStudy({ study }: { study: StudySummary }) {
         <Link to={study.route ?? "/"} tabIndex={-1} aria-hidden="true" className="block">
           <OrbitThumbnail />
         </Link>
-        <figcaption className="mt-3 text-sm text-graphite">
-          The validated reference orbit around L1 in the rotating Earth–Moon frame, with equal x and y scale. It checks the physics
-          engine; it is not yet a result of the study.
-        </figcaption>
+        <figcaption className="mt-3 text-sm text-graphite">{featured !== undefined && <FeaturedCaption run={featured} />}</figcaption>
       </figure>
     </article>
   );

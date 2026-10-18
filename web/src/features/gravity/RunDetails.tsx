@@ -3,6 +3,8 @@ import { CheckCircleIcon, CrossCircleIcon, DownloadIcon, ExternalIcon } from "..
 import { StatusBadge, statusDescription } from "../../components/StatusBadge";
 import { fixed, humanize, km, scientific, shortSha, utcDateTime } from "../../lib/format";
 import type {
+  ReturnShell,
+  Termination,
   CatalogReference,
   CollisionEvents,
   DifferentialCorrection,
@@ -14,7 +16,8 @@ import type {
 } from "../../lib/data/types";
 import { trajectoryArtifact } from "../../lib/data/validate";
 import { commitUrl } from "../../lib/links";
-import { CHECK_GROUPS, CHECK_LABELS, COMPARISON_ROLE_LABEL, CONVENTION_LABEL, METRIC_LABELS } from "./labels";
+import { speedDifference } from "./FreeReturnMetrics";
+import { CHECK_GROUPS, CHECK_LABELS, COMPARISON_ROLE_LABEL, CONVENTION_LABEL, METRIC_LABELS, metricRole, type MetricRole } from "./labels";
 
 const URL_PATTERN = /(https?:\/\/[^\s,)]+)/g;
 
@@ -39,7 +42,8 @@ function Linkified({ text }: { text: string }) {
 function formatMetric(metric: Metric): string {
   switch (metric.unit) {
     case "km":
-      return km(metric.value);
+      // Small distances (altitudes, margins) keep two decimals; orbit-scale ones are whole kilometres.
+      return km(metric.value, Math.abs(metric.value) < 1000 ? 2 : 0);
     case "day":
       return `${fixed(metric.value, 4)} d`;
     case "hour":
@@ -47,12 +51,19 @@ function formatMetric(metric: Metric): string {
     case "count":
       return metric.value.toLocaleString("en-US");
     case "km/s":
-      return `${fixed(metric.value, 5)} km/s`;
+      // Differences below 0.1 km/s (e.g. delta-v margins) read better in m/s or mm/s.
+      return Math.abs(metric.value) < 0.1 ? speedDifference(metric.value) : `${fixed(metric.value, 5)} km/s`;
     case "normalized_cr3bp":
       return `${metric.value.toPrecision(12)} (normalized)`;
     case "dimensionless":
-      return metric.value.toPrecision(12);
+      return Number.isInteger(metric.value) ? signedInteger(metric.value) : metric.value.toPrecision(12);
+    case "deg":
+      return `${fixed(metric.value, 4)}°`;
   }
+}
+
+function signedInteger(value: number): string {
+  return value < 0 ? `−${Math.abs(value)}` : String(value);
 }
 
 /** A check's observed value; null means the computation produced a non-finite number. */
@@ -65,6 +76,21 @@ function tolerances(s: SolverSettings): string {
     ? `${s.name}, rtol = atol = ${scientific(s.rtol, 1)}`
     : `${s.name}, rtol ${scientific(s.rtol, 1)}, atol ${scientific(s.atol, 1)}`;
 }
+
+const METRIC_GROUPS: { role: MetricRole; title: string | null; note: string | null }[] = [
+  { role: "result", title: null, note: null },
+  { role: "margin", title: "Margins (non-gating)", note: "Recorded with the run; they do not decide the status." },
+  {
+    role: "diagnostic",
+    title: "Backward-integration diagnostics",
+    note: "Not validation checks: the decomposition behind the backward-integration checks, from the exported and the tighter-tolerance run.",
+  },
+  {
+    role: "superseded",
+    title: "Superseded criteria",
+    note: "Kept for the record and not used for the status; the replacement checks are in the table above.",
+  },
+];
 
 function Section({ id, title, children, wide = false }: { id: string; title: string; children: ReactNode; wide?: boolean }) {
   return (
@@ -222,7 +248,43 @@ function ConvergenceRecord({ correction }: { correction: DifferentialCorrection 
   );
 }
 
-function SolverDetails({ solver }: { solver: Solver }) {
+const TERMINATION_TEXT: Record<Termination, string> = {
+  horizon: "Reached the end of the time window",
+  earth_collision: "Earth collision",
+  moon_collision: "Moon collision",
+  earth_return_shell: "Inbound crossing of the return shell",
+  start_inside_earth: "Started inside the Earth (not propagated)",
+  start_inside_moon: "Started inside the Moon (not propagated)",
+  start_inside_return_shell: "Started inside the return shell (not propagated)",
+  non_finite: "Non-finite state",
+  evaluation_limit: "Evaluation budget exhausted",
+  solver_failure: "Solver failure",
+};
+
+function ReturnShellDetails({ shell, termination }: { shell: ReturnShell; termination: Termination | null }) {
+  return (
+    <>
+      <h4 className="mt-6 font-sans text-sm font-medium text-graphite">Return shell (entry interface)</h4>
+      <dl className={`${DL} mt-2`}>
+        <Fact label="Sphere">
+          <span className="numeric">
+            Radius {km(shell.radius_km, 2)} about the Earth centre, {km(shell.altitude_km, 2)} above the mean radius
+          </span>
+        </Fact>
+        <Fact label="Event">
+          Inbound crossings only ({shell.direction}); terminal ({shell.function}); grazing passes caught ({shell.grazing_detection})
+        </Fact>
+        {termination !== null && (
+          <Fact label="This propagation ended">
+            {TERMINATION_TEXT[termination]} <span className="numeric text-graphite">({termination})</span>
+          </Fact>
+        )}
+      </dl>
+    </>
+  );
+}
+
+function SolverDetails({ solver, termination }: { solver: Solver; termination: Termination | null }) {
   const events = solver.collision_events;
   const correction = solver.differential_correction;
   return (
@@ -251,6 +313,7 @@ function SolverDetails({ solver }: { solver: Solver }) {
         </Fact>
         <Fact label="Starting inside">Nothing is propagated ({events.start_inside})</Fact>
       </dl>
+      {solver.return_shell !== null && <ReturnShellDetails shell={solver.return_shell} termination={termination} />}
 
       {(solver.comparisons.length > 0 || solver.monodromy !== null) && (
         <>
@@ -312,26 +375,45 @@ export function RunDetails({ run }: { run: LoadedRun }) {
             <ChecksTable checks={validation.checks} />
             <p className="mt-4 max-w-prose text-sm text-graphite">
               Checked by {validation.validated_by}, {utcDateTime(validation.validated_at)}. A check passes when the observed
-              value is at most the threshold; a non-finite value never passes. Differences are in normalized units unless the
-              definition says relative; counts are plain numbers.
+              value is at most the threshold; a non-finite value never passes. Units are those named in each definition (normalized
+              units where none is named); counts are plain numbers.
             </p>
             {validation.reference !== null && <ReferenceEntry reference={validation.reference} />}
           </>
         )}
       </Section>
 
-      <Section id="quantities-title" title="Key quantities" wide>
-        <dl className="grid grid-cols-1 gap-x-12 lg:grid-cols-2">
-          {Object.entries(manifest.metrics).map(([key, metric]) => (
-            <div key={key} className="flex items-baseline justify-between gap-x-6 border-t border-rule py-2">
-              <dt className="min-w-0">
-                {METRIC_LABELS[key] ?? humanize(key)}
-                <span className="mt-0.5 block text-sm leading-snug break-words text-graphite">{metric.definition}</span>
-              </dt>
-              <dd className="numeric text-right whitespace-nowrap">{formatMetric(metric)}</dd>
+      <Section id="quantities-title" title="Recorded quantities" wide>
+        {METRIC_GROUPS.map(({ role, title, note }) => {
+          const entries = Object.entries(manifest.metrics).filter(([key, metric]) => metricRole(key, metric.definition) === role);
+          if (entries.length === 0) return null;
+          return (
+            <div key={role} className="mt-6 first:mt-0">
+              {title !== null && (
+                <h4 className="font-sans text-sm font-medium text-graphite">
+                  {title}
+                  {note !== null && <span className="block font-normal text-quiet">{note}</span>}
+                </h4>
+              )}
+              <dl className="mt-2 grid grid-cols-1 gap-x-12 lg:grid-cols-2">
+                {entries.map(([key, metric]) => (
+                  <div key={key} className="flex items-baseline justify-between gap-x-6 border-t border-rule py-2">
+                    <dt className="min-w-0">
+                      {role === "superseded" && (
+                        <span className="mr-2 inline-block rounded-sm border border-rule-strong px-1.5 text-xs font-medium text-graphite">Superseded</span>
+                      )}
+                      {METRIC_LABELS[key] ?? humanize(key)}
+                      <span className="mt-0.5 block text-sm leading-snug break-words text-graphite">{metric.definition}</span>
+                    </dt>
+                    <dd className={`numeric text-right whitespace-nowrap ${role === "superseded" ? "text-graphite line-through decoration-rule-strong" : ""}`}>
+                      {formatMetric(metric)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
             </div>
-          ))}
-        </dl>
+          );
+        })}
       </Section>
 
       <Section id="model-title" title="Model and constants">
@@ -365,7 +447,7 @@ export function RunDetails({ run }: { run: LoadedRun }) {
       </Section>
 
       <Section id="solver-title" title="Solver">
-        <SolverDetails solver={manifest.solver} />
+        <SolverDetails solver={manifest.solver} termination={manifest.termination} />
       </Section>
 
       <Section id="provenance-title" title="Provenance">
@@ -411,7 +493,7 @@ export function RunDetails({ run }: { run: LoadedRun }) {
       <Section id="limitations-title" title="Limitations">
         <ul className="list-disc space-y-2 pl-5 marker:text-quiet">
           {manifest.limitations.map((limitation) => (
-            <li key={limitation}>{limitation}</li>
+            <li key={limitation} className="[overflow-wrap:anywhere]">{limitation}</li>
           ))}
         </ul>
       </Section>
@@ -432,7 +514,8 @@ export function RunDetails({ run }: { run: LoadedRun }) {
               <DownloadIcon /> {trajectory?.path ?? "trajectory.json"}
             </a>
             <span className="block text-sm break-all text-graphite">
-              {run.trajectory.length.toLocaleString("en-US")} samples of ({run.trajectory.state_order.join(", ")}). SHA-256{" "}
+              {run.trajectory.length.toLocaleString("en-US")} samples of ({run.trajectory.state_order.join(", ")})
+              {run.trajectory.events.length > 0 ? ` and ${run.trajectory.events.length} marked events` : ""}. SHA-256{" "}
               {trajectory?.sha256}
             </span>
           </li>

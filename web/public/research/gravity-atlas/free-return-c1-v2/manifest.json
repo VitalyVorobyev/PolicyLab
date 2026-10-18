@@ -1,0 +1,456 @@
+{
+  "schema_version": 1,
+  "run_id": "gravity-free-return-c1-v2",
+  "study_id": "gravity-atlas",
+  "experiment_id": "cr3bp-free-return-candidate-v1",
+  "status": "validated",
+  "created_at": "2026-10-18T13:57:18Z",
+  "source": {
+    "repository": "VitalyVorobyev/PolicyLab",
+    "git_commit": "ccf326e254f838f8adeb2571cacbd48528927e30",
+    "git_dirty": false,
+    "generator": "phasespace.gravity.free_return_export",
+    "generator_version": "0.1.0"
+  },
+  "environment": {
+    "python": "3.12.12",
+    "python_implementation": "CPython",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "machine": "arm64"
+  },
+  "model": {
+    "name": "planar-cr3bp",
+    "coordinate_frame": "barycentric_synodic",
+    "units": "normalized_cr3bp",
+    "mu": 0.012150584394709708,
+    "length_scale_km": 384400.0,
+    "length_scale_convention": "nssdca_lunar_semimajor_axis",
+    "time_scale_seconds": 375190.2618946589,
+    "velocity_scale_km_s": 1.024546847401724,
+    "system_name": "earth-moon-de440-384400km",
+    "constants_source": "GM_earth, GM_moon: JPL DE440 via https://ssd.jpl.nasa.gov/astro_par.html; length unit 384400 km and mean radii: NASA NSSDCA Earth/Moon Fact Sheets; time unit derived as sqrt(L^3 / (GM_earth + GM_moon)); retrieved 2026-10-18",
+    "primaries": {
+      "earth": {
+        "x": -0.012150584394709708,
+        "y": 0.0,
+        "radius_km": 6371.0
+      },
+      "moon": {
+        "x": 0.9878494156052903,
+        "y": 0.0,
+        "radius_km": 1737.4
+      }
+    },
+    "assumptions": [
+      "circular_primaries",
+      "massless_spacecraft",
+      "planar",
+      "unit_angular_rate_counterclockwise"
+    ]
+  },
+  "solver": {
+    "name": "DOP853",
+    "rtol": 1e-12,
+    "atol": 1e-12,
+    "dense_output": true,
+    "max_evaluations": 1000000,
+    "collision_events": {
+      "earth_radius_km": 6371.0,
+      "moon_radius_km": 1737.4,
+      "function": "distance_minus_radius",
+      "direction": "decreasing",
+      "terminal": true,
+      "grazing_detection": "periapsis_below_radius",
+      "start_inside": "not_propagated"
+    },
+    "return_shell": {
+      "radius_km": 6492.92,
+      "altitude_km": 121.92,
+      "function": "distance_minus_radius",
+      "direction": "decreasing",
+      "terminal": true,
+      "grazing_detection": "periapsis_below_radius"
+    },
+    "comparisons": [
+      {
+        "role": "tight_tolerance",
+        "name": "DOP853",
+        "rtol": 1e-13,
+        "atol": 1e-13
+      },
+      {
+        "role": "independent_integrator",
+        "name": "LSODA",
+        "rtol": 1e-13,
+        "atol": 1e-13
+      }
+    ]
+  },
+  "termination": "earth_return_shell",
+  "random_seed": null,
+  "artifacts": [
+    {
+      "kind": "trajectory",
+      "path": "trajectory.json",
+      "sha256": "8c1e4ab178d09c0bf6480abf751fe96db13e0131f7f824cf795ad535e2650857"
+    }
+  ],
+  "metrics": {
+    "departure_phase_deg": {
+      "value": 229.14224099316039,
+      "unit": "deg",
+      "definition": "departure phase theta, counterclockwise from +x (Earth->Moon)"
+    },
+    "departure_delta_v_km_s": {
+      "value": 3.1567704135102614,
+      "unit": "km/s",
+      "definition": "TLI impulse magnitude"
+    },
+    "impulse_angle_deg": {
+      "value": 0.0,
+      "unit": "deg",
+      "definition": "impulse angle from local horizontal (tangential: 0)"
+    },
+    "parking_altitude_km": {
+      "value": 185.0,
+      "unit": "km",
+      "definition": "circular parking-orbit altitude above the mean Earth radius"
+    },
+    "return_shell_altitude_km": {
+      "value": 121.92,
+      "unit": "km",
+      "definition": "return-shell altitude above the mean Earth radius (400 000 ft entry interface)"
+    },
+    "perilune_band_min_km": {
+      "value": 100.0,
+      "unit": "km",
+      "definition": "lower edge of the feasible perilune band"
+    },
+    "perilune_band_max_km": {
+      "value": 30000.0,
+      "unit": "km",
+      "definition": "upper edge of the feasible perilune band"
+    },
+    "t_max_days": {
+      "value": 10.0,
+      "unit": "day",
+      "definition": "flight-time window and propagation horizon"
+    },
+    "perilune_altitude_km": {
+      "value": 999.9999999986458,
+      "unit": "km",
+      "definition": "altitude above the 1737.4 km mean Moon radius of the closest Moon periapsis before the return (event); km via length_scale_km = 384400.0 km (nssdca_lunar_semimajor_axis)"
+    },
+    "lunar_encounter_time_days": {
+      "value": 3.0596808947652265,
+      "unit": "day",
+      "definition": "time of that periapsis after TLI; time_scale_seconds = 375190.2618946589 s, 1 day = 86400 s"
+    },
+    "lunar_passage_sense": {
+      "value": -1,
+      "unit": "dimensionless",
+      "definition": "sign of the rotating-frame Moon-relative angular momentum at perilune"
+    },
+    "entry_sense": {
+      "value": 1,
+      "unit": "dimensionless",
+      "definition": "sign of the Earth-relative inertial angular momentum at the return shell (+1 posigrade, -1 retrograde)"
+    },
+    "perilune_margin_to_band_min_km": {
+      "value": 899.9999999986458,
+      "unit": "km",
+      "definition": "non-gating: h_p minus the lower perilune band edge"
+    },
+    "perilune_margin_to_band_max_km": {
+      "value": 29000.000000001353,
+      "unit": "km",
+      "definition": "non-gating: upper perilune band edge minus h_p"
+    },
+    "return_shell_crossing_time_days": {
+      "value": 6.12168943638293,
+      "unit": "day",
+      "definition": "inbound return-shell crossing time after TLI; time_scale_seconds = 375190.2618946589 s, 1 day = 86400 s"
+    },
+    "return_shell_speed_km_s": {
+      "value": 11.007759907941415,
+      "unit": "km/s",
+      "definition": "Earth-relative inertial speed at the return shell; km/s via velocity_scale_km_s = 1.024546847401724 km/s (nssdca_lunar_semimajor_axis)"
+    },
+    "return_flight_path_angle_deg": {
+      "value": -6.4848139563569,
+      "unit": "deg",
+      "definition": "Earth-relative inertial flight-path angle at the return shell (< 0: descending)"
+    },
+    "return_vacuum_perigee_altitude_km": {
+      "value": 38.000000008791176,
+      "unit": "km",
+      "definition": "perigee altitude of the osculating two-body Earth conic (GM_earth only, no atmosphere) through the return-shell state; km via length_scale_km = 384400.0 km (nssdca_lunar_semimajor_axis)"
+    },
+    "jacobi_constant": {
+      "value": 1.9181394475040108,
+      "unit": "normalized_cr3bp",
+      "definition": "Jacobi constant after TLI"
+    },
+    "earth_periapses_after_encounter": {
+      "value": 0,
+      "unit": "count",
+      "definition": "Earth periapses between the perilune and the return"
+    },
+    "targeting_residual_perilune": {
+      "value": -1.3542376109398902e-12,
+      "unit": "dimensionless",
+      "definition": "(h_p - 1000.0 km) / 1000.0 km at the refined point"
+    },
+    "targeting_residual_perigee": {
+      "value": 8.791175787337125e-10,
+      "unit": "dimensionless",
+      "definition": "(h_vp - 38.0 km) / 10.0 km at the refined point"
+    },
+    "targeting_propagations": {
+      "value": 644,
+      "unit": "count",
+      "definition": "propagations of the least-squares start that found this candidate"
+    },
+    "sample_count": {
+      "value": 2227,
+      "unit": "count",
+      "definition": "rows in trajectory.json: accepted solver steps united with a uniform grid"
+    },
+    "rhs_evaluations": {
+      "value": 4106,
+      "unit": "count",
+      "definition": "nfev of the exported propagation"
+    },
+    "superseded_check_backward_max_abs_initial_state_error": {
+      "value": 8.318798636608449e-07,
+      "unit": "normalized_cr3bp",
+      "definition": "SUPERSEDED criterion, recorded and non-gating: max |s0_back - s0| over (x, y, vx, vy), normalized, of the backward integration from the exported run's shell state; the M3 design's threshold was 1e-07 (would fail). Replaced (user decision 2026-10-18) by the decomposed checks backward_integration_{along_track_time_shift_s, transverse_position_error_m, transverse_velocity_error_mm_s}, because the max-norm is dominated by a pure time shift (|ds/dt| ~ 3.4e3 at the parking orbit, so 1e-7 is a ~0.1 ms test)"
+    },
+    "backward_run_max_abs_initial_state_error": {
+      "value": 8.318798636608449e-07,
+      "unit": "normalized_cr3bp",
+      "definition": "max |ds0| over (x, y, vx, vy); diagnostic, not a validation check: backward DOP853 1e-13 integration (no events) from the exported run's return-shell state to t = 0, error ds0 = s0_back - s0 split into an along-track time shift tau (ds0 . f / |f|^2, f = ds/dt at s0) and the transverse rest"
+    },
+    "backward_run_along_track_time_shift_hours": {
+      "value": -3.534120929576295e-08,
+      "unit": "hour",
+      "definition": "tau; diagnostic, not a validation check: backward DOP853 1e-13 integration (no events) from the exported run's return-shell state to t = 0, error ds0 = s0_back - s0 split into an along-track time shift tau (ds0 . f / |f|^2, f = ds/dt at s0) and the transverse rest"
+    },
+    "backward_run_transverse_position_error_km": {
+      "value": 6.222259582792415e-05,
+      "unit": "km",
+      "definition": "|position part of ds0 - tau f|; diagnostic, not a validation check: backward DOP853 1e-13 integration (no events) from the exported run's return-shell state to t = 0, error ds0 = s0_back - s0 split into an along-track time shift tau (ds0 . f / |f|^2, f = ds/dt at s0) and the transverse rest"
+    },
+    "backward_run_transverse_velocity_error_km_s": {
+      "value": 5.2712380228257384e-08,
+      "unit": "km/s",
+      "definition": "|velocity part of ds0 - tau f|; diagnostic, not a validation check: backward DOP853 1e-13 integration (no events) from the exported run's return-shell state to t = 0, error ds0 = s0_back - s0 split into an along-track time shift tau (ds0 . f / |f|^2, f = ds/dt at s0) and the transverse rest"
+    },
+    "backward_tight_max_abs_initial_state_error": {
+      "value": 1.278586747588406e-08,
+      "unit": "normalized_cr3bp",
+      "definition": "max |ds0| over (x, y, vx, vy); diagnostic, not a validation check: backward DOP853 1e-13 integration (no events) from the tight-tolerance (DOP853 1e-13) run's return-shell state to t = 0, error ds0 = s0_back - s0 split into an along-track time shift tau (ds0 . f / |f|^2, f = ds/dt at s0) and the transverse rest"
+    },
+    "backward_tight_along_track_time_shift_hours": {
+      "value": -5.367657384045103e-10,
+      "unit": "hour",
+      "definition": "tau; diagnostic, not a validation check: backward DOP853 1e-13 integration (no events) from the tight-tolerance (DOP853 1e-13) run's return-shell state to t = 0, error ds0 = s0_back - s0 split into an along-track time shift tau (ds0 . f / |f|^2, f = ds/dt at s0) and the transverse rest"
+    },
+    "backward_tight_transverse_position_error_km": {
+      "value": 6.653709714064308e-07,
+      "unit": "km",
+      "definition": "|position part of ds0 - tau f|; diagnostic, not a validation check: backward DOP853 1e-13 integration (no events) from the tight-tolerance (DOP853 1e-13) run's return-shell state to t = 0, error ds0 = s0_back - s0 split into an along-track time shift tau (ds0 . f / |f|^2, f = ds/dt at s0) and the transverse rest"
+    },
+    "backward_tight_transverse_velocity_error_km_s": {
+      "value": 5.638076528969569e-10,
+      "unit": "km/s",
+      "definition": "|velocity part of ds0 - tau f|; diagnostic, not a validation check: backward DOP853 1e-13 integration (no events) from the tight-tolerance (DOP853 1e-13) run's return-shell state to t = 0, error ds0 = s0_back - s0 split into an along-track time shift tau (ds0 . f / |f|^2, f = ds/dt at s0) and the transverse rest"
+    },
+    "delta_v_margin_below_km_s": {
+      "value": 9.249999999999998e-06,
+      "unit": "km/s",
+      "definition": "non-gating: delta-v decrease/increase (below) at fixed phase and impulse angle to the first infeasible value (doubling steps from 1 mm/s up to 50 m/s, bisected to 0.01 mm/s, 15 propagations); outcome beyond the edge: no_return_within_t_max"
+    },
+    "delta_v_margin_above_km_s": {
+      "value": 0.011315640625,
+      "unit": "km/s",
+      "definition": "non-gating: delta-v decrease/increase (above) at fixed phase and impulse angle to the first infeasible value (doubling steps from 1 mm/s up to 50 m/s, bisected to 0.01 mm/s, 35 propagations); outcome beyond the edge: no_return_within_t_max"
+    }
+  },
+  "limitations": [
+    "Planar circular restricted three-body model with a single impulsive departure from an idealized circular parking orbit: no lunar eccentricity, out-of-plane motion, Earth oblateness, solar or other perturbations, finite burns or ephemeris effects. A 'return' is an inbound crossing of a spherical entry-interface-like shell, not an atmospheric re-entry model.",
+    "Found by least-squares targeting (h_p = 1000.0 km, vacuum perigee 38.0 km) from a sample of map run gravity-free-return-map-2d-grid-v1 (samples.json sha256 ed13294de9b804213e4f0c5b5a7c0dec13ae2d602f45a0252a1964050f761824); every start is recorded in run gravity-free-return-search-v2.",
+    "Samples are the accepted DOP853 steps united with a uniform grid of 2000 times over [0, t_ret], evaluated on the dense output; the last sample is the return-shell crossing.",
+    "The backward-integration check uses DOP853 rtol = atol = 1e-13 without events from the exported return-shell state.",
+    "'validated' means the recorded numerical checks passed; it is not a new scientific result or a mission-grade trajectory."
+  ],
+  "validation": {
+    "checks": [
+      {
+        "name": "predicate_failures_run_tight_independent",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "number of the three integrations (run, DOP853 1e-13, LSODA 1e-13) in which the candidate is not feasible or has a margin below 1.0 km to the perilune band edges or 1.0 h to T_MAX"
+      },
+      {
+        "name": "tight_tolerance_abs_diff_perilune_altitude_km",
+        "observed": 1.3529920579458121e-06,
+        "threshold": 0.01,
+        "passed": true,
+        "definition": "|h_p - h_p_ref| in km; ref: DOP853 rtol = atol = 1e-13"
+      },
+      {
+        "name": "tight_tolerance_abs_diff_return_time_s",
+        "observed": 2.0021872160214116e-05,
+        "threshold": 0.1,
+        "passed": true,
+        "definition": "|t_ret - t_ret_ref| in seconds at the return-shell crossing; ref: DOP853 rtol = atol = 1e-13"
+      },
+      {
+        "name": "tight_tolerance_return_position_difference_km",
+        "observed": 0.0001306803528233325,
+        "threshold": 0.01,
+        "passed": true,
+        "definition": "distance in km between the return-shell crossing positions; ref: DOP853 rtol = atol = 1e-13"
+      },
+      {
+        "name": "tight_tolerance_abs_diff_entry_speed_km_s",
+        "observed": 2.4638069362481474e-11,
+        "threshold": 1e-06,
+        "passed": true,
+        "definition": "|v - v_ref| of the Earth-relative inertial speed at the return shell, km/s; ref: DOP853 rtol = atol = 1e-13. Threshold 1 mm/s from Jacobi conservation (<= 1e-9 each: |dv| ~ 1e-9 / v ~ 0.1 mm/s at the same radius) with a factor ~10 for the potential difference across the <= 10 m separation of the crossing points"
+      },
+      {
+        "name": "tight_tolerance_abs_diff_entry_flight_path_angle_deg",
+        "observed": 5.728801104609715e-07,
+        "threshold": 0.001,
+        "passed": true,
+        "definition": "|gamma - gamma_ref| at the return shell, deg; ref: DOP853 rtol = atol = 1e-13. Threshold 1e-3 deg: a 10 m crossing-point separation changes gamma by ~10 m / R_S + kappa * 10 m ~ 1.3e-4 deg (kappa ~ g cos(gamma) / v^2), a factor ~7 below"
+      },
+      {
+        "name": "tight_tolerance_abs_diff_entry_vacuum_perigee_km",
+        "observed": 1.4761776583327446e-05,
+        "threshold": 0.05,
+        "passed": true,
+        "definition": "|h_vp - h_vp_ref| at the return shell, km; ref: DOP853 rtol = atol = 1e-13. Threshold 50 m from the two-body sensitivities of a near-parabolic entry (~25 km/deg in gamma, ~1.2 km per m/s in speed) applied to the angle and speed thresholds"
+      },
+      {
+        "name": "independent_integrator_abs_diff_perilune_altitude_km",
+        "observed": 5.041394160798518e-06,
+        "threshold": 0.01,
+        "passed": true,
+        "definition": "|h_p - h_p_ref| in km; ref: LSODA rtol = atol = 1e-13"
+      },
+      {
+        "name": "independent_integrator_abs_diff_return_time_s",
+        "observed": 7.542423645645613e-05,
+        "threshold": 0.1,
+        "passed": true,
+        "definition": "|t_ret - t_ret_ref| in seconds at the return-shell crossing; ref: LSODA rtol = atol = 1e-13"
+      },
+      {
+        "name": "independent_integrator_return_position_difference_km",
+        "observed": 0.00048685201913665577,
+        "threshold": 0.01,
+        "passed": true,
+        "definition": "distance in km between the return-shell crossing positions; ref: LSODA rtol = atol = 1e-13"
+      },
+      {
+        "name": "independent_integrator_abs_diff_entry_speed_km_s",
+        "observed": 7.927880574243318e-11,
+        "threshold": 1e-06,
+        "passed": true,
+        "definition": "|v - v_ref| of the Earth-relative inertial speed at the return shell, km/s; ref: LSODA rtol = atol = 1e-13. Threshold 1 mm/s from Jacobi conservation (<= 1e-9 each: |dv| ~ 1e-9 / v ~ 0.1 mm/s at the same radius) with a factor ~10 for the potential difference across the <= 10 m separation of the crossing points"
+      },
+      {
+        "name": "independent_integrator_abs_diff_entry_flight_path_angle_deg",
+        "observed": 2.134107564444321e-06,
+        "threshold": 0.001,
+        "passed": true,
+        "definition": "|gamma - gamma_ref| at the return shell, deg; ref: LSODA rtol = atol = 1e-13. Threshold 1e-3 deg: a 10 m crossing-point separation changes gamma by ~10 m / R_S + kappa * 10 m ~ 1.3e-4 deg (kappa ~ g cos(gamma) / v^2), a factor ~7 below"
+      },
+      {
+        "name": "independent_integrator_abs_diff_entry_vacuum_perigee_km",
+        "observed": 5.4990579883451574e-05,
+        "threshold": 0.05,
+        "passed": true,
+        "definition": "|h_vp - h_vp_ref| at the return shell, km; ref: LSODA rtol = atol = 1e-13. Threshold 50 m from the two-body sensitivities of a near-parabolic entry (~25 km/deg in gamma, ~1.2 km per m/s in speed) applied to the angle and speed thresholds"
+      },
+      {
+        "name": "jacobi_max_abs_drift_run",
+        "observed": 7.962199788380531e-10,
+        "threshold": 1e-09,
+        "passed": true,
+        "definition": "max |C(t) - C(0)| at 100001 uniform times over [0, t_final] of the DOP853 rtol = atol = 1e-12 integration; a conservation check only"
+      },
+      {
+        "name": "jacobi_max_abs_drift_tight_tolerance",
+        "observed": 8.01101407432725e-11,
+        "threshold": 1e-09,
+        "passed": true,
+        "definition": "max |C(t) - C(0)| at 100001 uniform times over [0, t_final] of the DOP853 rtol = atol = 1e-13 integration; a conservation check only"
+      },
+      {
+        "name": "jacobi_max_abs_drift_independent_integrator",
+        "observed": 1.4290102434699747e-10,
+        "threshold": 1e-09,
+        "passed": true,
+        "definition": "max |C(t) - C(0)| at 100001 uniform times over [0, t_final] of the LSODA rtol = atol = 1e-13 integration; a conservation check only"
+      },
+      {
+        "name": "backward_integration_along_track_time_shift_s",
+        "observed": 0.00012722835346474663,
+        "threshold": 0.001,
+        "passed": true,
+        "definition": "|tau| in seconds, tau = (ds0 . f) / (f . f), ds0 = s0_back - s0, f = ds/dt at s0 (normalized rotating-frame state, unweighted metric); s0_back from a backward DOP853 rtol = atol = 1e-13 solve_ivp integration (no events) started from the exported run's return-shell state. With |a| ~ 3.4e3 >> |v| ~ 10.6 at the parking orbit, tau is in effect the velocity error along the local acceleration divided by |a| (a time shift and such a velocity error are indistinguishable): 1 ms admits ~9 mm/s along a. A reversibility bound, not an accuracy bound: departure errors are amplified through the flyby; 1 ms is 100x below the 0.1 s return-time threshold"
+      },
+      {
+        "name": "backward_integration_transverse_position_error_m",
+        "observed": 0.06222259582792415,
+        "threshold": 1.0,
+        "passed": true,
+        "definition": "|position part of ds0 - tau f| in metres; s0_back from a backward DOP853 rtol = atol = 1e-13 solve_ivp integration (no events) started from the exported run's return-shell state. A reversibility bound on the departure position (position-only errors land here), not an accuracy bound on the observables, which are amplified through the flyby"
+      },
+      {
+        "name": "backward_integration_transverse_velocity_error_mm_s",
+        "observed": 0.05271238022825739,
+        "threshold": 1.0,
+        "passed": true,
+        "definition": "|velocity part of ds0 - tau f| in mm/s (rotating-frame components); s0_back from a backward DOP853 rtol = atol = 1e-13 solve_ivp integration (no events) started from the exported run's return-shell state. Threshold 1 mm/s (~1e-7 of the departure speed) bounds reversibility, not observable accuracy: at the local sensitivities of the M3 candidates 1 mm/s at departure moves h_p by ~0.6 km and the vacuum perigee by ~10 km; observable accuracy rests on the forward agreement checks"
+      },
+      {
+        "name": "brute_force_abs_diff_perilune_distance_km",
+        "observed": 2.0338244977047282e-11,
+        "threshold": 0.001,
+        "passed": true,
+        "definition": "|min r2 (dense sampling, 100001 points + bounded minimization) - r2 at the perilune event| in km"
+      },
+      {
+        "name": "dense_samples_inside_return_shell_or_moon",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "count of 100000 uniform dense samples on [0, t_ret) with r1 <= R_shell or r2 <= R_moon (a missed earlier crossing)"
+      },
+      {
+        "name": "non_finite_sample_values",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "count of non-finite values in trajectory samples"
+      },
+      {
+        "name": "non_increasing_sample_times",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "count of consecutive sample times with t[i+1] <= t[i]"
+      }
+    ],
+    "validated_by": "phasespace.gravity.free_return_export automated checks (pass: observed <= threshold)",
+    "validated_at": "2026-10-18T13:57:18Z"
+  }
+}

@@ -7,9 +7,34 @@
       "status": "active",
       "runs": [
         {
+          "run_id": "gravity-free-return-c1-v2",
+          "path": "gravity-atlas/free-return-c1-v2",
+          "kind": "trajectory",
+          "label": "Free return c1 (posigrade entry)"
+        },
+        {
+          "run_id": "gravity-free-return-c2-v2",
+          "path": "gravity-atlas/free-return-c2-v2",
+          "kind": "trajectory",
+          "label": "Free return c2 (retrograde entry)"
+        },
+        {
           "run_id": "gravity-l1-lyapunov-reference-v2",
           "path": "gravity-atlas/l1-lyapunov-reference-v2",
+          "kind": "trajectory",
           "label": "Earth–Moon L1 Lyapunov orbit (JPL catalog reference)"
+        },
+        {
+          "run_id": "gravity-free-return-map-2d-grid-v1-web-dev",
+          "path": "gravity-atlas/free-return-map-2d-grid-v1-web-dev",
+          "kind": "outcome_grid",
+          "label": "Free-return feasibility map, 720 × 126 grid (outcome grid)"
+        },
+        {
+          "run_id": "gravity-free-return-dv-probe-v1",
+          "path": "gravity-atlas/free-return-dv-probe-v1",
+          "kind": "sample_table",
+          "label": "Fine Δv probe at θ = 229° and 251°"
         }
       ]
     },

@@ -38,7 +38,7 @@ describe("RunDetails", () => {
     expect(within(independent).getByText(/s_ref: LSODA rtol = atol = 1e-13/)).toBeInTheDocument();
     const stability = checkRow("jpl_catalog_rel_diff_stability_index");
     expect(within(stability).getByText(/from the computed monodromy matrix/)).toBeInTheDocument();
-    expect(within(table).getByText("Agreement with other propagations")).toBeInTheDocument();
+    expect(within(table).getByText("Agreement with other propagations, including entry conditions")).toBeInTheDocument();
   });
 
   it("shows the corrector's convergence record outside the checks table", () => {

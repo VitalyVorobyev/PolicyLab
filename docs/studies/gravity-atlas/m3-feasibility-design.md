@@ -1,6 +1,6 @@
 # Gravity Atlas M3: free-return feasibility design (proposal)
 
-**Status:** accepted by the user on 2026-10-18 (D20). It is not a frozen protocol; the M4 protocol freezes bounds, descriptors and budgets. Every number below is either a proposal (with its reason) or a measurement on this machine (labelled "measured"). The M4 protocol (`study-protocol`) freezes the bounds, descriptors and budgets. Nothing here is M3 evidence yet.
+**Status:** accepted by the user on 2026-10-18 (D20). **M3 complete: GO (2026-10-18)**, on clean-commit evidence (commits `9a721b0` and `ccf326e`; see "M3 results" at the end). Sections 1–10 are the design as accepted, and every number in them is either a proposal (with its reason) or a pilot measurement (labelled "measured"); the evidence is in "M3 results". This is not a frozen protocol: the M4 protocol (`protocol.md`, `study-protocol`) freezes the bounds, descriptors and budgets.
 
 **Scope (roadmap M3):** define the free-return event exactly, find and validate at least one qualifying candidate (or publish a negative note), export it in the M1 format, and produce the dense map that D16 needs as coverage ground truth.
 
@@ -241,9 +241,32 @@ The 10 d horizon makes these estimates slightly conservative.
 - NASA, *Apollo 11 Mission Report*, MSC-00171 (1969): https://www.nasa.gov/wp-content/uploads/static/apollo50th/pdf/A11_MissionReport.pdf, downloaded 2026-10-18. Values used: parking orbit (§3); Tables 7-III and 7-IV (TLI Δv, pericynthion, free-return entry conditions); §7.4.8 (perigee targeting); Table 7-VII (entry interface).
 - Unit conversions: 1 nmi = 1.852 km; 1 ft = 0.3048 m.
 
-## M3 results (preliminary, dirty-tree runs)
+## M3 results (clean-commit evidence)
 
-**Status: preliminary.** Every run below was generated on 2026-10-18 from an uncommitted working tree (`source.git_dirty = true`, base commit `3ac073f`), so it is not evidence yet. The evidence runs must be regenerated from a clean commit (commands at the end). Machine: Apple M4 Pro, 12 cores, 10 workers. The machine was shared with unrelated jobs (load average 12–34) during the runs, so wall times are upper bounds.
+**Status: complete, GO (2026-10-18).** Every evidence run below was generated from a clean working tree (`source.git_dirty = false`). Machine: Apple M4 Pro, 12 cores, 10 workers. The machine was shared with unrelated jobs during the runs, so wall times are upper bounds.
+
+| Stage | Evidence run | Commit | Status |
+|---|---|---|---|
+| S1 2-D grid | `runs/gravity-free-return-map-2d-grid-v1` | `9a721b0` | `computed_unvalidated` (a map; samples are not individually validated) |
+| S2 targeting | `runs/gravity-free-return-search-v2` | `ccf326e` | `computed_unvalidated` |
+| S3 candidate c1 | `runs/gravity-free-return-c1-v2` | `ccf326e` | `validated` |
+| S3 candidate c2 | `runs/gravity-free-return-c2-v2` | `ccf326e` | `validated` |
+| S4 3-D Sobol | `runs/gravity-free-return-map-3d-sobol17-v1` (seed 20261018) | `9a721b0` | `computed_unvalidated` |
+| Fine Δv probe | `runs/gravity-free-return-dv-probe-v1` | `ccf326e` | `computed_unvalidated` |
+
+The candidate runs `-v2` supersede `gravity-free-return-{search,c1,c2}-v1` (clean, commit `9a721b0`). Commit `ccf326e` added the entry-agreement checks (speed, flight-path angle, vacuum perigee) and the non-gating Δv and perilune margins after the numerics review. The `-v1` candidate manifests lack them. The maps did not need regenerating. `ccf326e` changed no propagation, evaluation or classification code: in `free_return.py` and `free_return_map.py` it added only a docstring, a new helper and the probe design. The S1 table is the input of the `-v2` search.
+
+**Superseded history, not evidence.** The preliminary runs `…-pre1` to `…-pre4` (including `…-pre2-cap1000` and `…-rerun`) were generated from uncommitted trees. `pre1`–`pre3` sit on base commit `3ac073f`, and `pre4` on `9a721b0`. An earlier version of this section cited them. Every scientific number they gave is reproduced exactly by the clean runs. The S1 and S4 sample tables match row for row: same outcomes, h_p, t_ret, h_vp and nfev. The candidate metrics and check values are identical, and `trajectory.json` samples are bit-identical across `-pre4`, `-v1` and `-v2`. The **differences from the earlier text** are listed here. They are transcription and summary errors, not changes in the data:
+
+| Quantity | Earlier text | Clean runs (and identical in the `pre` tables) |
+|---|---|---|
+| Family (A) Δv range on the S1 grid | 3.146–3.178 km/s | **3.146–3.180 km/s** |
+| Family (A) h_p and t_ret | 188 km "up to 30 000 km"; 5.7–10 d | **188–29 118 km; 5.70–9.96 d** |
+| Family (B) h_p and t_ret | 28 000–30 000 km; 9.8–10 d | 28 068–29 981 km; 9.83–10.00 d (consistent, now exact) |
+| θ columns with 6 feasible Δv cells | θ = 227–231° | **θ = 227–229.5° and 231°** (230° and 230.5° have fewer) |
+| Margins of the integrator-agreement checks | "10³–10⁴" | **20–1.2 × 10⁵.** The tightest is the shell-crossing position against LSODA: 0.49 m against 10 m for c1 (factor 20.5) and 0.13 m for c2 (factor 76). The tight-tolerance position check has factors 76 (c1) and 203 (c2). |
+| Base commit of the preliminary runs | all `3ac073f` | `pre4` runs: `9a721b0` (dirty) |
+| Wall time, 10 workers (machine load differed) | S1 650 s, S4 935 s, probe 106 s | S1 858 s, S4 870 s, probe 29 s |
 
 **Code.** All in `src/phasespace/gravity/`:
 - `departure.py`: TLI state, §2.
@@ -254,60 +277,56 @@ The 10 d horizon makes these estimates slightly conservative.
 - `free_return_validation.py`: S3.
 - `free_return_export.py`: CLI and runs.
 
-Tests are in `tests/gravity/test_gravity_{departure,return_shell,free_return,free_return_pipeline}.py`. The data contract was extended additively; see "M3 additions" in `docs/data-contract.md`.
+Tests are in `tests/gravity/test_gravity_{departure,return_shell,free_return,free_return_pipeline,backward_decomposition}.py`. The data contract was extended additively; see "M3 additions" in `docs/data-contract.md`.
 
 ### S1: 2-D grid map
 
-Run `runs/gravity-free-return-map-2d-grid-pre2`: 720 × 126 = 90 720 tangential departures, one propagation each, 650 s wall time.
+Run `gravity-free-return-map-2d-grid-v1`: 720 × 126 = 90 720 tangential departures, one propagation each. 262 381 794 right-hand-side evaluations in total; 858 s wall time.
 
 | Outcome | Count | Share |
 |---|---|---|
-| Feasible | 161 | 0.18 % |
-| No return within 10 d | 64 681 | |
-| Return, perilune out of band¹ | 22 281 | |
-| Return before lunar encounter | 3 314 | |
-| Moon collision | 283 | |
-| Numerical failure | 0 | |
+| Feasible | 161 | 0.177 % |
+| No return within 10 d | 64 681 | 71.3 % |
+| Return, perilune out of band¹ | 22 281 | 24.6 % |
+| Return before lunar encounter | 3 314 | 3.7 % |
+| Moon collision | 283 | 0.3 % |
+| Earth collision, invalid start, numerical failure | 0 | |
 
 ¹ "Perilune out of band" also covers returns with no real lunar flyby. In those, the closest Moon periapsis is only a far Moon-relative distance minimum, for example while the spacecraft is near the Earth.
 
-Max Jacobi drift at accepted steps over the feasible samples: 7.5e-10.
-
-The superseded run `…-pre1` gave identical counts. It was produced before review fixes that changed the vacuum-perigee column and must not be used.
+The maximum Jacobi drift at accepted steps over the feasible samples is 7.5e-10.
 
 **Structure: at least two families at this resolution.** The feasible set is a thin band along the high-Δv edge of the Moon-collision boundary. The 2 m/s grid under-resolves it and probably misses thinner feasible regions altogether.
 
 - **(A) Lunar passage sense −1** (156 grid points):
-  - θ = 225.5–247°, Δv = 3.146–3.178 km/s;
-  - h_p runs from 188 km near the collision edge up to 30 000 km;
-  - t_ret = 5.7–10 d;
-  - only 1–6 feasible Δv cells per θ column (6 at θ = 227–231°).
+  - θ = 225.5–247.0°, Δv = 3.146–3.180 km/s;
+  - h_p = 188–29 118 km, t_ret = 5.70–9.96 d;
+  - 1–6 feasible Δv cells per θ column (6 at θ = 227–229.5° and 231°).
 - **(B) Lunar passage sense +1** (5 grid points):
-  - θ = 248–254°, Δv = 3.130–3.132 km/s;
-  - h_p = 28 000–30 000 km and t_ret = 9.8–10 d, at the band and T_MAX edges.
+  - θ = 248.0–254.0°, Δv = 3.130–3.132 km/s;
+  - h_p = 28 068–29 981 km and t_ret = 9.83–10.00 d, at the band and T_MAX edges.
 
-**Fine Δv probe.** Run `runs/gravity-free-return-dv-probe-pre4` (`just gravity-m3-probe`; 0.02 m/s steps over Δv = 3.120–3.190 km/s at θ = 229° and 251°; 7 002 propagations; 106 s).
+**Fine Δv probe.** Run `gravity-free-return-dv-probe-v1`: 0.02 m/s steps over Δv = 3.120–3.190 km/s at θ = 229° and 251°, 7 002 propagations.
 - At θ = 229°, family (A) is one contiguous band, Δv = 3.15724–3.16860 km/s. That is 569 points, a width of 11.4 m/s, consistent with the 6 grid cells.
-- At θ = 251°, family (B) exists only in a window Δv = 3.13078–3.13114 km/s. That is 19 points, a width of 0.36–0.40 m/s.
+- At θ = 251°, family (B) exists only in a window Δv = 3.13078–3.13114 km/s. That is 19 points: 0.36 m/s between the outermost feasible samples, 0.40 m/s between the bracketing infeasible ones.
 - The grid's 5 (B) points are therefore aliasing hits on a sub-cell window. The grid cannot measure (B)'s extent.
 
-The D16 coverage ground truth will need adaptive refinement at band edges. This is an M4-protocol item, to be frozen before any comparison.
+The D16 coverage ground truth therefore needs adaptive refinement at band edges. The M4 protocol defines it (`protocol.md` §5.3).
 
 ### S2: targeting
 
 Starts were the 10 feasible grid points with the smallest ‖F‖. The method was trf with forward differences, x_scale = 1, box bounds and ftol = xtol = gtol = 1e-12. Convergence means max|F_i| ≤ 1e-5 and the point is feasible.
 
-- **With the declared cap of 200 propagations per start, 0 of 10 converged** (2 000 propagations; run `gravity-free-return-search-pre2`).
+- **Cap deviation, 200 → 1000 (D22).** The design's 200 propagations per start was a proposal that had not been tested on S2. In the preliminary run `gravity-free-return-search-pre2` (dirty tree, 2 000 propagations), 0 of 10 starts converged under that cap.
   - The cause is the problem's geometry, not a missing solution. The grid cannot resolve the h_vp = 38 km valley: ∂h_vp/∂Δv ≈ −1.0e7 km per km/s, so one 2 m/s cell spans about 20 000 km of h_vp.
   - The starts with the smallest ‖F‖ therefore lie on the valley floor but far from h_p = 1000 km. trf then crawls along the curved valley in steps of about 0.03–0.06°.
   - A probe of x_scale = "jac", x_scale = (1, 0.0044), dogbox and the exact tr_solver converged at most 1 of 10 starts.
-- **Cap deviation, 200 → 1000 (user decision, 2026-10-18).** The S2 cap per start is now 1000 by default (`SearchSettings`, CLI flag `--max-propagations-per-start`, recipe parameter `cap`). The reason is the valley crawl above: the design's 200 was a proposal that had not been tested on S2. Every search run records the cap and the design's proposed 200 in `limitations`.
-  - With cap 1000 (runs `gravity-free-return-search-pre2-cap1000` and `gravity-free-return-search-pre3`), all 10 starts converged, using 257–648 propagations each and 5 355 in total.
-  - They reached 2 distinct candidates, with max|F| ≤ 5e-9.
+  - The cap is now 1000 by default (`SearchSettings`, CLI flag `--max-propagations-per-start`, recipe parameter `cap`). Every search run records the cap and the design's 200 in `limitations`.
+- **Evidence (`gravity-free-return-search-v2`, cap 1000).** All 10 starts converged, using 257–648 propagations each and 5 355 in total. They reached 2 distinct candidates with max|F| ≤ 5.0e-9. Start ranks 2 and 8 are the exported representatives.
 
 ### S3: candidates and validation
 
-| | c1 (`gravity-free-return-c1-pre4`) | c2 (`gravity-free-return-c2-pre4`) |
+| | c1 (`gravity-free-return-c1-v2`) | c2 (`gravity-free-return-c2-v2`) |
 |---|---|---|
 | θ, Δv | 229.142241°, 3.1567704 km/s | 225.816259°, 3.1780111 km/s |
 | h_p (target 1000 km), t_moon | 1000.000 km, 3.060 d | 1000.000 km, 2.607 d |
@@ -315,28 +334,31 @@ Starts were the 10 feasible grid points with the smallest ‖F‖. The method wa
 | Vacuum perigee (target 38 km) | 38.000 km | 38.000 km |
 | Family; lunar passage sense | (A); −1 | (A); −1 |
 | Entry sense (Earth-relative inertial angular momentum at the shell) | +1, posigrade | −1, retrograde |
-| Δv margin to the nearest infeasible Δv (fixed θ), non-gating | below 0.0093 m/s (beyond: no return, i.e. skip-out); above 11.3 m/s (no return) | below 2.26 m/s (perilune out of band); above 0.031 m/s (no return) |
+| Δv margin to the nearest infeasible Δv (fixed θ), non-gating | below 9.25 mm/s (beyond: no return, i.e. skip-out); above 11.3 m/s (no return) | below 2.26 m/s (perilune out of band); above 30.8 mm/s (no return) |
 | h_p margin to the band edges, non-gating | 900 km / 29 000 km | 900 km / 29 000 km |
+| Targeting propagations (representative start) | 644 | 258 |
 
-**Checks passed, for both candidates:**
+**Checks passed, for both candidates** (the observed value is the maximum over c1 and c2 and over both references):
 - predicates hold, with margins, under the run, DOP853 1e-13 and LSODA 1e-13;
 - |Δh_p| ≤ 5.0e-6 km, against a threshold of 1e-2 km;
 - |Δt_ret| ≤ 1.8e-4 s, against 0.1 s;
-- shell-crossing position difference ≤ 4.9e-4 km, against 1e-2 km;
+- shell-crossing position difference ≤ 4.9e-4 km, against 1e-2 km. This is the check with the **smallest margin among the agreement checks** (factor 20.5, c1 vs LSODA);
 - entry agreement with the tight and LSODA runs:
   - speed ≤ 7.9e-11 km/s, against 1e-6 km/s (1 mm/s);
   - flight-path angle ≤ 2.1e-6°, against 1e-3°;
   - vacuum perigee ≤ 5.5e-5 km, against 0.05 km.
 
-  These checks were added after review. The thresholds come from integrator-agreement physics, not from the observed values: Jacobi conservation bounds the speed, and the 10 m crossing-point separation bounds the angle through the local-horizontal rotation and the path curvature. The two-body sensitivities of a near-parabolic entry (≈ 25 km/deg, ≈ 1.2 km per m/s) then bound the perigee. The derivations are in the `free_return_validation.py` constants;
-- Jacobi drift over 10⁵ dense samples ≤ 8.0e-10 (run), 8.0e-11 (tight) and 1.4e-10 (LSODA), against 1e-9. **The margin is small:** c1's run passes by only a factor of 1.26 (7.96e-10), c2's by 1.75. The M3 threshold is not changed after the fact;
+  These checks were added after review (`ccf326e`). The thresholds come from integrator-agreement physics, not from the observed values: Jacobi conservation bounds the speed, and the 10 m crossing-point separation bounds the angle through the local-horizontal rotation and the path curvature. The two-body sensitivities of a near-parabolic entry (≈ 25 km/deg, ≈ 1.2 km per m/s) then bound the perigee. The derivations are in the `free_return_validation.py` constants;
+- Jacobi drift over 10⁵ dense samples ≤ 8.0e-10 (run), 8.0e-11 (tight) and 1.4e-10 (LSODA), against 1e-9. **The margin is small:** c1's run passes by only a factor of 1.26 (7.96e-10), c2's by 1.75 (5.71e-10). The M3 threshold is not changed after the fact;
 - brute-force perilune vs the event ≤ 2.3e-11 km, against 1e-3 km;
 - no dense sample inside the shell or the Moon;
 - samples finite and strictly increasing.
 
-**Backward-integration check: redefined (user decision, 2026-10-18).**
+Across all the agreement checks the margins (threshold / observed) run from 20.5 to 1.2 × 10⁵. The backward-integration checks pass by factors of 7.9–19 and the Jacobi checks by 1.26–17.
 
-*Why the original check was replaced.* Under the original single max-norm criterion of §5 (max|Δs₀| ≤ 1e-7, normalized), both candidates failed: 8.3e-7 (c1) and 6.6e-7 (c2). The runs `…-pre2-cap1000` were therefore `computed_unvalidated`. The failure is understood and is not a modelling error:
+**Backward-integration check: redefined (D21, user decision 2026-10-18).**
+
+*Why the original check was replaced.* Under the original single max-norm criterion of §5 (max|Δs₀| ≤ 1e-7, normalized), both candidates fail: 8.3e-7 (c1) and 6.6e-7 (c2). These values are recorded in the `-v2` manifests. The failure is understood and is not a modelling error:
 - The error is dominated by velocity, because |ds/dt| ≈ 3400 at the parking orbit. The 1e-7 threshold therefore amounted to a ~0.1 ms timing test. That is 1000× stricter than the 0.1 s return-time check, while 1e-7 in position (38 m) is looser than the 10 m checks.
 - The backward pass from the tight (1e-13) run's shell state gives |Δs₀| = 1.3e-8 (c1). So the raw error is the run's own 1e-12 shell-state error (13 cm, consistent with the 1.3e-4 km tight-agreement check) amplified backward through the flyby.
 - The §5 threshold came from a single pilot sample with h_p = 293 km.
@@ -357,16 +379,15 @@ Three gating checks replace the max-norm. All three are **reversibility bounds, 
 
 The old criterion stays in each manifest as the non-gating metric `superseded_check_backward_max_abs_initial_state_error`, with its threshold and verdict. The backward diagnostics from the tight run are also kept as metrics. The decomposition is tested against an independent RK4 time shift with a known transverse offset (`tests/gravity/test_gravity_backward_decomposition.py`).
 
-**Result.** All checks pass for both candidates, and the re-validated runs `gravity-free-return-c1-pre4` and `gravity-free-return-c2-pre4` are `validated` (dirty tree). The earlier `…-pre3` runs lack the entry checks and margins.
+**Result.** All checks pass for both candidates, and `gravity-free-return-c1-v2` and `gravity-free-return-c2-v2` are `validated` from clean commit `ccf326e`.
 
 **Thin margins (disclosed).**
-- c1 sits about 9 mm/s in Δv from skip-out.
-- c2 sits about 31 mm/s from a no-return edge.
+- c1 sits 9.25 mm/s in Δv from skip-out.
+- c2 sits 30.8 mm/s from a no-return edge.
 - c1's Jacobi gate passes by a factor of only 1.26.
+- The tightest integrator-agreement check (shell-crossing position vs LSODA) passes by a factor of 20.5.
 
-The numerical margins of 10³–10⁴ quoted below apply to the integrator-agreement checks only.
-
-**M4 protocol must-freeze.** Before any M4 data is produced, the protocol must freeze:
+**M4 protocol must-freeze.** Both items are defined in the M4 protocol draft (`protocol.md` §5.2 and §5.3) and must be frozen before any M4 data is produced:
 - a scaled Jacobi criterion, for example relative to the magnitude of the terms of C along the trajectory or tied to integrator tolerance, instead of the absolute 1e-9;
 - adaptive band-edge refinement for the coverage ground truth.
 
@@ -376,46 +397,58 @@ The numerical margins of 10³–10⁴ quoted below apply to the integrator-agree
 |---|---|---|
 | Δv | 3.157 km/s (−0.8 %) | 3.182 km/s |
 | Pericynthion time | 3.06 d | 3.01 d |
-| Entry interface | 6.12 d (−8 %) | 6.64 d |
+| Entry interface | 6.12 d (−7.8 %) | 6.64 d |
 | Entry speed | 11.008 km/s | 10.996 km/s |
 
 γ_S was targeted at the Apollo entry value through h_vp, so it is not comparable with Apollo's pure free-return −64°. The magnitudes agree to within several percent, as §5 expected.
 
-**Reproducibility (criterion 2).** Re-running the candidate command (`…-pre2-cap1000-rerun`) reproduced the metrics, the check values and `trajectory.json` samples bit-for-bit for both candidates.
+**Reproducibility (criterion 2).** Three independent exports of the candidates agree bit-for-bit in metrics, check values and `trajectory.json` samples: `-pre4` (dirty), `-v1` (clean, `9a721b0`) and `-v2` (clean, `ccf326e`). The search tables of `search-v1` and `search-v2` agree in every numeric column. The clean S1 and S4 tables agree row for row with their dirty-tree predecessors.
 
 ### S4: 3-D Sobol map
 
-Run `runs/gravity-free-return-map-3d-sobol17-pre2`: 2¹⁷ = 131 072 points, seed 20261018, 935 s wall time.
+Run `gravity-free-return-map-3d-sobol17-v1`: 2¹⁷ = 131 072 points, scrambled Sobol with seed 20261018. 404 346 727 right-hand-side evaluations in total; 870 s wall time (6.6 ms per propagation, effective, with 10 workers on a shared machine).
 
-- 243 feasible (0.185 %), 0 numerical failures.
-- Feasible θ = 220.7–256.8°, Δv = 3.138–3.204 km/s, with α across the whole ±10° range.
-- h_p = 143–29 997 km, t_ret = 5.68–9.99 d.
+- 243 feasible (0.185 %), 0 numerical failures. The other outcomes: 89 741 no return, 35 704 perilune out of band, 5 024 return before lunar encounter, 360 Moon collisions.
+- Feasible θ = 220.7–256.8°, Δv = 3.138–3.204 km/s, with α across the whole ±10° range (−9.95° to +9.99°).
+- h_p = 143–29 997 km, t_ret = 5.68–9.99 d, t_moon = 2.54–5.56 d.
 - Passage sense: 238 at −1, 5 at +1.
+- Max Jacobi drift at accepted steps over the feasible samples: 4.3e-10.
 
-The feasible samples occupy **27 of 100 cells** of the provisional 10 × 10 descriptor grid. The grid is log₁₀ h_p on [2, log₁₀ 30 000] and t_ret on [5, 10] d in equal bins, computed by a one-off binning of `samples.json`. Coverage is concentrated along a curved h_p–t_ret ridge.
+The feasible samples occupy **27 of 100 cells** of the provisional 10 × 10 descriptor grid. The grid is log₁₀ h_p on [2, log₁₀ 30 000] and t_ret on [5, 10] d in equal bins, computed by a one-off binning of `samples.json`; the M4 protocol freezes the binning. Coverage is concentrated along a curved h_p–t_ret ridge. Facts the M4 protocol uses, from the same one-off analysis:
+- The nested Sobol prefixes occupy 9, 16, 20, 27 and 27 cells at 2¹³, 2¹⁴, 2¹⁵, 2¹⁶ and 2¹⁷ samples. A 20 × 20 grid is still growing at 2¹⁷: 35, 52 and 65 cells at 2¹⁵, 2¹⁶ and 2¹⁷.
+- Within the occupied cells, γ_S spans 12–71° (cells with ≥ 3 samples). Only 1 of the 243 feasible samples lies within 1° of γ* = −6.5°, and the median γ_S is −55°. Quality within a cell is therefore not trivial, which confirms the reason for the 3-D parameterization (§2).
 
-### Go/no-go (§7)
+### Go/no-go (§7): GO
 
-| Criterion | Result |
-|---|---|
-| 1. A candidate passes every §5 check | Met under the redefined backward check, with the added entry checks (c1 and c2, `…-pre4`). Under the original max-norm it was not met, and that value is still recorded. |
-| 2. Re-export reproduces observables | Met, bit-identical. |
-| 3. S4 occupies ≥ 10 of 100 cells | Met, 27 cells. |
-| 4. Budget ≤ 2.5 × 10⁵ propagations | Met: S1 90 720 + S2 7 355 (2 000 at cap 200 + 5 355 at cap 1000) + S3 about 10 + S4 131 072 ≈ 229 160. A clean regeneration at cap 1000 needs about 227 000. The fine probe adds 7 002 and the Δv-margin diagnostics about 50 per candidate. Not counted as evidence: the superseded `pre1` map (90 720) and the re-runs (`…-rerun`, `…-pre3`, `…-pre4`, 5 355 each). |
+| Criterion | Result | Evidence |
+|---|---|---|
+| 1. A candidate passes every §5 check | **Met**, for c1 and c2, under the redefined backward check (D21) and with the added entry checks. Under the original max-norm it is not met; that value is still recorded. | `gravity-free-return-c1-v2`, `-c2-v2` (`ccf326e`), status `validated` |
+| 2. Re-export reproduces observables | **Met**, bit-identical across three exports, two of them clean. | `-pre4`, `-v1` (`9a721b0`), `-v2` (`ccf326e`) |
+| 3. S4 occupies ≥ 10 of 100 cells | **Met**, 27 cells. | `gravity-free-return-map-3d-sobol17-v1` (`9a721b0`) |
+| 4. Budget ≤ 2.5 × 10⁵ propagations | **Met.** S1 90 720 + S2 5 355 + S4 131 072 = 227 147. Adding the S3 validation (a few propagation equivalents per candidate) and the Δv-margin diagnostics (50 for c1, 48 for c2) gives ≈ 227 260. Counting the failed cap-200 attempt (2 000) gives ≈ 229 260. The fine probe (7 002) is an extra diagnostic. Regenerations and superseded runs (`pre1`–`pre4`, `-rerun`, the `-v1` candidates) are not part of the procedure's budget. | run manifests |
 
-**Assessment: GO, pending the clean-commit regeneration.** Two changes to the design were made, and both are disclosed above:
-- the backward check was redefined;
-- the S2 cap was raised from 200 to 1000.
+**Assessment: GO; M3 is complete.** Two changes to the design were made, and both are disclosed above:
+- the backward check was redefined (D21);
+- the S2 cap was raised from 200 to 1000 (D22).
 
-None of the negative outcomes (a)–(c) applies. The agreement checks pass by margins of 10³–10⁴. The Jacobi gate (factor 1.26 for c1) and the physical Δv margins are thin, as disclosed above. The evidence runs must still be regenerated from a clean commit.
+None of the negative outcomes (a)–(c) applies:
+- (a) Two candidates exist.
+- (b) The integrators agree, with a smallest margin of 20.5.
+- (c) The feasible set is thin (0.185 % of the box), but it is not too thin for the criterion: 27 cells.
 
-### Reproduce (from a clean commit)
+The Jacobi gate (factor 1.26 for c1) and the physical Δv margins (9–31 mm/s) are thin, as disclosed above. The M4 draft protocol is `protocol.md`.
+
+### Reproduce
+
+From a clean checkout of the stated commit, with recipes as committed in `ccf326e`. Each command writes a **new** run directory and refuses to overwrite an existing one, so first move or rename the evidence run, or pass a new run id and compare.
 
 ```text
-just gravity-m3-map gravity-free-return-map-2d-grid-v1
-just gravity-m3-candidates gravity-free-return-map-2d-grid-v1 v1        # cap 1000 is the default
-just gravity-m3-sobol gravity-free-return-map-3d-sobol17-v1 20261018
-just gravity-m3-probe gravity-free-return-dv-probe-v1
+# commit 9a721b0 (or later; map code unchanged in ccf326e)
+just gravity-m3-map gravity-free-return-map-2d-grid-v1                      # S1, 90 720 propagations
+just gravity-m3-sobol gravity-free-return-map-3d-sobol17-v1 20261018        # S4, 131 072 propagations
+# commit ccf326e
+just gravity-m3-candidates gravity-free-return-map-2d-grid-v1 v2            # S2 + S3; cap 1000 is the default
+just gravity-m3-probe gravity-free-return-dv-probe-v1                       # fine Δv probe, 7 002 propagations
 ```
 
-The candidate command writes `gravity-free-return-search-v1` and `gravity-free-return-c{1,2}-v1`. The full tables (`samples.json`: 19 MB for S1, 34 MB for S4) stay local under `runs/`.
+The candidate command writes `gravity-free-return-search-v2` and `gravity-free-return-c{1,2}-v2`. The full tables (`samples.json`: 19.8 MB for S1, 34.3 MB for S4) stay local under `runs/`. `just verify` runs the tests.

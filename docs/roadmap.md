@@ -38,7 +38,9 @@ Hex prototype, Hex docs and the Pi local-LLM configuration archived on branch `a
 
 **Done when:** a visitor can explore the page from static assets alone, and every displayed trajectory is computed.
 
-## M3 — Free-return feasibility
+## M3 — Free-return feasibility — done 2026-10-18 (GO)
+
+Two validated planar free returns (c1, c2) and a 2¹⁷-sample 3-D Sobol map (243 feasible, 27 of 100 descriptor cells), all from clean commits; see `studies/gravity-atlas/m3-feasibility-design.md` ("M3 results"). Next: M4. Its protocol is drafted in `studies/gravity-atlas/protocol.md` and awaits review and freezing.
 
 **Goal:** a precisely defined free-return-like candidate, or an honest negative result.
 

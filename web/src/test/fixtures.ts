@@ -32,3 +32,22 @@ export function staticFetcher(overrides: Record<string, Response | Error> = {}):
     }
   };
 }
+
+interface RawCatalogRun {
+  run_id: string;
+  path: string;
+  kind: string;
+}
+
+/** The published catalog's run entries (unvalidated JSON), for locating fixtures by kind or id. */
+export function catalogRuns(): RawCatalogRun[] {
+  const catalog = publicJson("/research/catalog.json") as { studies: { runs: RawCatalogRun[] }[] };
+  return catalog.studies.flatMap((s) => s.runs);
+}
+
+/** Path of the first published run matching `predicate`; throws if none. */
+export function publishedRunPath(predicate: (run: RawCatalogRun) => boolean): string {
+  const run = catalogRuns().find(predicate);
+  if (run === undefined) throw new Error("no published run matches");
+  return run.path;
+}

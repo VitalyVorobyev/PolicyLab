@@ -54,6 +54,10 @@ gravity-m3-candidates map_run="gravity-free-return-map-2d-grid-v1" version="v1" 
 gravity-m3-probe run_id="gravity-free-return-dv-probe-v1" workers="10":
     uv run python -m phasespace.gravity.free_return_export --runs-dir runs --workers {{workers}} map --design dvprobe --run-id {{run_id}}
 
+# M3: derive the website's compact, lossless outcome grid from a 2-D map run (new run under runs/).
+gravity-m3-web-map map_run="gravity-free-return-map-2d-grid-v1" run_id="gravity-free-return-map-2d-grid-v1-web":
+    uv run python -m phasespace.gravity.free_return_export --runs-dir runs web-map --map-run {{map_run}} --run-id {{run_id}}
+
 # Install the website's pinned dependencies (npm, from web/package-lock.json).
 web-install:
     cd web && npm ci

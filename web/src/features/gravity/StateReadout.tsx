@@ -1,5 +1,5 @@
 import { fixed } from "../../lib/format";
-import type { Trajectory } from "../../lib/data/types";
+import type { Model, Trajectory } from "../../lib/data/types";
 import { usePlaybackState, type PlaybackStore } from "./playback";
 import type { Units } from "./units";
 
@@ -12,8 +12,16 @@ interface Row {
   physicalUnit: string;
 }
 
+interface Props {
+  store: PlaybackStore;
+  trajectory: Trajectory;
+  units: Units;
+  /** When given, altitudes above the Earth and Moon (centre distance minus the manifest radius) are shown too. */
+  model?: Model | null;
+}
+
 /** Exact values of the current recorded sample, in normalized units and converted with the manifest's scales. */
-export function StateReadout({ store, trajectory, units }: { store: PlaybackStore; trajectory: Trajectory; units: Units }) {
+export function StateReadout({ store, trajectory, units, model = null }: Props) {
   const { index, playing } = usePlaybackState(store);
   const t = trajectory.t[index] ?? 0;
   const x = trajectory.x[index] ?? 0;
@@ -27,6 +35,13 @@ export function StateReadout({ store, trajectory, units }: { store: PlaybackStor
     { symbol: "vx", name: "velocity x", normalized: fixed(vx, 7), normalizedUnit: "VU", physical: fixed(units.kmPerSecond(vx), 5), physicalUnit: "km/s" },
     { symbol: "vy", name: "velocity y", normalized: fixed(vy, 7), normalizedUnit: "VU", physical: fixed(units.kmPerSecond(vy), 5), physicalUnit: "km/s" },
   ];
+  const altitudes =
+    model === null
+      ? []
+      : [
+          { name: "Altitude above the Earth", value: units.km(Math.hypot(x - model.earth.x, y - model.earth.y)) - model.earth.radius_km },
+          { name: "Altitude above the Moon", value: units.km(Math.hypot(x - model.moon.x, y - model.moon.y)) - model.moon.radius_km },
+        ];
   return (
     <div aria-live={playing ? "off" : "polite"} aria-atomic="true">
       <p className="flex items-baseline justify-between text-sm text-graphite">
@@ -63,6 +78,18 @@ export function StateReadout({ store, trajectory, units }: { store: PlaybackStor
           ))}
         </tbody>
       </table>
+      {altitudes.length > 0 && (
+        <dl className="numeric mt-3 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-t border-rule pt-2 text-[0.95rem]">
+          {altitudes.map((a) => (
+            <div key={a.name} className="contents">
+              <dt className="font-sans text-graphite">{a.name}</dt>
+              <dd className="text-right whitespace-nowrap">
+                {fixed(a.value, 1)} <span className="text-xs text-quiet">km</span>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   );
 }

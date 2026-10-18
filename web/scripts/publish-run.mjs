@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // Copy one exported research run into web/public/research/ so it can be served statically.
 //
-// Usage: node web/scripts/publish-run.mjs <source-run-dir> <destination>
+// Usage: node web/scripts/publish-run.mjs [--allow-dirty-for-development] <source-run-dir> <destination>
 //   <source-run-dir>  a directory containing manifest.json (e.g. runs/gravity-l1-lyapunov-reference-v2)
 //   <destination>     a path relative to web/public/research/ (e.g. gravity-atlas/l1-lyapunov-reference-v2)
 //
 // The script verifies every artifact's SHA-256 against the manifest before and after copying,
-// refuses runs whose provenance records uncommitted changes, and never overwrites an existing
-// published directory. Files are copied byte for byte. It does not edit catalog.json; it prints
+// refuses runs whose provenance records uncommitted changes (unless the explicit development
+// flag is given; such a run must be replaced by a clean re-export before release), and never
+// overwrites an existing published directory. Any artifact kind is copied the same way. Files are copied byte for byte. It does not edit catalog.json; it prints
 // the entry to add.
 
 import { createHash } from "node:crypto";
@@ -35,9 +36,12 @@ function sha256(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
-const [source, destination] = process.argv.slice(2);
-if (source === undefined || destination === undefined) {
-  fail("usage: publish-run.mjs <source-run-dir> <destination relative to web/public/research>");
+const DIRTY_FLAG = "--allow-dirty-for-development";
+const args = process.argv.slice(2);
+const allowDirty = args.includes(DIRTY_FLAG);
+const [source, destination, ...extra] = args.filter((a) => a !== DIRTY_FLAG);
+if (source === undefined || destination === undefined || extra.length > 0) {
+  fail(`usage: publish-run.mjs [${DIRTY_FLAG}] <source-run-dir> <destination relative to web/public/research>`);
 }
 if (!isSafeRelativePath(destination)) {
   fail(`destination must be a plain relative path (letters, digits, . _ -), got "${destination}"`);
@@ -57,7 +61,13 @@ try {
 if (manifest.schema_version !== 1) fail(`unsupported schema_version ${String(manifest.schema_version)}`);
 if (typeof manifest.run_id !== "string" || manifest.run_id === "") fail("manifest has no run_id");
 if (manifest.source?.git_dirty !== false) {
-  fail("manifest provenance is not from a clean commit (source.git_dirty must be false); re-export after committing");
+  if (!allowDirty || manifest.source?.git_dirty !== true) {
+    fail("manifest provenance is not from a clean commit (source.git_dirty must be false); re-export after committing");
+  }
+  const disclosed = Array.isArray(manifest.limitations) && manifest.limitations.some((/** @type {unknown} */ l) => typeof l === "string" && l.includes("git_dirty"));
+  if (!disclosed) fail("a dirty run must disclose source.git_dirty in its limitations");
+  console.warn(`publish-run: WARNING: ${manifest.run_id} was exported from an uncommitted working tree.`);
+  console.warn("publish-run: published for development only; replace it with a clean re-export before release.");
 }
 if (!Array.isArray(manifest.artifacts) || manifest.artifacts.length === 0) fail("manifest lists no artifacts");
 

@@ -23,15 +23,15 @@ const STATUS: Record<RunStatus, { label: string; description: string; className:
 };
 
 /** Run status as icon + text (never color alone), with the meaning available to assistive tech. */
-export function StatusBadge({ status }: { status: RunStatus }) {
+export function StatusBadge({ status, compact = false }: { status: RunStatus; compact?: boolean }) {
   const { label, description, className, Icon } = STATUS[status];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-sm font-medium ${className}`}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-sm border text-sm font-medium ${compact ? "px-1.5 py-0.5" : "px-2 py-0.5"} ${className}`}
       title={description}
     >
       <Icon />
-      <span>
+      <span className={compact ? "max-sm:sr-only" : undefined}>
         {label}
         <span className="sr-only">: {description}</span>
       </span>

@@ -27,7 +27,7 @@ const TITLES: Record<DataErrorKind, { title: string; hint: string }> = {
     hint: "The file is well-formed but empty. Re-export the run; empty runs are never published intentionally.",
   },
   checksum: {
-    title: "The trajectory does not match its recorded checksum",
+    title: "A data file does not match its recorded checksum",
     hint: "The data differs from what the manifest certifies, so it is not shown. Re-publish the run from its original export.",
   },
   unsafe_path: {

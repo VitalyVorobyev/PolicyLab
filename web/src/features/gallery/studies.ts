@@ -19,7 +19,8 @@ export const STUDIES: readonly StudySummary[] = [
     question:
       "At equal compute, does a diverse archive of Earth–Moon free-return trajectories hold more solutions that survive unseen injection errors and changed constraints than strong conventional optimizers do?",
     status: "active",
-    progress: "Physics engine validated against the JPL periodic-orbit catalog. Free-return search is next.",
+    progress:
+      "Physics engine validated against the JPL catalog; free returns found, validated and mapped. Next: a frozen protocol, then the matched-budget comparison.",
     specPath: "docs/studies/gravity-atlas/README.md",
     route: "/gravity",
   },

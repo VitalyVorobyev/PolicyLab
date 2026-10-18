@@ -13,7 +13,7 @@ just web-install   # npm ci
 just web-dev       # dev server on http://localhost:5173
 ```
 
-Routes: `/` (gallery), `/gravity` (Gravity Atlas). Anything else shows the in-app "Page not found".
+Routes: `/` (gallery), `/gravity` (Gravity Atlas; `/gravity?run=<run_id>` selects a trajectory). Anything else shows the in-app "Page not found".
 
 ## Check and build
 
@@ -37,11 +37,16 @@ scripts/             publish-run.mjs
 
 ### How data is loaded
 
-`public/research/catalog.json` lists studies and their published runs. For each run the loader:
+`public/research/catalog.json` lists studies and their published runs; each entry names the `kind` of the run's single artifact (`trajectory`, `sample_table` or `outcome_grid`), and the loader refuses a manifest whose artifact has another kind. For each run the loader:
 
 1. rejects any path that is not a plain relative path (no `..`, absolute paths, URLs, backslashes or percent-encoding);
 2. fetches `manifest.json` and validates it strictly against the schema v1 definition in `docs/data-contract.md`: schema version, every required field and type, every enum (an unknown value such as a new `length_scale_convention` is an error, not a fallback), `null` only where the contract allows it, finite numbers, the redundant fields (`velocity_scale_km_s`, primaries at `(-mu, 0)` and `(1 - mu, 0)`) consistent to 1e-12, each check's `passed` equal to `observed !== null && observed <= threshold`, and a `validated` status only with recorded, passing checks. A check whose `observed` is `null` (a non-finite result) is shown as "non-finite" and failed;
-3. fetches the trajectory artifact, checks its SHA-256 with WebCrypto against the manifest, and only then parses it (run_id match, frame and units, `state_order` exactly `t, x, y, vx, vy`, at least two rows, finite values, strictly increasing time).
+3. fetches the artifact, checks its SHA-256 with WebCrypto against the manifest, and only then parses it:
+   - trajectory: run_id match, frame and units, `state_order` exactly `t, x, y, vx, vy`, at least two rows, finite values, strictly increasing time, and optional `events` (snake_case names, times inside the sampled range and in order, four finite state values);
+   - sample table: unique snake_case columns with a contract unit or `null`, one value per column per row, finite numbers in numeric columns and strings in text columns (or `null`);
+   - outcome grid: axes, `phase_major` order, `base64_uint8` codes decoding to exactly one code per cell and within the outcome table, feasible rows matching the feasible cells in index order, and outcome counts equal to the manifest's `outcome_<name>_count` metrics.
+
+   M3 manifest fields are checked too: `deg` units, `termination` and outcome enums, `solver.return_shell` (with `altitude_km = radius_km − Earth radius`), `derived_from` provenance, and a dirty working tree must be disclosed in `limitations`.
 
 Any failure shows an error explaining what went wrong and how to fix it; nothing from a failing run is drawn.
 
@@ -60,7 +65,7 @@ just web-publish-run gravity-l1-lyapunov-reference-v2 gravity-atlas/l1-lyapunov-
 # equivalent: node web/scripts/publish-run.mjs runs/<run_id> <destination under web/public/research>
 ```
 
-The script verifies every artifact's SHA-256 against the manifest, refuses manifests whose provenance records uncommitted changes (`source.git_dirty` must be `false`), copies the files byte for byte, verifies the copies, and refuses to overwrite an existing directory. Published runs are immutable: to change one, export and publish a new run under a new directory. Then add the printed entry to `public/research/catalog.json`; the tests load and verify every run the catalog lists.
+The script verifies every artifact's SHA-256 against the manifest, refuses manifests whose provenance records uncommitted changes (`source.git_dirty` must be `false`), copies the files byte for byte, verifies the copies, and refuses to overwrite an existing directory. For local development only, `--allow-dirty-for-development` accepts a dirty run whose limitations disclose it; the site then shows a "Development build" warning, and the run must be replaced by a clean re-export before release. Published runs are immutable: to change one, export and publish a new run under a new directory. Then add the printed entry to `public/research/catalog.json`; the tests load and verify every run the catalog lists.
 
 ## Deploy to Cloudflare Pages
 

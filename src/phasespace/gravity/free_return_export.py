@@ -9,6 +9,9 @@ Usage::
     uv run python -m phasespace.gravity.free_return_export candidates \\
         --map-run gravity-free-return-map-2d-grid-v1 --run-prefix gravity-free-return \\
         --version v1
+    uv run python -m phasespace.gravity.free_return_export web-map \\
+        --map-run gravity-free-return-map-2d-grid-v1 \\
+        --run-id gravity-free-return-map-2d-grid-v1-web
 
 `map` writes one run with a `sample_table` artifact (`samples.json`, one row per sample).
 `candidates` reads a 2-D map run (verifying its sha256), refines the feasible points with
@@ -16,7 +19,8 @@ the smallest targeting residual (`free_return_search`), validates every distinct
 converged candidate (`free_return_validation`) and writes one trajectory run per
 candidate (`<prefix>-c<k>-<version>`, status `validated` only if every check passes) plus
 a search run (`<prefix>-search-<version>`) recording every start and its propagation
-count. Runs are written atomically and never overwrite an existing directory
+count. `web-map` reads a 2-D map run (verifying its sha256) and writes a derived run with a
+compact, lossless `outcome_grid` artifact for the website (`free_return_grid`). Runs are written atomically and never overwrite an existing directory
 (`export.write_run_directory`). The definitions are those of D20
 (docs/studies/gravity-atlas/m3-feasibility-design.md).
 """
@@ -65,6 +69,17 @@ from phasespace.gravity.free_return import (
     Outcome,
     targeting_residual,
 )
+from phasespace.gravity.free_return_grid import (
+    ARTIFACT_KIND as OUTCOME_GRID_KIND,
+)
+from phasespace.gravity.free_return_grid import (
+    ENCODING,
+    OUTCOMES,
+    decode_outcomes,
+    design_from_metrics,
+    dumps_grid,
+    outcome_grid,
+)
 from phasespace.gravity.free_return_map import (
     DV_PROBE,
     Column,
@@ -106,6 +121,8 @@ SAMPLES_FILE: Final = "samples.json"
 TRAJECTORY_FILE: Final = "trajectory.json"
 MAP_2D_EXPERIMENT: Final = "cr3bp-free-return-map-2d-grid-v1"
 PROBE_EXPERIMENT: Final = "cr3bp-free-return-dv-probe-v1"
+OUTCOME_GRID_EXPERIMENT: Final = "cr3bp-free-return-map-2d-outcome-grid-v1"
+OUTCOME_GRID_FILE: Final = "outcome_grid.json"
 DESIGN_PROPOSED_CAP: Final = 200
 """S2 propagation cap per start proposed in the M3 design (superseded default)."""
 FRAME: Final = "barycentric_synodic"
@@ -809,6 +826,136 @@ def run_candidates(
     return results, exported
 
 
+# --- web map (derived outcome grid) --------------------------------------------------
+
+_SOURCE_PROCESS_METRICS: Final = frozenset({"wall_time_hours", "workers"})
+"""Source metrics that describe the source run's process, not its data; not copied."""
+
+
+def _load_verified_table(run_dir: Path) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """(manifest, sample table, sha256) of a map run; raises unless the sha256 matches."""
+    manifest: dict[str, Any] = json.loads((run_dir / "manifest.json").read_text())
+    tables = [a for a in manifest["artifacts"] if a["kind"] == "sample_table"]
+    if len(tables) != 1:
+        raise ValueError(f"{run_dir}: expected exactly one sample_table artifact")
+    (artifact,) = tables
+    data = (run_dir / artifact["path"]).read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != artifact["sha256"]:
+        raise ValueError(f"{run_dir / artifact['path']}: sha256 mismatch")
+    return manifest, json.loads(data), digest
+
+
+def build_outcome_grid_documents(
+    run_id: str,
+    source_manifest: dict[str, Any],
+    source_table: dict[str, Any],
+    source_sha256: str,
+    *,
+    git_commit: str,
+    git_dirty: bool,
+    created_at: datetime,
+) -> tuple[dict[str, Any], bytes]:
+    """(manifest without artifacts, outcome_grid.json bytes) of a derived web-map run.
+
+    The grid's outcome counts are recounted from the encoded codes and must equal the
+    source run's `outcome_<name>_count` metrics.
+    """
+    if source_manifest.get("experiment_id") != MAP_2D_EXPERIMENT:
+        raise ValueError(f"source is not a {MAP_2D_EXPERIMENT} run")
+    (artifact,) = [a for a in source_manifest["artifacts"] if a["kind"] == "sample_table"]
+    design = design_from_metrics(source_manifest["metrics"])
+    grid = outcome_grid(run_id, design, source_table)
+    decoded = decode_outcomes(grid)
+    source_metrics: dict[str, Any] = source_manifest["metrics"]
+    for outcome in OUTCOMES:
+        key = f"outcome_{outcome.value}_count"
+        recount = decoded.count(outcome.value)
+        if key in source_metrics and source_metrics[key]["value"] != recount:
+            raise ValueError(
+                f"{key}: source records {source_metrics[key]['value']}, grid {recount}"
+            )
+    metrics = {k: v for k, v in source_metrics.items() if k not in _SOURCE_PROCESS_METRICS}
+    source = source_manifest["source"]
+    derivation = (
+        f"Lossless re-encoding of {artifact['path']}: the outcome of every one of the "
+        f"{design.size} grid cells as uint8 codes ({ENCODING}, phase-major), plus grid "
+        "indices, perilune altitude, lunar encounter time, return time and lunar passage "
+        "sense of the feasible cells, copied verbatim; no downsampling, no recomputation."
+    )
+    inherited = [
+        s
+        for s in source_manifest["limitations"]
+        if s != ASSUMPTIONS_LIMITATION and "source.git_dirty" not in s
+    ]
+    if source["git_dirty"]:
+        inherited.append(
+            "The source run was generated from a working tree with uncommitted changes "
+            "(derived_from.git_dirty = true)."
+        )
+    manifest: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": run_id,
+        "study_id": STUDY_ID,
+        "experiment_id": OUTCOME_GRID_EXPERIMENT,
+        "status": "computed_unvalidated",
+        "created_at": _timestamp(created_at),
+        "source": _source(git_commit, git_dirty),
+        "environment": environment_info(),
+        "model": source_manifest["model"],
+        "solver": source_manifest["solver"],
+        "random_seed": source_manifest["random_seed"],
+        "derived_from": {
+            "run_id": source_manifest["run_id"],
+            "experiment_id": source_manifest["experiment_id"],
+            "artifact_path": artifact["path"],
+            "artifact_sha256": source_sha256,
+            "git_commit": source["git_commit"],
+            "git_dirty": source["git_dirty"],
+            "derivation": derivation,
+        },
+        "artifacts": [],
+        "metrics": metrics,
+        "limitations": _limitations(
+            git_dirty,
+            [
+                *inherited,
+                f"Derived from run {source_manifest['run_id']} ({artifact['path']} sha256 "
+                f"{source_sha256}, verified before derivation). Model, solver and metrics are "
+                "the source run's (process metrics such as wall time excluded); the other "
+                "per-sample columns stay in the source table.",
+            ],
+        ),
+    }
+    return manifest, dumps_grid(grid)
+
+
+def run_outcome_grid(
+    runs_dir: Path,
+    map_run_id: str,
+    run_id: str,
+    *,
+    git_commit: str,
+    git_dirty: bool,
+) -> dict[str, Any]:
+    """Derive the web outcome-grid run `run_id` from map run `map_run_id` (both in runs_dir)."""
+    validate_run_id(run_id)
+    out_dir = runs_dir / run_id
+    if out_dir.exists():
+        raise FileExistsError(f"{out_dir} already exists; runs are never overwritten")
+    source_manifest, table, digest = _load_verified_table(runs_dir / map_run_id)
+    manifest, data = build_outcome_grid_documents(
+        run_id,
+        source_manifest,
+        table,
+        digest,
+        git_commit=git_commit,
+        git_dirty=git_dirty,
+        created_at=datetime.now(UTC),
+    )
+    return write_run_directory(out_dir, manifest, [(OUTCOME_GRID_KIND, OUTCOME_GRID_FILE, data)])
+
+
 # --- CLI -----------------------------------------------------------------------------
 
 
@@ -847,12 +994,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{DEFAULT_SEARCH.max_propagations_per_start}; the design proposed "
         f"{DESIGN_PROPOSED_CAP}); recorded in the search run",
     )
+    p_web = sub.add_parser(
+        "web-map", help="derive the compact outcome grid of a 2-D map run for the website"
+    )
+    p_web.add_argument("--map-run", required=True, help="run id of a grid2d map run")
+    p_web.add_argument("--run-id", required=True, help="run id of the new derived run")
     args = parser.parse_args(argv)
     runs_dir: Path = args.runs_dir
     workers: int = args.workers
     if workers < 1:
         parser.error("--workers must be >= 1")
     commit, dirty = git_source()
+
+    if args.command == "web-map":
+        try:
+            written = run_outcome_grid(
+                runs_dir,
+                str(args.map_run),
+                str(args.run_id),
+                git_commit=commit,
+                git_dirty=dirty,
+            )
+        except (ValueError, FileExistsError) as exc:
+            parser.error(str(exc))
+        out = runs_dir / str(args.run_id)
+        size = sum(f.stat().st_size for f in out.iterdir())
+        print(
+            f"wrote {out}: {written['artifacts'][0]['path']} from {args.map_run} "
+            f"({size / 1024:.1f} KiB in total), git_dirty={dirty}"
+        )
+        return 0
 
     if args.command == "map":
         run_id: str = args.run_id
