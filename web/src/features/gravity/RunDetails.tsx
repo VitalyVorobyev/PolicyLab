@@ -121,7 +121,11 @@ function groupChecks(checks: ValidationCheck[]): { title: string; checks: Valida
     const group = groups.find((g) => g.prefixes.some((p) => check.name.startsWith(p)));
     (group?.checks ?? other).push(check);
   }
-  return [...groups, { title: "Other checks", checks: other }].filter((g) => g.checks.length > 0);
+  const titled = groups.map(({ title, titleWithout, checks: grouped }) => ({
+    title: titleWithout !== undefined && !grouped.some((c) => c.name.startsWith(titleWithout.prefix)) ? titleWithout.title : title,
+    checks: grouped,
+  }));
+  return [...titled, { title: "Other checks", checks: other }].filter((g) => g.checks.length > 0);
 }
 
 function ChecksTable({ checks }: { checks: ValidationCheck[] }) {

@@ -48,10 +48,13 @@ export const CHECK_LABELS: Record<string, string> = {
   non_increasing_sample_times: "Non-increasing sample times",
 };
 
-/** Groups for the checks table, matched by name prefix in order; unmatched checks go last. */
-export const CHECK_GROUPS: { title: string; prefixes: string[] }[] = [
+/**
+ * Groups for the checks table, matched by name prefix in order; unmatched checks go last.
+ * `titleWithout` renames a group when none of its checks has the given prefix.
+ */
+export const CHECK_GROUPS: { title: string; prefixes: string[]; titleWithout?: { prefix: string; title: string } }[] = [
   { title: "Free-return predicates", prefixes: ["predicate_"] },
-  { title: "Periodicity and conservation", prefixes: ["periodicity_", "jacobi_"] },
+  { title: "Periodicity and conservation", prefixes: ["periodicity_", "jacobi_"], titleWithout: { prefix: "periodicity_", title: "Conservation" } },
   { title: "Agreement with other propagations, including entry conditions", prefixes: ["tight_tolerance_", "independent_integrator_"] },
   { title: "Backward integration, decomposed into a time shift and transverse errors", prefixes: ["backward_integration_"] },
   { title: "Event detection", prefixes: ["brute_force_", "dense_samples_"] },

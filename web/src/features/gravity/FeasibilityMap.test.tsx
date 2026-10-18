@@ -47,6 +47,14 @@ describe("FeasibilityMap", () => {
     expect(onSelect).toHaveBeenCalledWith("gravity-free-return-c2-v2");
   });
 
+  it("explains that cells show grid-point outcomes and candidates lie between grid points", () => {
+    render(<FeasibilityMap run={run} candidates={CANDIDATES} selectedRunId="gravity-free-return-c1-v2" onSelect={() => undefined} />);
+    expect(screen.getByText(/Each rectangle shows the outcome at its grid point only\. The candidates were refined between grid points/)).toBeInTheDocument();
+    const marker = screen.getByRole("button", { name: /Show Free return c2/ });
+    expect(marker).toHaveAccessibleName(/Refined between grid points; the cell beneath shows the outcome at its grid point only\./);
+    expect(marker).toHaveAttribute("title", expect.stringMatching(/Refined between grid points/) as string);
+  });
+
   it("describes the focused cell and moves with the arrow keys", () => {
     render(<FeasibilityMap run={run} candidates={CANDIDATES} selectedRunId="gravity-free-return-c1-v2" onSelect={() => undefined} />);
     const map = screen.getByRole("group", { name: /Zoomed outcome map/ });

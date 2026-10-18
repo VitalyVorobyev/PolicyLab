@@ -69,6 +69,20 @@ describe("RunDetails", () => {
     expect(within(limitations).getByText(/largest monodromy eigenvalue is 1808\.9/)).toBeInTheDocument();
   });
 
+  it("titles the Jacobi checks as conservation only when the run has no periodicity check", () => {
+    const { unmount } = render(<RunDetails run={loaded()} />);
+    expect(within(screen.getByRole("table")).getByText("Periodicity and conservation")).toBeInTheDocument();
+    unmount();
+    const run = loaded((m) => {
+      const validation = m.validation as JsonObject;
+      validation.checks = (validation.checks as JsonObject[]).filter((c) => !String(c.name).startsWith("periodicity_"));
+    });
+    render(<RunDetails run={run} />);
+    const table = screen.getByRole("table");
+    expect(within(table).getByText("Conservation")).toBeInTheDocument();
+    expect(within(table).queryByText("Periodicity and conservation")).toBeNull();
+  });
+
   it("renders a non-finite observed value as non-finite and failed", () => {
     const run = loaded((m) => {
       m.status = "computed_unvalidated";

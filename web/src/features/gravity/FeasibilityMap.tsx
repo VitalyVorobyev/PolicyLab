@@ -21,6 +21,12 @@ import { FEASIBLE_PLUS_STYLE, OUTCOME_ORDER, OUTCOME_STYLE, outcomeLabel, paintC
 export const DETAIL_PHASE_DEG: [number, number] = [210, 256];
 export const DETAIL_DELTA_V_KM_S: [number, number] = [3.12, 3.19];
 
+/** Why a candidate's ring can sit on a cell with another outcome. */
+const GRID_POINT_NOTE =
+  "Each rectangle shows the outcome at its grid point only. The candidates were refined between grid points, and the free-return band is narrower than a cell in places, so a ring can sit on a cell with a different outcome.";
+
+const MARKER_NOTE = "Refined between grid points; the cell beneath shows the outcome at its grid point only.";
+
 export interface MapCandidate {
   runId: string;
   tag: string;
@@ -299,8 +305,8 @@ function Detail({ run, width, region, cells, candidates, selectedRunId, onSelect
               type="button"
               onClick={() => { onSelect(c.runId); }}
               aria-pressed={selected}
-              aria-label={`Show ${c.label} in the viewer (θ ${fixed(c.phaseDeg, 3)}°, Δv ${fixed(c.deltaVKmS, 5)} km/s)`}
-              title={`${c.label}: θ ${fixed(c.phaseDeg, 3)}°, Δv ${fixed(c.deltaVKmS, 5)} km/s`}
+              aria-label={`Show ${c.label} in the viewer (θ ${fixed(c.phaseDeg, 3)}°, Δv ${fixed(c.deltaVKmS, 5)} km/s). ${MARKER_NOTE}`}
+              title={`${c.label}: θ ${fixed(c.phaseDeg, 3)}°, Δv ${fixed(c.deltaVKmS, 5)} km/s. ${MARKER_NOTE}`}
               className="group absolute flex items-center gap-1.5"
               style={{ left: x - 11, top: y - 11 }}
             >
@@ -437,7 +443,7 @@ export function FeasibilityMap({ run, candidates, selectedRunId, onSelect }: Pro
           <p className="mt-5 mb-2 text-sm text-canvas-text">
             Enlarged: θ {fixed(thetaLo, 0)}–{fixed(thetaHi, 0)}°, Δv {fixed(dvLo, 2)}–{fixed(dvHi, 2)} km/s, one rectangle per departure (
             {fixed(grid.phaseAxis.step, 1)}° × {fixed(grid.deltaVAxis.step * 1000, 0)} m/s). Rings mark the validated candidates; select one to
-            show it in the viewer.
+            show it in the viewer. {GRID_POINT_NOTE}
           </p>
           <Detail run={run} width={width} region={detail} cells={cells} candidates={candidates} selectedRunId={selectedRunId} onSelect={onSelect} />
         </div>
