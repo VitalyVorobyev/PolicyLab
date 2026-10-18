@@ -7,7 +7,10 @@ authors = [
     { name = "Vitaly Vorobyev", email = "vit.vorobiev@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "numpy>=2.5.4",
+    "scipy>=1.18.1",
+]
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 
@@ -20,6 +23,7 @@ dev = [
     "basedpyright>=1.39.10",
     "pytest>=9.1.1",
     "ruff>=0.16.3",
+    "scipy-stubs>=1.18.1.1",
 ]
 
 [tool.pytest.ini_options]

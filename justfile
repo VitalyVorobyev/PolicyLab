@@ -29,3 +29,7 @@ check: lint format-check typecheck
 
 # Run the complete Python validation suite.
 verify: check test
+
+# Export the M1 reference run (Earth-Moon L1 Lyapunov orbit) to a new directory under runs/.
+gravity-reference run_id="gravity-l1-lyapunov-reference":
+    uv run python -m phasespace.gravity.export --out runs/{{run_id}}

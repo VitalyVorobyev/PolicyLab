@@ -1,0 +1,116 @@
+{
+  "description": "Selected Earth-Moon planar L1 Lyapunov orbits from the NASA/JPL Three-Body Periodic Orbits API (Poincare Catalog of Periodic Orbits). Values are copied from the API response without modification (strings stay strings, numbers stay numbers). Used as an independent reference in tests; tests never access the network.",
+  "source_url": "https://ssd-api.jpl.nasa.gov/periodic_orbits.api?sys=earth-moon&family=lyapunov&libr=1",
+  "documentation_url": "https://ssd-api.jpl.nasa.gov/doc/periodic_orbits.html",
+  "fetched_on": "2026-10-18",
+  "response_sha256": "5d5c639574fa43f2c8ba6c3f7b5d93bb2e7109acc21ea2385af0886ad32ae0e9",
+  "signature": {
+    "source": "NASA/JPL Three-Body Periodic Orbits API",
+    "version": "1.0"
+  },
+  "system": {
+    "tunit": 382981.289129055,
+    "L1": [
+      "0.836915125772357",
+      "0.0",
+      "0.0"
+    ],
+    "L5": [
+      "0.487849414390376",
+      "-0.866025403784439",
+      "0.0"
+    ],
+    "L4": [
+      "0.487849414390376",
+      "0.866025403784439",
+      "0.0"
+    ],
+    "L3": [
+      "-1.00506264581028",
+      "0.0",
+      "0.0"
+    ],
+    "name": "Earth-Moon",
+    "lunit": 389703.264829278,
+    "L2": [
+      "1.15568216544488",
+      "0.0",
+      "0.0"
+    ],
+    "radius_secondary": 1737.1,
+    "mass_ratio": "1.215058560962404e-02"
+  },
+  "family": "lyapunov",
+  "libration_point": "1",
+  "count": "3108",
+  "limits": {
+    "jacobi": [
+      2.74151447391072,
+      3.18834111546061
+    ],
+    "stability": [
+      53.6706822030544,
+      1337.71033450654
+    ],
+    "period": [
+      2.69157955679174,
+      7.4458490878531
+    ]
+  },
+  "fields": [
+    "x",
+    "y",
+    "z",
+    "vx",
+    "vy",
+    "vz",
+    "jacobi",
+    "period",
+    "stability"
+  ],
+  "selection": "Rows 2400, 2600 and 2800 (0-based) of the 3108-row response; small-to-medium amplitude members (Jacobi 3.097 to 3.178).",
+  "orbits": [
+    {
+      "row_index": 2400,
+      "values": [
+        " 8.0501031378226595e-01",
+        " 7.1976452477746427e-28",
+        "-2.1963003835058926e-33",
+        "-4.0351317284487258e-15",
+        " 3.1952997230461982e-01",
+        "-1.3504643339534834e-31",
+        3.09661221490256,
+        " 3.1472986328923995e+00",
+        534.978820710157
+      ]
+    },
+    {
+      "row_index": 2600,
+      "values": [
+        " 8.1507244801212275e-01",
+        " 7.1810447297368906e-29",
+        " 1.0334241035819058e-33",
+        " 5.6422712737588321e-15",
+        " 2.1717137836681638e-01",
+        " 1.4705951546301179e-32",
+        3.14618105591714,
+        " 2.8624598979521072e+00",
+        904.465406637648
+      ]
+    },
+    {
+      "row_index": 2800,
+      "values": [
+        " 8.2485621879041693e-01",
+        "-1.7163290748347698e-30",
+        " 6.0432822852610261e-31",
+        " 2.0595559862040445e-17",
+        " 1.1125062268560720e-01",
+        "-2.2075419505193804e-32",
+        3.17753765840264,
+        " 2.7308750434553097e+00",
+        1215.14770785278
+      ]
+    }
+  ]
+}
