@@ -30,7 +30,12 @@ type LengthScaleConvention =
   | "nssdca_lunar_semimajor_axis"   // 384 400 km (NSSDCA Moon Fact Sheet)
   | "jpl_periodic_orbits_catalog";  // 389 703.264829278 km (JPL three-body catalog lunit)
 type MetricUnit =
-  | "normalized_cr3bp" | "km" | "km/s" | "day" | "hour" | "count" | "dimensionless";
+  | "normalized_cr3bp" | "km" | "km/s" | "day" | "hour" | "count" | "dimensionless"
+  | "deg";                     // angle in degrees (added for M3)
+type Termination =             // why a propagation stopped (phasespace.gravity.propagation)
+  | "horizon" | "earth_collision" | "moon_collision" | "earth_return_shell"
+  | "start_inside_earth" | "start_inside_moon" | "start_inside_return_shell"
+  | "non_finite" | "evaluation_limit" | "solver_failure";
 
 interface Manifest {
   schema_version: 1;
@@ -48,6 +53,9 @@ interface Manifest {
   metrics: Record<string, Metric>;   // keys /^[a-z0-9_]+$/; may be {}
   limitations: string[];             // at least one
   validation?: Validation;           // required when status === "validated"
+  termination?: Termination;         // termination of the propagation that produced the
+                                     // trajectory artifact (M3 runs; distinguishes a
+                                     // return from the horizon)
 }
 
 interface Source {
@@ -103,6 +111,7 @@ interface Solver extends SolverSettings {  // settings of the propagation that p
   dense_output: boolean;
   max_evaluations: number;     // integer >= 1; right-hand-side budget per propagation
   collision_events: CollisionEvents;
+  return_shell?: ReturnShell;  // M3: terminal Earth return shell, when enabled
   comparisons?: Comparison[];  // extra propagations used only by validation checks
   monodromy?: SolverSettings;  // integration of the variational equations over one period
   differential_correction?: DifferentialCorrection;
@@ -120,6 +129,15 @@ interface CollisionEvents {
   start_inside: "not_propagated";          // g(t0) < 0: nothing is propagated
 }
 
+interface ReturnShell {        // terminal inward crossing of a sphere about the Earth centre
+  radius_km: number;           // > earth_radius_km
+  altitude_km: number;         // radius_km - earth radius (e.g. 121.92 km entry interface)
+  function: "distance_minus_radius";
+  direction: "decreasing";     // inbound crossings only; an outward crossing never fires
+  terminal: true;              // ends the propagation (termination "earth_return_shell")
+  grazing_detection: "periapsis_below_radius";
+}
+
 interface Comparison extends SolverSettings {
   role: "tight_tolerance" | "independent_integrator";
 }
@@ -135,7 +153,7 @@ interface DifferentialCorrection extends SolverSettings {
 }
 
 interface Artifact {
-  kind: "trajectory";
+  kind: "trajectory" | "sample_table";   // "sample_table" added for M3 maps and searches
   path: string;                // relative to the run directory; no "/", "\\" or ".." segments
   sha256: string;              // 64 lowercase hex characters of the file's exact bytes
 }
@@ -185,8 +203,30 @@ interface Trajectory {         // artifact of kind "trajectory"
   state_order: ["t", "x", "y", "vx", "vy"];
   samples: number[][];         // at least 2 rows, each of length 5 in state_order;
                                // t strictly increasing; all values finite
+  events?: TrajectoryEvent[];  // M3: marked points of the trajectory, in time order
+}
+
+interface TrajectoryEvent {
+  name: string;                // /^[a-z0-9_]+$/, e.g. "departure", "perilune",
+                               // "return_shell_crossing"
+  t: number;                   // normalized time inside [samples[0][0], samples[-1][0]]
+  state: [number, number, number, number];  // x, y, vx, vy at t (normalized, synodic)
+}
+
+interface SampleTable {        // artifact of kind "sample_table" (row-major table)
+  schema_version: 1;
+  run_id: string;              // equals manifest.run_id
+  columns: {
+    name: string;              // /^[a-z0-9_]+$/, unique
+    unit: MetricUnit | null;   // null: categorical text column
+    definition: string;
+  }[];
+  rows: (number | string | null)[][];  // one value per column; null = undefined for that
+                                       // row (e.g. no return time without a return)
 }
 ```
+
+**M3 additions (all optional, additive).** `MetricUnit` `"deg"`, `Manifest.termination`, `Solver.return_shell`, `Trajectory.events`, `Artifact.kind` `"sample_table"` and `SampleTable` were added for the Gravity Atlas M3 free-return runs (`phasespace.gravity.free_return_export`). Runs without them, such as the published M1 reference run, remain valid. **The website validator (`web/src/lib/data/`) does not accept these fields and values yet; it must be updated before any M3 run is published to `web/public/research/`.** Full map tables (`samples.json`, tens of MB) stay local under `runs/`; only binned summaries are meant for publication.
 
 Notes:
 

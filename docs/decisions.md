@@ -54,6 +54,10 @@
 
 **D20 — M3 definitions accepted (2026-10-18; see `studies/gravity-atlas/m3-feasibility-design.md`).** Default DE440 / 384,400 km system; 185 km circular parking orbit; single impulse. Feasible free return: closest lunar approach 100–30,000 km altitude, then an inbound crossing of a 121.92 km altitude Earth entry shell, within 10 days (50,000 km shell only as a declared fallback). Search space: 2-D (departure phase, Δv 3.00–3.25 km/s) for M3 feasibility; 3-D (adding impulse angle ±10°) for the M4 comparison, because a 2-D archive is near-trivial. M4 objective: entry flight-path-angle error; Δv is reported, not optimized. Deployment deferred until there is a free-return result.
 
+**D21 — Backward-integration check redefined after it failed (disclosed).** The M3 design's backward check (re-integrate from the return state; raw normalized state error ≤ 1e-7) failed for both converged candidates (observed 8.3e-7). Decomposition showed a 0.13 ms along-track timing shift with about 6 cm of position error, so the raw criterion was about 1,000× stricter than the design's own 0.1 s return-time check. The check is replaced by a decomposed criterion: along-track timing shift ≤ 1 ms, transverse position ≤ 1 m, velocity ≤ 1 mm/s. This change was made *after* observing the failure. The superseded metric stays in every manifest as a non-gating diagnostic.
+
+**D22 — M3 refinement cap raised from 200 to 1000 propagations per start.** Under 200, 0 of 10 starts converged because the 2 m/s grid cannot resolve the narrow target valley; under 1000, all 10 converged to 2 distinct candidates. The total stays within the M3 budget. M4 budgets are set separately by its frozen protocol.
+
 ## Conditions for revising the plan
 
 A milestone may change only because of observed source state, physical feasibility, research data, runtime limits or a clear user product choice. Document each meaningful change and its reason. Do not enlarge scope simply because implementing another framework sounds elegant.

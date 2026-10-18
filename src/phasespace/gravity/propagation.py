@@ -10,9 +10,15 @@
   step without g changing sign at the step ends, a non-terminal periapsis event per
   body (see below). If any periapsis lies inside a body, the first surface crossing
   before it is located on the dense output and the result is truncated there;
-- ``start_inside_earth`` / ``start_inside_moon``: the initial state is strictly inside
-  an enabled collision radius (g(t0) < 0). Nothing is propagated: the result holds only
-  the initial state, no dense solution and nfev = 0;
+- ``earth_return_shell``: the Earth distance decreased through the optional return shell
+  radius `return_shell_km` (an entry-interface-like sphere about the Earth, larger than
+  the Earth collision radius). Same detection as a collision: terminal inward-only
+  event plus the grazing check on Earth periapses, so a periapsis inside the shell ends
+  the propagation at the first shell crossing before it. Outward crossings never fire;
+- ``start_inside_earth`` / ``start_inside_moon`` / ``start_inside_return_shell``: the
+  initial state is strictly inside an enabled collision radius or the return shell
+  (g(t0) < 0). Nothing is propagated: the result holds only the initial state, no dense
+  solution and nfev = 0;
 - ``non_finite``: the equations of motion produced a non-finite derivative (e.g. a
   state exactly at a primary) and the solver could not continue;
 - ``evaluation_limit``: more than `max_evaluations` right-hand-side evaluations were
@@ -21,7 +27,7 @@
   inside `solve_ivp` (recorded in `message`; nothing is propagated). Event location
   cannot raise one (see below), so this is a guard that keeps batch runs alive.
 
-Periapsis events: for each enabled body, h = (r - r_body) . v (rotating-frame position
+Periapsis events: for each body with an enabled surface, h = (r - r_body) . v (rotating-frame position
 relative to the body dotted with the rotating-frame velocity; the bodies are fixed in
 this frame) crossing zero from negative to positive. Residual blind spot: a periapsis
 whose h changes sign twice within one solver step (an apsis pair inside a single step)
@@ -101,8 +107,10 @@ class Termination(StrEnum):
     HORIZON = "horizon"
     EARTH_COLLISION = "earth_collision"
     MOON_COLLISION = "moon_collision"
+    EARTH_RETURN_SHELL = "earth_return_shell"
     START_INSIDE_EARTH = "start_inside_earth"
     START_INSIDE_MOON = "start_inside_moon"
+    START_INSIDE_RETURN_SHELL = "start_inside_return_shell"
     NON_FINITE = "non_finite"
     EVALUATION_LIMIT = "evaluation_limit"
     SOLVER_FAILURE = "solver_failure"
@@ -124,14 +132,16 @@ class PropagationResult:
 
     `t` and `states` hold the accepted solver steps (including the start and the final
     time). `dense` is the continuous solution on [t0, t_final] (None if integration never
-    advanced). `events` holds collision events only (at most one, the terminating one);
-    `periapses` holds the periapsis passages about enabled bodies up to `t_final`, named
+    advanced). `events` holds the terminating surface crossing only (at most one: a
+    collision or the return shell, named by its termination value); `periapses` holds the
+    periapsis passages about bodies with an enabled surface up to `t_final`, named
     ``earth_periapsis`` / ``moon_periapsis``.
     """
 
     system: EarthMoonSystem
     solver: SolverSettings
     collision: CollisionRadii
+    return_shell_km: float | None
     duration: float
     t: FloatArray
     states: FloatArray
@@ -165,13 +175,17 @@ class PropagationResult:
 
 @dataclass(frozen=True, slots=True)
 class _Body:
-    """An enabled collision body in normalized units."""
+    """An enabled terminal surface (a sphere about a primary) in normalized units.
+
+    `name` is the primary the sphere is centred on; `label` names the surface in messages.
+    """
 
     name: Literal["earth", "moon"]
     x: float
     radius: float
     collision: Termination
     start_inside: Termination
+    label: str
 
     def surface_gap(self, y: FloatArray) -> float:
         """distance - radius for one state."""
@@ -304,6 +318,7 @@ def propagate(
     *,
     solver: SolverSettings = DEFAULT_SOLVER,
     collision: CollisionRadii | None = None,
+    return_shell_km: float | None = None,
     t0: float = 0.0,
     max_evaluations: int = DEFAULT_MAX_EVALUATIONS,
 ) -> PropagationResult:
@@ -315,6 +330,8 @@ def propagate(
         system: Earth-Moon constants (mu and the km scale for collision radii).
         solver: Integrator settings; defaults to DOP853 with rtol = atol = 1e-12.
         collision: Collision radii; None means the system's body radii.
+        return_shell_km: Radius (km) of a terminal Earth-centred return shell, or None.
+            Must exceed the Earth collision radius when that is enabled.
         t0: Initial normalized time.
         max_evaluations: Budget of right-hand-side evaluations before giving up.
     """
@@ -328,6 +345,11 @@ def propagate(
     if max_evaluations < 1:
         raise ValueError("max_evaluations must be >= 1")
     radii = CollisionRadii.of(system) if collision is None else collision
+    if return_shell_km is not None:
+        if not (math.isfinite(return_shell_km) and return_shell_km > 0.0):
+            raise ValueError(f"return_shell_km must be finite and positive, got {return_shell_km}")
+        if radii.earth_km is not None and return_shell_km <= radii.earth_km:
+            raise ValueError("return_shell_km must exceed the Earth collision radius")
 
     bodies: list[_Body] = []
     if radii.earth_km is not None:
@@ -338,6 +360,7 @@ def propagate(
                 radii.earth_km / system.length_scale_km,
                 Termination.EARTH_COLLISION,
                 Termination.START_INSIDE_EARTH,
+                "earth collision radius",
             )
         )
     if radii.moon_km is not None:
@@ -348,6 +371,18 @@ def propagate(
                 radii.moon_km / system.length_scale_km,
                 Termination.MOON_COLLISION,
                 Termination.START_INSIDE_MOON,
+                "moon collision radius",
+            )
+        )
+    if return_shell_km is not None:
+        bodies.append(
+            _Body(
+                "earth",
+                -system.mu,
+                return_shell_km / system.length_scale_km,
+                Termination.EARTH_RETURN_SHELL,
+                Termination.START_INSIDE_RETURN_SHELL,
+                "earth return shell",
             )
         )
 
@@ -367,6 +402,7 @@ def propagate(
             system=system,
             solver=solver,
             collision=radii,
+            return_shell_km=return_shell_km,
             duration=duration,
             t=t,
             states=states,
@@ -385,15 +421,18 @@ def propagate(
 
     for body in bodies:
         if body.surface_gap(y0) < 0.0:
-            return unpropagated(
-                body.start_inside, 0, f"initial state is inside the {body.name} collision radius"
-            )
+            return unpropagated(body.start_inside, 0, f"initial state is inside the {body.label}")
 
     if not np.all(np.isfinite(rhs(t0, y0))):
         return unpropagated(Termination.NON_FINITE, 1, "non-finite derivative at the initial state")
 
     collision_events = [_DistanceEvent(b) for b in bodies]
-    periapsis_events = [_PeriapsisEvent(b) for b in bodies]
+    # One periapsis event per primary that carries at least one surface (the Earth
+    # collision radius and the return shell share the Earth periapses).
+    centers: dict[str, _Body] = {}
+    for body in bodies:
+        centers.setdefault(body.name, body)
+    periapsis_events = [_PeriapsisEvent(b) for b in centers.values()]
     try:
         sol = solve_ivp(
             rhs,
@@ -431,10 +470,15 @@ def propagate(
     periapses: list[EventRecord] = []
     for i, body in enumerate(bodies):
         hits.extend((float(t), body) for t in t_events[i])
-        for t_p, y_p in zip(t_events[n + i], y_events[n + i], strict=True):
-            periapses.append(_record(f"{body.name}_periapsis", float(t_p), y_p, PERIAPSIS))
-            if dense is not None and body.surface_gap(np.asarray(y_p, dtype=np.float64)) < 0.0:
-                hits.append((_first_surface_crossing(body, dense, t_arr, float(t_p)), body))
+    for j, center in enumerate(centers.values()):
+        for t_p, y_p in zip(t_events[n + j], y_events[n + j], strict=True):
+            periapses.append(_record(f"{center.name}_periapsis", float(t_p), y_p, PERIAPSIS))
+            if dense is None:
+                continue
+            y_arr = np.asarray(y_p, dtype=np.float64)
+            for body in bodies:
+                if body.name == center.name and body.surface_gap(y_arr) < 0.0:
+                    hits.append((_first_surface_crossing(body, dense, t_arr, float(t_p)), body))
     periapses.sort(key=lambda r: r.t)
 
     if hits:
@@ -449,7 +493,7 @@ def propagate(
             (_record(body.collision.value, t_hit, y_hit, INWARD),),
             tuple(p for p in periapses if p.t <= t_hit),
             int(sol.nfev),
-            f"{body.name} collision radius crossed inward at t={t_hit!r}",
+            f"{body.label} crossed inward at t={t_hit!r}",
             _truncate_dense(dense, t_hit),
         )
 

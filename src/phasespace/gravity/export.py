@@ -399,6 +399,112 @@ def _dumps(payload: dict[str, Any]) -> bytes:
     return (json.dumps(payload, indent=2, allow_nan=False) + "\n").encode("utf-8")
 
 
+def dumps_json(payload: dict[str, Any]) -> bytes:
+    """Indented JSON bytes with a trailing newline; NaN and infinity are rejected."""
+    return _dumps(payload)
+
+
+def model_json(system: EarthMoonSystem) -> dict[str, Any]:
+    """The manifest `model` block (planar CR3BP) of a system."""
+    return {
+        "name": "planar-cr3bp",
+        "coordinate_frame": FRAME,
+        "units": UNITS,
+        "mu": system.mu,
+        "length_scale_km": system.length_scale_km,
+        "length_scale_convention": system.length_scale_convention,
+        "time_scale_seconds": system.time_scale_s,
+        "velocity_scale_km_s": system.velocity_scale_km_s,
+        "system_name": system.name,
+        "constants_source": system.source,
+        "primaries": {
+            "earth": {"x": -system.mu, "y": 0.0, "radius_km": system.earth_radius_km},
+            "moon": {"x": 1.0 - system.mu, "y": 0.0, "radius_km": system.moon_radius_km},
+        },
+        "assumptions": [
+            "circular_primaries",
+            "massless_spacecraft",
+            "planar",
+            "unit_angular_rate_counterclockwise",
+        ],
+    }
+
+
+def collision_events_json(system: EarthMoonSystem) -> dict[str, Any]:
+    """The `solver.collision_events` block for the system's physical body radii."""
+    return {
+        "earth_radius_km": system.earth_radius_km,
+        "moon_radius_km": system.moon_radius_km,
+        "function": "distance_minus_radius",
+        "direction": "decreasing",
+        "terminal": True,
+        "grazing_detection": "periapsis_below_radius",
+        "start_inside": "not_propagated",
+    }
+
+
+def solver_json(solver: SolverSettings) -> dict[str, Any]:
+    """{name, rtol, atol} of a solver configuration."""
+    return _solver_json(solver)
+
+
+def validate_run_id(run_id: str) -> None:
+    """Raise ValueError unless `run_id` is a valid run directory name."""
+    if not _RUN_ID_PATTERN.fullmatch(run_id):
+        raise ValueError(f"run id {run_id!r} must match {_RUN_ID_PATTERN.pattern}")
+
+
+def write_run_directory(
+    out_dir: Path, manifest: dict[str, Any], files: Sequence[tuple[str, str, bytes]]
+) -> dict[str, Any]:
+    """Create `out_dir` (must not exist) with manifest.json and the given artifact files.
+
+    `files` holds (kind, relative path, bytes) triples; `manifest["artifacts"]` is set
+    from them (with sha256 of the exact bytes). Everything is written into a hidden
+    temporary sibling directory that is renamed to `out_dir` only when complete, so a
+    reader never sees a partial run. Raises FileExistsError if `out_dir` exists; the
+    temporary directory is removed on failure. Returns the manifest as written.
+    """
+    run_id = out_dir.name
+    validate_run_id(run_id)
+    if manifest.get("run_id") != run_id:
+        raise ValueError("manifest run_id must equal the run directory name")
+    for _, path, _ in files:
+        if "/" in path or "\\" in path or path in ("", ".", "..", "manifest.json"):
+            raise ValueError(f"invalid artifact path {path!r}")
+    manifest["artifacts"] = [
+        {"kind": kind, "path": path, "sha256": hashlib.sha256(data).hexdigest()}
+        for kind, path, data in files
+    ]
+    if out_dir.exists() or out_dir.is_symlink():
+        raise FileExistsError(f"{out_dir} already exists; runs are never overwritten")
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{run_id}.partial-", dir=out_dir.parent))
+    try:
+        staging.chmod(0o755)
+        for _, path, data in files:
+            with (staging / path).open("xb") as fh:
+                fh.write(data)
+        with (staging / "manifest.json").open("xb") as fh:
+            fh.write(_dumps(manifest))
+        # Re-check right before the rename: POSIX rename replaces an existing *empty*
+        # directory, and a non-empty one makes it fail; neither may happen silently.
+        if out_dir.exists() or out_dir.is_symlink():
+            raise FileExistsError(f"{out_dir} already exists; runs are never overwritten")
+        try:
+            os.rename(staging, out_dir)
+        except OSError as exc:
+            if out_dir.exists():
+                raise FileExistsError(
+                    f"{out_dir} already exists; runs are never overwritten"
+                ) from exc
+            raise
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return manifest
+
+
 def build_documents(
     computation: ReferenceComputation,
     run_id: str,
@@ -458,41 +564,12 @@ def build_documents(
             "generator_version": version("phasespace"),
         },
         "environment": environment_info(),
-        "model": {
-            "name": "planar-cr3bp",
-            "coordinate_frame": FRAME,
-            "units": UNITS,
-            "mu": system.mu,
-            "length_scale_km": system.length_scale_km,
-            "length_scale_convention": system.length_scale_convention,
-            "time_scale_seconds": system.time_scale_s,
-            "velocity_scale_km_s": system.velocity_scale_km_s,
-            "system_name": system.name,
-            "constants_source": system.source,
-            "primaries": {
-                "earth": {"x": -system.mu, "y": 0.0, "radius_km": system.earth_radius_km},
-                "moon": {"x": 1.0 - system.mu, "y": 0.0, "radius_km": system.moon_radius_km},
-            },
-            "assumptions": [
-                "circular_primaries",
-                "massless_spacecraft",
-                "planar",
-                "unit_angular_rate_counterclockwise",
-            ],
-        },
+        "model": model_json(system),
         "solver": {
             **_solver_json(DEFAULT_SOLVER),
             "dense_output": True,
             "max_evaluations": DEFAULT_MAX_EVALUATIONS,
-            "collision_events": {
-                "earth_radius_km": system.earth_radius_km,
-                "moon_radius_km": system.moon_radius_km,
-                "function": "distance_minus_radius",
-                "direction": "decreasing",
-                "terminal": True,
-                "grazing_detection": "periapsis_below_radius",
-                "start_inside": "not_propagated",
-            },
+            "collision_events": collision_events_json(system),
             "comparisons": [
                 {"role": "tight_tolerance", **_solver_json(TIGHT_SOLVER)},
                 {"role": "independent_integrator", **_solver_json(INDEPENDENT_SOLVER)},
@@ -550,44 +627,13 @@ def write_run(
     FileExistsError if `out_dir` exists; the temporary directory is removed on failure.
     """
     run_id = out_dir.name
-    if not _RUN_ID_PATTERN.fullmatch(run_id):
-        raise ValueError(f"run id {run_id!r} must match {_RUN_ID_PATTERN.pattern}")
+    validate_run_id(run_id)
     manifest, trajectory_bytes = build_documents(
         computation, run_id, git_commit=git_commit, git_dirty=git_dirty, created_at=created_at
     )
-    manifest["artifacts"] = [
-        {
-            "kind": "trajectory",
-            "path": "trajectory.json",
-            "sha256": hashlib.sha256(trajectory_bytes).hexdigest(),
-        }
-    ]
-    if out_dir.exists() or out_dir.is_symlink():
-        raise FileExistsError(f"{out_dir} already exists; runs are never overwritten")
-    out_dir.parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=f".{run_id}.partial-", dir=out_dir.parent))
-    try:
-        staging.chmod(0o755)
-        with (staging / "trajectory.json").open("xb") as fh:
-            fh.write(trajectory_bytes)
-        with (staging / "manifest.json").open("xb") as fh:
-            fh.write(_dumps(manifest))
-        # Re-check right before the rename: POSIX rename replaces an existing *empty*
-        # directory, and a non-empty one makes it fail; neither may happen silently.
-        if out_dir.exists() or out_dir.is_symlink():
-            raise FileExistsError(f"{out_dir} already exists; runs are never overwritten")
-        try:
-            os.rename(staging, out_dir)
-        except OSError as exc:
-            if out_dir.exists():
-                raise FileExistsError(
-                    f"{out_dir} already exists; runs are never overwritten"
-                ) from exc
-            raise
-    except BaseException:
-        shutil.rmtree(staging, ignore_errors=True)
-        raise
-    return manifest
+    return write_run_directory(
+        out_dir, manifest, [("trajectory", "trajectory.json", trajectory_bytes)]
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

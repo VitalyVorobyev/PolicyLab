@@ -240,3 +240,153 @@ The 10 d horizon makes these estimates slightly conservative.
 - Pavlak (2010) thesis, §3.3.3, full text read 2026-10-18 (already in `literature.md`).
 - NASA, *Apollo 11 Mission Report*, MSC-00171 (1969): https://www.nasa.gov/wp-content/uploads/static/apollo50th/pdf/A11_MissionReport.pdf, downloaded 2026-10-18. Values used: parking orbit (§3); Tables 7-III and 7-IV (TLI Δv, pericynthion, free-return entry conditions); §7.4.8 (perigee targeting); Table 7-VII (entry interface).
 - Unit conversions: 1 nmi = 1.852 km; 1 ft = 0.3048 m.
+
+## M3 results (preliminary, dirty-tree runs)
+
+**Status: preliminary.** Every run below was generated on 2026-10-18 from an uncommitted working tree (`source.git_dirty = true`, base commit `3ac073f`), so it is not evidence yet. The evidence runs must be regenerated from a clean commit (commands at the end). Machine: Apple M4 Pro, 12 cores, 10 workers. The machine was shared with unrelated jobs (load average 12–34) during the runs, so wall times are upper bounds.
+
+**Code.** All in `src/phasespace/gravity/`:
+- `departure.py`: TLI state, §2.
+- `propagation.py`: `return_shell_km` and the terminations `earth_return_shell` / `start_inside_return_shell`, §9.2.
+- `free_return.py`: definition, predicates and record, §3–4.
+- `free_return_map.py`: S1 grid, S4 Sobol, ordered parallel evaluation, `sample_table`.
+- `free_return_search.py`: S2.
+- `free_return_validation.py`: S3.
+- `free_return_export.py`: CLI and runs.
+
+Tests are in `tests/gravity/test_gravity_{departure,return_shell,free_return,free_return_pipeline}.py`. The data contract was extended additively; see "M3 additions" in `docs/data-contract.md`.
+
+### S1: 2-D grid map
+
+Run `runs/gravity-free-return-map-2d-grid-pre2`: 720 × 126 = 90 720 tangential departures, one propagation each, 650 s wall time.
+
+| Outcome | Count | Share |
+|---|---|---|
+| Feasible | 161 | 0.18 % |
+| No return within 10 d | 64 681 | |
+| Return, perilune out of band | 22 281 | |
+| Return before lunar encounter | 3 314 | |
+| Moon collision | 283 | |
+| Numerical failure | 0 | |
+
+Max Jacobi drift at accepted steps over the feasible samples: 7.5e-10.
+
+The superseded run `…-pre1` gave identical counts. It was produced before review fixes that changed the vacuum-perigee column and must not be used.
+
+**Structure.** The feasible set is a thin band along the high-Δv edge of the Moon-collision boundary. It holds two families.
+
+- **(A) Figure-eight circumlunar** (156 points):
+  - θ = 225.5–247°, Δv = 3.146–3.178 km/s;
+  - h_p runs from 188 km near the collision edge up to 30 000 km;
+  - t_ret = 5.7–10 d; the passage sense in the rotating frame is −1.
+- **(B) Slow passages** (5 points, opposite passage sense +1):
+  - θ = 248–254°, Δv = 3.130–3.132 km/s;
+  - h_p = 28 000–30 000 km and t_ret = 9.8–10 d, so they sit at the band and T_MAX edges and are probably cut by them.
+
+The grid resolves family (A) only to 1–3 Δv cells in width.
+
+### S2: targeting
+
+Starts were the 10 feasible grid points with the smallest ‖F‖. The method was trf with forward differences, x_scale = 1, box bounds and ftol = xtol = gtol = 1e-12. Convergence means max|F_i| ≤ 1e-5 and the point is feasible.
+
+- **With the declared cap of 200 propagations per start, 0 of 10 converged** (2 000 propagations; run `gravity-free-return-search-pre2`).
+  - The cause is the problem's geometry, not a missing solution. The grid cannot resolve the h_vp = 38 km valley: ∂h_vp/∂Δv ≈ −1.0e7 km per km/s, so one 2 m/s cell spans about 20 000 km of h_vp.
+  - The starts with the smallest ‖F‖ therefore lie on the valley floor but far from h_p = 1000 km. trf then crawls along the curved valley in steps of about 0.03–0.06°.
+  - A probe of x_scale = "jac", x_scale = (1, 0.0044), dogbox and the exact tr_solver converged at most 1 of 10 starts.
+- **Cap deviation, 200 → 1000 (user decision, 2026-10-18).** The S2 cap per start is now 1000 by default (`SearchSettings`, CLI flag `--max-propagations-per-start`, recipe parameter `cap`). The reason is the valley crawl above: the design's 200 was a proposal that had not been tested on S2. Every search run records the cap and the design's proposed 200 in `limitations`.
+  - With cap 1000 (runs `gravity-free-return-search-pre2-cap1000` and `gravity-free-return-search-pre3`), all 10 starts converged, using 257–648 propagations each and 5 355 in total.
+  - They reached 2 distinct candidates, with max|F| ≤ 5e-9.
+
+### S3: candidates and validation
+
+| | c1 (`gravity-free-return-c1-pre3`) | c2 (`gravity-free-return-c2-pre3`) |
+|---|---|---|
+| θ, Δv | 229.142241°, 3.1567704 km/s | 225.816259°, 3.1780111 km/s |
+| h_p (target 1000 km), t_moon | 1000.000 km, 3.060 d | 1000.000 km, 2.607 d |
+| t_ret, speed at the shell, γ_S | 6.1217 d, 11.0078 km/s, −6.485° | 6.4311 d, 10.9945 km/s, −6.477° |
+| Vacuum perigee (target 38 km) | 38.000 km | 38.000 km |
+| Family | (A), figure-eight, sense −1 | (A), figure-eight, sense −1 |
+
+**Checks passed, for both candidates:**
+- predicates hold, with margins, under the run, DOP853 1e-13 and LSODA 1e-13;
+- |Δh_p| ≤ 5.0e-6 km, against a threshold of 1e-2 km;
+- |Δt_ret| ≤ 1.8e-4 s, against 0.1 s;
+- shell-crossing position difference ≤ 4.9e-4 km, against 1e-2 km;
+- Jacobi drift over 10⁵ dense samples ≤ 8.0e-10 (run), 8.0e-11 (tight) and 1.4e-10 (LSODA), against 1e-9;
+- brute-force perilune vs the event ≤ 2.3e-11 km, against 1e-3 km;
+- no dense sample inside the shell or the Moon;
+- samples finite and strictly increasing.
+
+**Backward-integration check: redefined (user decision, 2026-10-18).**
+
+*Why the original check was replaced.* Under the original single max-norm criterion of §5 (max|Δs₀| ≤ 1e-7, normalized), both candidates failed: 8.3e-7 (c1) and 6.6e-7 (c2). The runs `…-pre2-cap1000` were therefore `computed_unvalidated`. The failure is understood and is not a modelling error:
+- The error is dominated by velocity, because |ds/dt| ≈ 3400 at the parking orbit. The 1e-7 threshold therefore amounted to a ~0.1 ms timing test. That is 1000× stricter than the 0.1 s return-time check, while 1e-7 in position (38 m) is looser than the 10 m checks.
+- The backward pass from the tight (1e-13) run's shell state gives |Δs₀| = 1.3e-8 (c1). So the raw error is the run's own 1e-12 shell-state error (13 cm, consistent with the 1.3e-4 km tight-agreement check) amplified backward through the flyby.
+- The §5 threshold came from a single pilot sample with h_p = 293 km.
+
+*New definition.* The backward DOP853 1e-13 integration starts from the **exported run's** return-shell state, so the check covers the exported trajectory, not the tight one. It runs to t = 0 and gives Δs₀ = s₀,back − s₀. With f = ds/dt at s₀ (normalized rotating frame):
+- τ = (Δs₀·f)/(f·f) is the along-track time shift;
+- r = Δs₀ − τ f is the transverse remainder.
+
+Three gating checks replace the max-norm:
+
+| Check | Threshold | Physical basis | c1 | c2 |
+|---|---|---|---|---|
+| \|τ\| | 1 ms | 100× the 0.1 s return-time check; ≈ 11 m along the ~11 km/s departure arc | 0.127 ms | 0.096 ms |
+| \|r_pos\| | 1 m | 10× the 10 m perilune and return-position checks | 6.2 cm | 10.5 cm |
+| \|r_vel\| (rotating frame) | 1 mm/s | ≈ 1e-7 of the departure speed | 0.053 mm/s | 0.089 mm/s |
+
+The velocity threshold bounds reversibility, not observable accuracy. At the candidates' local sensitivities, 1 mm/s at departure would move h_p by ≈ 0.6 km and h_vp by ≈ 10 km. Accuracy rests on the forward agreement checks.
+
+The old criterion stays in each manifest as the non-gating metric `superseded_check_backward_max_abs_initial_state_error`, with its threshold and verdict. The backward diagnostics from the tight run are also kept as metrics. The decomposition is tested against an independent RK4 time shift with a known transverse offset (`tests/gravity/test_gravity_backward_decomposition.py`).
+
+**Result.** All checks pass for both candidates, and the re-validated runs `gravity-free-return-c1-pre3` and `gravity-free-return-c2-pre3` are `validated` (dirty tree).
+
+**Plausibility vs Apollo 11 (not validation).**
+
+| | c1 | Apollo 11 |
+|---|---|---|
+| Δv | 3.157 km/s (−0.8 %) | 3.182 km/s |
+| Pericynthion time | 3.06 d | 3.01 d |
+| Entry interface | 6.12 d (−8 %) | 6.64 d |
+| Entry speed | 11.008 km/s | 10.996 km/s |
+
+γ_S was targeted at the Apollo entry value through h_vp, so it is not comparable with Apollo's pure free-return −64°. The magnitudes agree to within several percent, as §5 expected.
+
+**Reproducibility (criterion 2).** Re-running the candidate command (`…-pre2-cap1000-rerun`) reproduced the metrics, the check values and `trajectory.json` samples bit-for-bit for both candidates.
+
+### S4: 3-D Sobol map
+
+Run `runs/gravity-free-return-map-3d-sobol17-pre2`: 2¹⁷ = 131 072 points, seed 20261018, 935 s wall time.
+
+- 243 feasible (0.185 %), 0 numerical failures.
+- Feasible θ = 220.7–256.8°, Δv = 3.138–3.204 km/s, with α across the whole ±10° range.
+- h_p = 143–29 997 km, t_ret = 5.68–9.99 d.
+- Passage sense: 238 at −1, 5 at +1.
+
+The feasible samples occupy **27 of 100 cells** of the provisional 10 × 10 descriptor grid. The grid is log₁₀ h_p on [2, log₁₀ 30 000] and t_ret on [5, 10] d in equal bins, computed by a one-off binning of `samples.json`. Coverage is concentrated along a curved h_p–t_ret ridge.
+
+### Go/no-go (§7)
+
+| Criterion | Result |
+|---|---|
+| 1. A candidate passes every §5 check | Met under the redefined backward check (c1 and c2, `…-pre3`). Under the original max-norm it was not met, and that value is still recorded. |
+| 2. Re-export reproduces observables | Met, bit-identical. |
+| 3. S4 occupies ≥ 10 of 100 cells | Met, 27 cells. |
+| 4. Budget ≤ 2.5 × 10⁵ propagations | Met: S1 90 720 + S2 7 355 (2 000 at cap 200 + 5 355 at cap 1000) + S3 about 10 + S4 131 072 ≈ 229 160. A clean regeneration at cap 1000 needs about 227 000. Not counted as evidence: the superseded `pre1` map (90 720) and the re-runs (`…-rerun`, `…-pre3`, 5 355 each). |
+
+**Assessment: GO, pending the clean-commit regeneration.** Two changes to the design were made, and both are disclosed above:
+- the backward check was redefined;
+- the S2 cap was raised from 200 to 1000.
+
+None of the negative outcomes (a)–(c) applies. Integrator agreement passes by margins of 10³–10⁴. The evidence runs must still be regenerated from a clean commit.
+
+### Reproduce (from a clean commit)
+
+```text
+just gravity-m3-map gravity-free-return-map-2d-grid-v1
+just gravity-m3-candidates gravity-free-return-map-2d-grid-v1 v1        # cap 1000 is the default
+just gravity-m3-sobol gravity-free-return-map-3d-sobol17-v1 20261018
+```
+
+The candidate command writes `gravity-free-return-search-v1` and `gravity-free-return-c{1,2}-v1`. The full tables (`samples.json`: 19 MB for S1, 34 MB for S4) stay local under `runs/`.
