@@ -11,3 +11,4 @@
 - Keep explanations concise.
 - For non-trivial tasks, form a short plan before editing.
 - Use `just format` for formatting and safe automatic lint fixes; do not spend agent iterations manually reformatting code.
+- Never modify a test merely because the implementation fails it. First verify that the test contradicts the specification.

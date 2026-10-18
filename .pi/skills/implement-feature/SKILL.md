@@ -127,35 +127,86 @@ uv run pytest tests/path/to/relevant_test.py
 uv run pytest tests/path/to/relevant_test.py -k specific_test
 ```
 
-After the implementation is functionally complete:
+After implementation is functionally complete:
 
-1. Run:
+1. Ensure edited Python files are syntactically valid.
+
+   If Ruff reports a parse or indentation error, inspect and fix only that syntax problem first.
+
+   A useful focused check is:
+
+   ```text
+   uv run python -m py_compile path/to/file.py
+   ```
+
+2. Run:
 
    ```text
    just format
    ```
 
-   Use the project formatter and automatic safe lint fixes instead of manually reformatting code.
+   This applies safe automatic Ruff fixes and deterministic formatting.
 
-2. Run:
+   Do not manually fix formatting that `just format` can handle.
+
+3. Run:
 
    ```text
    just verify
    ```
 
-   `just verify` is the authoritative completion check for Python code.
+   `just verify` is the authoritative completion check.
 
-3. If `just verify` fails:
-   - fix only the remaining real issues;
-   - do not manually fight formatting that `just format` can handle;
-   - rerun the relevant focused check;
+4. If `just verify` fails:
+
+   - inspect the specific remaining lint, type, or test failures;
+   - fix those problems directly;
+   - run focused validation when useful;
    - rerun `just verify`.
 
-4. If frontend validation commands exist for the affected code, run those as well.
+Do not repeatedly run `just format` to resolve lint errors that Ruff cannot automatically fix.
+
+If frontend validation commands exist for the affected code, run those as well.
 
 Do not claim validation succeeded unless the command actually completed successfully.
 
 Do not suppress lint, typing, formatting, or test failures merely to finish the task.
+
+And the matching `justfile` recipe should be:
+
+```make
+# Apply safe automatic lint fixes and format Python code.
+format:
+    uv run ruff check --fix-only .
+    uv run ruff format .
+```
+
+### Failure convergence
+
+Do not repeat the same failing validation loop indefinitely.
+
+If validation still fails after 3 focused fix attempts:
+
+1. Stop editing.
+2. Inspect the current diff and the original failure.
+3. Determine whether the problem is:
+   - an implementation bug;
+   - a wrong test;
+   - a misunderstood requirement;
+   - an API/design mismatch;
+   - or an environment/tooling problem.
+4. Re-read only the relevant specification or existing interface.
+5. State a revised hypothesis before making another change.
+
+If the same failure persists after 5 total attempts, stop the task and report:
+
+- the remaining failure;
+- what was tried;
+- the current hypothesis;
+- the relevant files;
+- the smallest next action recommended.
+
+Do not keep changing unrelated code in an attempt to make validation pass.
 
 ## 8. Review the diff
 
