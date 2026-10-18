@@ -236,11 +236,9 @@ def run_multistart(ev: Evaluator, seed: int, cfg: MultiStartConfig) -> dict[str,
 
 
 def run_basin_hopping(ev: Evaluator, seed: int, cfg: BasinHoppingConfig) -> dict[str, int]:
-    """Monotonic basin hopping. The result of a local solve is its lowest-J evaluation.
-
-    PROTOCOL ISSUE (6, MBH): "accept if J decreases" does not say which point of the
-    local solve is compared; the code uses the lowest-J evaluation the solve touched
-    (no extra propagation; never worse than its start), not least_squares' x.
+    """Monotonic basin hopping (section 6). The result of a local solve, compared for
+    acceptance, is the lowest-J evaluation it touched (for a fresh incumbent, its start
+    included), not least_squares' returned x; ties keep the earliest.
     """
     counters: dict[str, int] = {}
     rng = np.random.default_rng((seed, RNG_STREAMS["MBH"]))
@@ -315,7 +313,7 @@ def run_differential_evolution(
 
     mapper = _PrefetchMap(ev)
 
-    effective = 2 ** math.ceil(math.log2(popsize * 3))  # init="sobol" rounds up
+    effective = cfg.effective_population  # init="sobol" rounds 3 * popsize up to 2^k
     counters["effective_population"] = effective
     k = 0
     while ev.remaining > 0:
@@ -447,10 +445,10 @@ class _Continuation:
 def run_continuation(ev: Evaluator, seed: int, cfg: ContinuationConfig) -> dict[str, int]:
     """CC: Sobol seeding batches; every feasible sample in a CC-empty cell starts a branch.
 
-    PROTOCOL ISSUE (6, CC): "solved" is read as: the corrector's returned point is
-    feasible; it solves the cell it bins into (which may differ from the target); a
-    target is skipped if any branch already solved it; the predictor may use any branch's
-    solutions; seeds are processed in Sobol order, re-checking emptiness one at a time.
+    Section 6: a corrector solves the cell its returned point bins into (feasible points
+    only; it may differ from the target). Solved cells are shared by all branches: a
+    target any branch solved is skipped and the predictor uses any branch's solutions.
+    Seeds are taken in Sobol order, re-checking emptiness one at a time.
     """
     counters: dict[str, int] = {}
     cc = _Continuation(ev, cfg, counters)

@@ -8,7 +8,7 @@
 - 95 % percentile bootstrap CI of the mean paired difference over seeds (10 000
   resamples, seed 4242) (`bootstrap_ci`).
 - The pilot's seed-count rule n = clamp(ceil((z_a + z_b)^2 max (sigma_d / delta)^2),
-  10, 16) (`seed_count`).
+  10, 16) with (2.807 + 0.842)^2 = 13.315 (`seed_count`).
 - H2: Spearman correlation with a seed-stratified permutation test (`spearman`,
   `stratified_permutation_pvalue`).
 """
@@ -148,10 +148,13 @@ def stratified_permutation_pvalue(
     y: Sequence[float],
     strata: Sequence[int],
     *,
-    resamples: int = 10_000,
-    seed: int = _STATS.bootstrap_seed,
+    resamples: int = _STATS.h2_permutations,
+    seed: int = _STATS.h2_permutation_seed,
 ) -> tuple[float, float]:
-    """(pooled Spearman rho, two-sided p) permuting y within each stratum (seed)."""
+    """(pooled Spearman rho, two-sided p) permuting y within each stratum (seed).
+
+    p = (1 + #{permutations with |rho_perm| >= |rho|}) / (1 + resamples) (section 11).
+    """
     xa = np.asarray(x, dtype=np.float64)
     ya = np.asarray(y, dtype=np.float64)
     sa = np.asarray(strata)

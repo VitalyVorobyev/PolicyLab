@@ -12,14 +12,17 @@
 - one in-plane impulsive MCC at t_c = 1 d after the burn retargets the solution's own
   nominal (h_p, h_vp) with chord iterations on a fixed Jacobian
   J = d(h_p, h_vp)/d(dv) (forward differences, 0.1 m/s, at the nominal t_c state):
-  dv_{k+1} = dv_k - J^-1 R(dv_k), at most 3 times; converged when |R| <= 1 km per
-  component, diverged when |dv| > 100 m/s; cond(J) > 1e8 fails every draw;
+  dv_{k+1} = dv_k - J^-1 R(dv_k), at most 3 times, stopping early when |R| <= 1 km per
+  component (converged, a diagnostic), when R is undefined, or when |dv| > 100 m/s
+  (diverged). The commanded MCC dv_m is the final iterate; with cond(J) > 1e8 none is
+  commanded;
 - the trajectory after a correction is the arc 0 -> t_c joined to a new propagation
   from t_c; predicates are evaluated on the joined trajectory (`classify`) and the
-  Jacobi gate per segment (the impulse changes C).
-- D24: the converged *commanded* correction dv_m is then executed with Gates-model
-  errors (`gates_error`, parameters `config.GatesModel`), and survival at budget B
-  needs |dv_m| <= B and a feasible trajectory after the *executed* correction.
+  Jacobi gate per segment (the impulse changes C);
+- D24 / D25: dv_m is executed with Gates-model errors (`gates_error`, parameters
+  `config.GatesModel`). A draw survives at budget B iff it is feasible without
+  correction, or |dv_m| <= B and the trajectory after the *executed* correction is
+  feasible. Survival is therefore non-decreasing in B.
 
 The MCC dv is a rotating-frame velocity increment (dvx, dvy); an impulse is the same
 vector in the inertial frame up to the frame rotation, so |dv| is frame independent.
@@ -50,6 +53,8 @@ from phasespace.gravity.free_return import (
     classify,
 )
 from phasespace.gravity.m4.config import (
+    GATES_MODELS,
+    GATES_NORMALS_SEED,
     PROTOCOL,
     ConstraintFamilies,
     CorrectionConfig,
@@ -214,35 +219,55 @@ def _arc(
 
 
 @dataclass(frozen=True, slots=True)
+class Execution:
+    """The commanded MCC of one draw, executed under one Gates set (D24)."""
+
+    model: str
+    delta_v_m_s: tuple[float, float]
+    """Executed MCC (rotating-frame components, m/s); (0, 0) when no burn is commanded."""
+    feasible: bool | None
+    """5.1 and 5.2 hold after the executed MCC; None if not propagated (the chord diverged,
+    so the commanded |dv| exceeds every budget for which survival is defined)."""
+
+
+@dataclass(frozen=True, slots=True)
 class DrawResult:
     uncorrected_feasible: bool
+    commanded_m_s: tuple[float, float]
+    """The commanded MCC: the final chord iterate; (0, 0) when none is commanded (the
+    uncorrected residual is within tolerance or undefined, J is singular, or the
+    trajectory ended before t_c)."""
+    executions: tuple[Execution, ...]
+    """One per Gates set, in the order given to `solution_robustness`."""
     converged: bool
-    delta_v_required_m_s: float
-    """|dv| at convergence; inf when not converged or diverged."""
-    corrected_feasible: bool
-    """The trajectory with the commanded (exact) converged dv satisfies 5.1 and 5.2."""
-    executed_feasible: bool
-    """D24: the trajectory with the *executed* correction (commanded dv plus Gates-model
-    error) satisfies 5.1 and 5.2. Equals `corrected_feasible` without an execution model
-    or when no burn is commanded (dv = 0)."""
-    executed_delta_v_m_s: tuple[float, float]
-    """Executed MCC (rotating-frame components, m/s); (nan, nan) if not converged."""
+    """Diagnostic only (D25): the final chord residual is within 1 km per component."""
+    diverged: bool
+    """Diagnostic: the chord stopped because |dv| exceeded the divergence threshold."""
+    commanded_feasible: bool | None
+    """Diagnostic: 5.1 and 5.2 hold with the commanded MCC applied exactly; None if the
+    commanded MCC was not propagated (divergence)."""
     iterations: int
     initial_residual_km: tuple[float, float]
     propagations: int
     """Arc plus tail propagations of this draw (each a partial propagation)."""
     nfev: int
 
-    def survives(self, budget_m_s: float, cfg: CorrectionConfig = _CORR) -> bool:
-        """Success at budget B (9.1); see `CorrectionConfig.uncorrected_feasible_counts`."""
-        if self.uncorrected_feasible and (budget_m_s == 0.0 or cfg.uncorrected_feasible_counts):
+    @property
+    def commanded_m_s_norm(self) -> float:
+        """|dv| of the commanded MCC (m/s)."""
+        return math.hypot(*self.commanded_m_s)
+
+    def survives(
+        self, budget_m_s: float, execution: int = 0, cfg: CorrectionConfig = _CORR
+    ) -> bool:
+        """Success at budget B (9.1, D25): feasible without correction, or commanded
+        |dv| <= B and feasible after the executed correction. Non-decreasing in B."""
+        if not 0.0 <= budget_m_s <= cfg.divergence_m_s:
+            raise ValueError(f"survival is defined for 0 <= B <= {cfg.divergence_m_s} m/s")
+        if self.uncorrected_feasible:
             return True
-        return (
-            budget_m_s > 0.0
-            and self.converged
-            and self.executed_feasible
-            and self.delta_v_required_m_s <= budget_m_s
-        )
+        executed = self.executions[execution]
+        return self.commanded_m_s_norm <= budget_m_s and executed.feasible is True
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,15 +276,16 @@ class SolutionRobustness:
     jacobian_km_per_m_s: tuple[tuple[float, float], tuple[float, float]]
     condition: float
     singular: bool
+    executions: tuple[str, ...]
     draws: tuple[DrawResult, ...]
     setup_propagations: int
     setup_nfev: int
 
-    def survival(self, budget_m_s: float, cfg: CorrectionConfig = _CORR) -> float:
-        """s_i(B): the fraction of draws that succeed at budget B."""
+    def survival(self, budget_m_s: float, execution: int = 0) -> float:
+        """s_i(B): the fraction of draws that succeed at budget B under one Gates set."""
         if not self.draws:
             return math.nan
-        return sum(d.survives(budget_m_s, cfg) for d in self.draws) / len(self.draws)
+        return sum(d.survives(budget_m_s, execution) for d in self.draws) / len(self.draws)
 
 
 def _undefined(values: Iterable[float]) -> bool:
@@ -272,17 +298,19 @@ def solution_robustness(
     definition: FreeReturnDefinition = DEFAULT_DEFINITION,
     cfg: CorrectionConfig = _CORR,
     *,
-    execution: GatesModel | None = None,
-    normals: FloatArray | None = None,
+    executions: Sequence[GatesModel],
+    normals: FloatArray,
 ) -> SolutionRobustness:
     """Execution-error tolerance of one feasible catalog solution under the given draws.
 
-    With `execution` (D24) the converged commanded MCC of draw k is executed with the
-    Gates-model error built from `normals[k]` (standard normal pairs, `gates_normals`);
-    without it the correction is applied exactly (diagnostic only).
+    The commanded MCC of draw k is computed once and executed under every Gates set in
+    `executions` with the same standard normal pair `normals[k]` (`gates_normals`), so
+    the sets differ only through their sigmas (common random numbers, 9.1).
     """
-    if execution is not None and (normals is None or normals.shape != (len(draws), 2)):
-        raise ValueError("an execution model needs one standard normal pair per draw")
+    if not executions:
+        raise ValueError("survival is judged after an executed correction (D25)")
+    if normals.shape != (len(draws), 2):
+        raise ValueError("the execution models need one standard normal pair per draw")
     if not elite.feasible:
         raise ValueError("only feasible catalog solutions are evaluated")
     t_c = time_from_days(cfg.t_c_days, definition.system)
@@ -315,8 +343,9 @@ def solution_robustness(
             jac=jac,
             nominal=nominal,
             definition=definition,
-            execution=execution,
-            normal=None if normals is None or execution is None else normals[k],
+            executions=executions,
+            normal=normals[k],
+            cfg=cfg,
         )
         for k, d in enumerate(draws)
     )
@@ -328,6 +357,7 @@ def solution_robustness(
         ),
         condition=cond,
         singular=singular,
+        executions=tuple(g.name for g in executions),
         draws=results,
         setup_propagations=1 + (3 if base is not None else 0),
         setup_nfev=setup_nfev,
@@ -342,9 +372,9 @@ def _draw(
     jac: FloatArray,
     nominal: tuple[float, float],
     definition: FreeReturnDefinition,
-    execution: GatesModel | None,
-    normal: FloatArray | None,
-    cfg: CorrectionConfig = _CORR,
+    executions: Sequence[GatesModel],
+    normal: FloatArray,
+    cfg: CorrectionConfig,
 ) -> DrawResult:
     t_c = time_from_days(cfg.t_c_days, definition.system)
     phase, dv, alpha = executed_departure(
@@ -353,9 +383,11 @@ def _draw(
     arc = _arc(phase, dv, alpha, definition, t_c)
     nfev = arc.nfev
     if arc.termination is not Termination.HORIZON:
-        # The trajectory ended (collision or shell) before t_c: nothing to correct.
+        # The trajectory ended (collision or shell) before t_c: nothing to correct, and
+        # it is infeasible (no lunar periapsis before the return).
+        no_burn = tuple(Execution(g.name, (0.0, 0.0), False) for g in executions)
         nan2 = (math.nan, math.nan)
-        return DrawResult(False, False, math.inf, False, False, nan2, 0, nan2, 1, nfev)
+        return DrawResult(False, (0.0, 0.0), no_burn, False, False, False, 0, nan2, 1, nfev)
     delta = np.zeros(2)
     leg = _leg(arc, delta, definition, t_c)
     nfev += leg.nfev
@@ -365,13 +397,13 @@ def _draw(
     def residual_of(lg: Leg) -> FloatArray:
         return np.array([lg.targets[0] - nominal[0], lg.targets[1] - nominal[1]])
 
+    # Chord iterations; the commanded MCC is the final iterate (D25).
     r = residual_of(leg)
     r0 = (float(r[0]), float(r[1]))
     iterations = 0
-    converged = False
-    while True:
-        if _undefined(r):
-            break
+    converged = diverged = False
+    commanded_feasible: bool | None = leg.feasible
+    while not _undefined(r):
         if float(np.max(np.abs(r))) <= cfg.tolerance_km:
             converged = True
             break
@@ -380,28 +412,38 @@ def _draw(
         delta = delta - np.linalg.solve(jac, r)
         iterations += 1
         if float(np.linalg.norm(delta)) > cfg.divergence_m_s:
+            diverged = True
+            commanded_feasible = None
             break
         leg = _leg(arc, delta, definition, t_c)
         nfev += leg.nfev
         propagations += 1
+        commanded_feasible = leg.feasible
         r = residual_of(leg)
-    executed = delta
-    executed_feasible = converged and leg.feasible
-    if converged and execution is not None and normal is not None and np.any(delta != 0.0):
-        executed = delta + gates_error(delta, normal, execution)
-        executed_leg = _leg(arc, executed, definition, t_c)
+    commanded = (float(delta[0]), float(delta[1]))
+    executed: list[Execution] = []
+    for model in executions:
+        if not np.any(delta != 0.0):
+            # No burn is commanded, so none is executed: the uncorrected trajectory.
+            executed.append(Execution(model.name, (0.0, 0.0), uncorrected))
+            continue
+        burn = delta + gates_error(delta, normal, model)
+        if diverged:
+            executed.append(Execution(model.name, (float(burn[0]), float(burn[1])), None))
+            continue
+        executed_leg = _leg(arc, burn, definition, t_c)
         nfev += executed_leg.nfev
         propagations += 1
-        executed_feasible = executed_leg.feasible
+        executed.append(
+            Execution(model.name, (float(burn[0]), float(burn[1])), executed_leg.feasible)
+        )
     return DrawResult(
         uncorrected_feasible=uncorrected,
+        commanded_m_s=commanded,
+        executions=tuple(executed),
         converged=converged,
-        delta_v_required_m_s=float(np.linalg.norm(delta)) if converged else math.inf,
-        corrected_feasible=converged and leg.feasible,
-        executed_feasible=executed_feasible,
-        executed_delta_v_m_s=(
-            (float(executed[0]), float(executed[1])) if converged else (math.nan, math.nan)
-        ),
+        diverged=diverged,
+        commanded_feasible=commanded_feasible,
         iterations=iterations,
         initial_residual_km=r0,
         propagations=propagations,
@@ -427,14 +469,28 @@ def gates_error(commanded_m_s: FloatArray, normal: FloatArray, model: GatesModel
 
 
 def gates_normals(
-    model: GatesModel, injection: ErrorDistribution, *, confirm_frozen: bool = False
+    injection: ErrorDistribution,
+    *,
+    seed: int = GATES_NORMALS_SEED,
+    confirm_frozen: bool = False,
 ) -> FloatArray:
     """Standard normal pairs for the K draws of an injection set, from
-    default_rng((model.seed, injection.seed)); held-out sets require the frozen protocol."""
-    if model.held_out or injection.held_out:
+    default_rng((7401, injection seed)), shared by every Gates set; a held-out injection
+    set requires the frozen protocol."""
+    if injection.held_out:
         require_frozen(confirm_frozen)
-    rng = np.random.default_rng((model.seed, injection.seed))
+    rng = np.random.default_rng((seed, injection.seed))
     return np.asarray(rng.standard_normal((injection.draws, 2)), dtype=np.float64)
+
+
+def execution_models(
+    injection: ErrorDistribution, *, confirm_frozen: bool = False
+) -> tuple[GatesModel, ...]:
+    """The Gates sets paired with an injection set (9.1); held-out ones need the freeze."""
+    models = tuple(GATES_MODELS[name] for name in injection.executions)
+    if any(m.held_out for m in models):
+        require_frozen(confirm_frozen)
+    return models
 
 
 def calibrate_budget(

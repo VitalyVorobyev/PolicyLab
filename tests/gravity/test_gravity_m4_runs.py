@@ -96,12 +96,22 @@ def test_guarded_commands_refuse_while_draft(capsys: pytest.CaptureFixture[str])
         assert "draft" in capsys.readouterr().err
 
 
+def test_config_command_prints_the_hash(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["config"]) == 0
+    out = capsys.readouterr().out
+    assert config_sha256() in out and "status: draft" in out
+    assert cli.main(["config", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["run_budget"] == 2**14
+
+
 def test_stage_tasks() -> None:
     tune = cli.stage_tasks("tune", {}, (9101, 9102))
     per_method = {
         m: sum(t[0] == m for t in tune) for m in ("D", "MS", "MBH", "DE", "CC", "T", "T2")
     }
-    assert per_method == {"D": 0, "MS": 4, "MBH": 6, "DE": 6, "CC": 0, "T": 6, "T2": 6}
+    # D and CC run once per tuning seed (B calibration, pilot dispersion); 16 x 2 runs.
+    assert per_method == {"D": 2, "MS": 4, "MBH": 6, "DE": 6, "CC": 2, "T": 6, "T2": 6}
+    assert len(tune) == 32
     with pytest.raises(ValueError, match="select"):
         cli.stage_tasks("main", {"MS": 0}, (1001,))
     main = cli.stage_tasks("main", {"MS": 1, "MBH": 0, "DE": 2, "T": 1, "T2": 0}, (1001, 1002))

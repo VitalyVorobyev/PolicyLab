@@ -9,8 +9,10 @@
     uv run python -m phasespace.gravity.m4 groundtruth --confirm-frozen
     uv run python -m phasespace.gravity.m4 robustness --run-id <run> --errors T_E \\
         --confirm-frozen
+    uv run python -m phasespace.gravity.m4 config
 
-`smoke` is the only command that runs before the freeze: every method once with a tiny
+`config` prints the configuration hash and the key constants (no computation). `smoke` is
+the only computing command that runs before the freeze: every method once with a tiny
 budget (at most 2^8 propagations, seed 9001, outside every protocol seed list), a
 robustness cost probe on the M3 candidate c1 (smoke error seed 9002, never T_E or H_E
 draws) and per-method timing. Its outputs verify that the code runs and measure cost;
@@ -22,6 +24,7 @@ writes a new run directory and never overwrites one.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import time
@@ -40,11 +43,12 @@ from phasespace.gravity.m4.config import (
     CC_STAR_SAFETY_CAP,
     CONTINUATION,
     ERROR_DISTRIBUTIONS,
-    GATES_MODELS,
     GATES_PRIMARY,
+    GATES_STRESS,
     METHODS,
     ORACLE_SEEDS,
     PROTOCOL,
+    PROTOCOL_PATH,
     RUN_BUDGET,
     SMOKE_ERROR_SEED,
     SMOKE_MAX_BUDGET,
@@ -57,14 +61,19 @@ from phasespace.gravity.m4.config import (
     MapElitesConfig,
     MethodConfig,
     ProtocolNotFrozenError,
+    config_json,
+    config_sha256,
     method_grid,
+    protocol_status,
     require_frozen,
+    to_jsonable,
 )
 from phasespace.gravity.m4.evaluation import Evaluator, LogEntry, evaluate_unit, to_unit
 from phasespace.gravity.m4.groundtruth import compare_with_m3, compute_ground_truth
 from phasespace.gravity.m4.methods import MethodRun, run_method, sobol_prefix
 from phasespace.gravity.m4.robustness import (
     error_draws,
+    execution_models,
     gates_normals,
     solution_robustness,
 )
@@ -90,6 +99,7 @@ ALL_PROTOCOL_SEEDS: Final = frozenset(
         PROTOCOL.ground_truth.map_seed,
         *PROTOCOL.ground_truth.refinement_seeds,
         *(d.seed for d in PROTOCOL.errors),
+        PROTOCOL.gates_normals_seed,
         PROTOCOL.constraints.generation_seed,
         PROTOCOL.constraints.split_seed,
         PROTOCOL.gate.lsoda_seed,
@@ -196,38 +206,60 @@ def smoke_probe(draws: int) -> dict[str, dict[str, Any]]:
         held_out=False,
     )
     start = time.perf_counter()
-    normals = gates_normals(GATES_PRIMARY, dist)
-    rob = solution_robustness(elite, error_draws(dist), execution=GATES_PRIMARY, normals=normals)
+    normals = gates_normals(dist)
+    rob = solution_robustness(
+        elite, error_draws(dist), executions=(GATES_PRIMARY,), normals=normals
+    )
     t_rob = time.perf_counter() - start
+    # The H_E-nominal shape: the same draws executed under both Gates sets (9.1 pairing).
+    both = solution_robustness(
+        elite, error_draws(dist), executions=(GATES_PRIMARY, GATES_STRESS), normals=normals
+    )
     start = time.perf_counter()
     rc = recheck(elite)
     t_rc = time.perf_counter() - start
     pe = float(elite.nfev)
-    draw_nfev = sum(d.nfev for d in rob.draws)
+    per_draw = sum(d.nfev for d in rob.draws) / pe / max(1, draws)
+    per_draw_both = sum(d.nfev for d in both.draws) / pe / max(1, draws)
 
     def metric(value: float, unit: str, definition: str) -> dict[str, Any]:
         return {"value": value, "unit": unit, "definition": definition}
 
     print(
         f"  probe: full propagation {1000 * t_full:.1f} ms; robustness setup "
-        f"{rob.setup_nfev / pe:.2f} PE, {draw_nfev / pe / max(1, draws):.2f} PE per draw, "
-        f"{t_rob:.2f} s for {draws} draws; re-check {t_rc * 1000:.0f} ms "
+        f"{rob.setup_nfev / pe:.2f} PE, {per_draw:.2f} PE per draw ({per_draw_both:.2f} with "
+        f"the stress set), {t_rob:.2f} s for {draws} draws; re-check {t_rc * 1000:.0f} ms "
         f"(passed={rc.passed})"
     )
+    survival = (
+        {
+            "probe_robustness_survival_b30": metric(
+                rob.survival(30.0), "dimensionless", "c1 survival at B = 30 m/s (probe only)"
+            )
+        }
+        if rob.draws
+        else {}
+    )
     return {
+        **survival,
         "probe_full_propagation_nfev": metric(pe, "count", "nfev of c1's full propagation (1 PE)"),
         "probe_full_propagation_hours": metric(t_full / 3600.0, "hour", "its wall time"),
         "probe_robustness_setup_pe": metric(
             rob.setup_nfev / pe, "dimensionless", "Jacobian setup nfev / c1 nfev"
         ),
         "probe_robustness_pe_per_draw": metric(
-            draw_nfev / pe / max(1, draws), "dimensionless", "mean draw nfev / c1 nfev"
+            per_draw, "dimensionless", "mean draw nfev / c1 nfev (primary Gates set only)"
+        ),
+        "probe_robustness_pe_per_draw_with_stress": metric(
+            per_draw_both,
+            "dimensionless",
+            "mean draw nfev / c1 nfev, primary and stress Gates sets (H_E-nominal shape)",
         ),
         "probe_robustness_draws": metric(draws, "count", "smoke error draws (seed 9002)"),
         "probe_robustness_hours": metric(t_rob / 3600.0, "hour", "setup + draws wall time"),
         "probe_recheck_hours": metric(t_rc / 3600.0, "hour", "DOP853 1e-13 re-check wall time"),
         "probe_recheck_passed": metric(int(rc.passed), "count", "1 if c1 passes the 5.6 re-check"),
-        **gates_metrics(GATES_PRIMARY),
+        **gates_metrics((GATES_PRIMARY, GATES_STRESS)),
     }
 
 
@@ -264,14 +296,14 @@ def _search_task(
 def stage_tasks(
     stage: str, configs: dict[str, int], seeds: Sequence[int]
 ) -> list[tuple[str, int, int]]:
-    """(method, config index, seed) of a stage: every grid entry for 'tune', else the
-    selected entry of every method (all methods must be given except D and CC)."""
+    """(method, config index, seed) of a stage: every grid entry for 'tune' (including the
+    single, untuned D and CC entries: B is calibrated on the D tuning catalogs and the
+    pilot's dispersion uses the tuning seeds of every method), else the selected entry of
+    every method (all methods must be given except D and CC)."""
     tasks: list[tuple[str, int, int]] = []
     for method in METHODS:
         grid = method_grid(method)
         if stage == "tune":
-            if len(grid) == 1:
-                continue  # D and CC are not tuned
             indices = list(range(len(grid)))
         elif len(grid) == 1:
             indices = [0]
@@ -380,58 +412,68 @@ def run_groundtruth(runs_dir: Path, workers: int, git_commit: str, git_dirty: bo
     return run_id
 
 
-def gates_metrics(gates: GatesModel) -> dict[str, dict[str, Any]]:
-    """The MCC execution-error parameters (D24) as manifest metrics."""
-    return {
-        "mcc_gates_sigma_s": {
-            "value": gates.sigma_s,
-            "unit": "dimensionless",
-            "definition": f"{gates.name}: proportional magnitude error of the MCC (Gates model)",
-        },
-        "mcc_gates_sigma_r_km_s": {
-            "value": gates.sigma_r_m_s / 1000.0,
-            "unit": "km/s",
-            "definition": f"{gates.name}: fixed magnitude error along the MCC",
-        },
-        "mcc_gates_sigma_p_deg": {
-            "value": math.degrees(gates.sigma_p_rad),
-            "unit": "deg",
-            "definition": f"{gates.name}: proportional pointing error (sigma_p, rad in config)",
-        },
-        "mcc_gates_sigma_a_km_s": {
-            "value": gates.sigma_a_m_s / 1000.0,
-            "unit": "km/s",
-            "definition": f"{gates.name}: fixed in-plane transverse error",
-        },
-        "mcc_gates_seed": {
-            "value": gates.seed,
-            "unit": "count",
-            "definition": f"{gates.name}: first element of the normal-stream seed",
-        },
+def gates_metrics(models: Sequence[GatesModel]) -> dict[str, dict[str, Any]]:
+    """The MCC execution-error parameters (D24) of each Gates set as manifest metrics."""
+    out: dict[str, dict[str, Any]] = {}
+    for gates in models:
+        prefix = f"mcc_{gates.name}"
+        out |= {
+            f"{prefix}_sigma_s": {
+                "value": gates.sigma_s,
+                "unit": "dimensionless",
+                "definition": f"{gates.name}: proportional magnitude error of the MCC (Gates)",
+            },
+            f"{prefix}_sigma_r_km_s": {
+                "value": gates.sigma_r_m_s / 1000.0,
+                "unit": "km/s",
+                "definition": f"{gates.name}: fixed magnitude error along the MCC",
+            },
+            f"{prefix}_sigma_p_deg": {
+                "value": math.degrees(gates.sigma_p_rad),
+                "unit": "deg",
+                "definition": f"{gates.name}: proportional pointing error (rad in config)",
+            },
+            f"{prefix}_sigma_a_km_s": {
+                "value": gates.sigma_a_m_s / 1000.0,
+                "unit": "km/s",
+                "definition": f"{gates.name}: fixed in-plane transverse error",
+            },
+        }
+    out["mcc_gates_normals_seed"] = {
+        "value": PROTOCOL.gates_normals_seed,
+        "unit": "count",
+        "definition": "first element of the execution-error normal-stream seed (all sets)",
     }
+    return out
 
 
 def run_robustness(
     runs_dir: Path,
     source_run: str,
     errors: str,
-    execution: str,
     git_commit: str,
     git_dirty: bool,
     *,
     confirm_frozen: bool,
 ) -> str:
-    """5.6 re-check of a method run's final catalog, then 9.1 (with D24 execution errors)
-    for every elite."""
+    """5.6 re-check of a method run's final catalog, then 9.1 for every elite under the
+    injection set `errors` and every Gates set paired with it (D24, D25)."""
     dist = ERROR_DISTRIBUTIONS[errors]
-    gates = GATES_MODELS[execution]
+    models = execution_models(dist, confirm_frozen=confirm_frozen)
     draws = error_draws(dist, confirm_frozen=confirm_frozen)
-    normals = gates_normals(gates, dist, confirm_frozen=confirm_frozen)
+    normals = gates_normals(dist, confirm_frozen=confirm_frozen)
+    run_id = f"{source_run}-robustness-{errors.lower().replace('_', '-')}"
+    if (runs_dir / run_id).exists():
+        raise FileExistsError(f"{runs_dir / run_id} already exists; runs are never overwritten")
     log = [e.evaluation for e in load_log(runs_dir / source_run, "evaluations.json")]
     catalog, checks = rechecked_catalog(log, lambda i: recheck(log[i], index=i))
+
+    def flag(value: bool | None) -> int | None:
+        return None if value is None else int(value)
+
     rows: list[list[Any]] = []
     for el in catalog.values():
-        rob = solution_robustness(log[el.index], draws, execution=gates, normals=normals)
+        rob = solution_robustness(log[el.index], draws, executions=models, normals=normals)
         for k, d in enumerate(rob.draws):
             rows.append(
                 [
@@ -441,10 +483,11 @@ def run_robustness(
                     k,
                     int(rob.singular),
                     int(d.uncorrected_feasible),
+                    d.commanded_m_s_norm / 1000.0,
+                    *(flag(x.feasible) for x in d.executions),
                     int(d.converged),
-                    d.delta_v_required_m_s / 1000.0 if d.converged else None,
-                    int(d.corrected_feasible),
-                    int(d.executed_feasible),
+                    int(d.diverged),
+                    flag(d.commanded_feasible),
                     d.iterations,
                     d.nfev,
                 ]
@@ -454,19 +497,24 @@ def run_robustness(
         Column("cell_d2", "count", "bin of t_ret"),
         Column("index", "count", "propagation index of the elite in the source run"),
         Column("draw", "count", "error draw k (common random numbers)"),
-        Column("singular", "count", "1 if cond(J) > 1e8 or J undefined"),
+        Column("singular", "count", "1 if cond(J) > 1e8 or J undefined (no MCC commanded)"),
         Column("uncorrected_feasible", "count", "1 if feasible without correction"),
-        Column("converged", "count", "1 if the chord MCC converged (|R| <= 1 km)"),
-        Column("delta_v_required_km_s", "km/s", "|dv| at convergence; null if none"),
-        Column("corrected_feasible", "count", "1 if feasible with the exact commanded MCC"),
-        Column("executed_feasible", "count", "1 if feasible with the executed MCC (D24)"),
+        Column("commanded_delta_v_km_s", "km/s", "|dv| of the commanded MCC (0 if none)"),
+        *(
+            Column(
+                f"executed_feasible_{m.name}",
+                "count",
+                f"1 if feasible after the MCC executed under {m.name}; null if not propagated",
+            )
+            for m in models
+        ),
+        Column("converged", "count", "diagnostic: 1 if the final chord |R| <= 1 km"),
+        Column("diverged", "count", "diagnostic: 1 if the chord stopped at |dv| > 100 m/s"),
+        Column("commanded_feasible", "count", "diagnostic: feasible with the exact MCC"),
         Column("iterations", "count", "chord iterations"),
         Column("nfev", "count", "right-hand-side evaluations of the draw"),
     )
-    run_id = (
-        f"{source_run}-robustness-{errors.lower().replace('_', '-')}-"
-        f"{execution.lower().replace('_', '-')}"
-    )
+    names = ", ".join(m.name for m in models)
     manifest = build_manifest(
         run_id,
         stage="robustness",
@@ -481,13 +529,13 @@ def run_robustness(
                 "unit": "count",
                 "definition": "elites rejected by the 5.6 re-check",
             },
-            **gates_metrics(gates),
+            **gates_metrics(models),
         },
         limitations=[
             f"Injection errors {dist.name} (K = {dist.draws}, seed {dist.seed}); MCC execution "
-            f"errors {gates.name} (Gates model, D24: sigma_s = {gates.sigma_s}, sigma_r = "
-            f"{gates.sigma_r_m_s} m/s, sigma_p = {gates.sigma_p_rad} rad, sigma_a = "
-            f"{gates.sigma_a_m_s} m/s; normals from default_rng(({gates.seed}, {dist.seed})))."
+            f"errors {names} (Gates model, D24), all with the standard normals of "
+            f"default_rng(({PROTOCOL.gates_normals_seed}, {dist.seed})). Survival at B (D25): "
+            "uncorrected_feasible, or commanded_delta_v <= B and executed_feasible."
         ],
         git_commit=git_commit,
         git_dirty=git_dirty,
@@ -496,6 +544,50 @@ def run_robustness(
     table = dumps_table(sample_table(run_id, columns, rows))
     write_run_directory(runs_dir / run_id, manifest, [("sample_table", "robustness.json", table)])
     return run_id
+
+
+def print_config(*, full: bool) -> None:
+    """The configuration hash and the key constants (or the full canonical JSON)."""
+    if full:
+        print(json.dumps(config_json(), indent=2, sort_keys=True))
+        return
+    p = PROTOCOL
+    corr = p.correction
+    lines = [
+        f"protocol        {PROTOCOL_PATH.relative_to(PROTOCOL_PATH.parents[3])} "
+        f"{p.version} (status: {protocol_status()})",
+        f"config_sha256   {config_sha256()}",
+        f"run budget N    {p.run_budget}; checkpoints {list(p.checkpoints)}",
+        f"seeds           tuning {list(p.seeds.tuning)}, pilot {list(p.seeds.pilot)}, "
+        f"main {p.seeds.main[0]}-{p.seeds.main[-1]} "
+        f"(+{p.seeds.main_extension[0]}-{p.seeds.main_extension[-1]})",
+        f"ground truth    2^{p.ground_truth.log2_map} Sobol, seed {p.ground_truth.map_seed}; "
+        f"refinement seeds {list(p.ground_truth.refinement_seeds)}",
+    ]
+    for d in p.errors:
+        lines.append(
+            f"errors {d.name:12s} sigma = ({d.sigma_magnitude:g}, {d.sigma_direction_deg:g} deg, "
+            f"{d.sigma_timing_s:g} s), K = {d.draws}, seed {d.seed}, "
+            f"executions {list(d.executions)}"
+        )
+    for g in p.correction_execution:
+        lines.append(
+            f"gates {g.name:13s} sigma_s {g.sigma_s:g}, sigma_r {g.sigma_r_m_s:g} m/s, "
+            f"sigma_p {g.sigma_p_rad:g} rad, sigma_a {g.sigma_a_m_s:g} m/s"
+        )
+    lines += [
+        f"gates normals   default_rng(({p.gates_normals_seed}, injection seed))",
+        f"correction      t_c {corr.t_c_days:g} d, FD {corr.fd_step_m_s:g} m/s, cond <= "
+        f"{corr.cond_max:g}, <= {corr.max_iterations} chord iterations, tol "
+        f"{corr.tolerance_km:g} km, divergence {corr.divergence_m_s:g} m/s",
+        f"budget B grid   {list(corr.budget_grid_m_s)} m/s, calibration band "
+        f"{list(corr.calibration_band)}",
+    ]
+    for method in METHODS:
+        for k, cfg in enumerate(method_grid(method)):
+            text = "-" if cfg is None else json.dumps(to_jsonable(cfg), sort_keys=True)
+            lines.append(f"grid {method}[{k}]{'':{8 - len(method)}s} {text}")
+    print("\n".join(lines))
 
 
 def _parse_configs(text: str) -> dict[str, int]:
@@ -518,6 +610,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     p_smoke.add_argument("--seed", type=int, default=SMOKE_SEED)
     p_smoke.add_argument("--workers", type=int, default=1)
     p_smoke.add_argument("--probe-draws", type=int, default=4)
+    p_config = sub.add_parser("config", help="print the config hash and key constants")
+    p_config.add_argument("--json", action="store_true", help="print the full config JSON")
     guarded = {
         "search": "one budget-matched method run",
         "stage": "every run of a stage (tune, pilot or main)",
@@ -539,11 +633,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     subs["stage"].add_argument("--configs", default="", help="e.g. MS=0,MBH=1,DE=0,T=2,T2=0")
     subs["robustness"].add_argument("--run-id", required=True)
     subs["robustness"].add_argument("--errors", choices=sorted(ERROR_DISTRIBUTIONS), required=True)
-    subs["robustness"].add_argument(
-        "--execution", choices=sorted(GATES_MODELS), default=GATES_PRIMARY.name
-    )
     args = parser.parse_args(argv)
     runs_dir: Path = args.runs_dir
+    if args.command == "config":
+        print_config(full=bool(args.json))
+        return 0
     commit, dirty = git_source()
 
     if args.command == "smoke":
@@ -593,7 +687,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 runs_dir,
                 str(args.run_id),
                 str(args.errors),
-                str(args.execution),
                 commit,
                 dirty,
                 confirm_frozen=bool(args.confirm_frozen),

@@ -58,12 +58,16 @@ gravity-m3-probe run_id="gravity-free-return-dv-probe-v1" workers="10":
 gravity-m3-web-map map_run="gravity-free-return-map-2d-grid-v1" run_id="gravity-free-return-map-2d-grid-v1-web":
     uv run python -m phasespace.gravity.free_return_export --runs-dir runs web-map --map-run {{map_run}} --run-id {{run_id}}
 
+# M4 configuration: print the config hash and key constants (no computation; --json for everything).
+gravity-m4-config *args:
+    uv run python -m phasespace.gravity.m4 config {{args}}
+
 # M4 smoke run (pre-freeze, never comparative): every method at <= 2^8 propagations (seed 9001) plus cost probes.
-gravity-m4-smoke run_id="gravity-m4-smoke-v1" budget="256" workers="1":
-    uv run python -m phasespace.gravity.m4 --runs-dir runs smoke --run-id {{run_id}} --budget {{budget}} --workers {{workers}}
+gravity-m4-smoke run_id="gravity-m4-smoke-v1" budget="256" workers="1" probe_draws="8":
+    uv run python -m phasespace.gravity.m4 --runs-dir runs smoke --run-id {{run_id}} --budget {{budget}} --workers {{workers}} --probe-draws {{probe_draws}}
 
 # M4 frozen-protocol stages: each refuses unless protocol.md says `frozen` and --confirm-frozen is passed.
-# Tuning grid (seeds 9101-9102): just gravity-m4-tune --confirm-frozen
+# Tuning grid (seeds 9101-9102; every grid entry, plus D and CC once): just gravity-m4-tune --confirm-frozen
 gravity-m4-tune *args:
     uv run python -m phasespace.gravity.m4 --runs-dir runs stage --stage tune {{args}}
 
@@ -87,7 +91,8 @@ gravity-m4-groundtruth *args:
 gravity-m4-ccstar *args:
     uv run python -m phasespace.gravity.m4 --runs-dir runs ccstar {{args}}
 
-# M4 re-check + execution-error tolerance of a run: just gravity-m4-robustness <run_id> T_E --confirm-frozen
+# M4 re-check + execution-error tolerance of a run under one injection set and its paired Gates sets
+# (T_E | H_E_nominal | H_E_wide): just gravity-m4-robustness <run_id> T_E --confirm-frozen
 gravity-m4-robustness run errors *args:
     uv run python -m phasespace.gravity.m4 --runs-dir runs robustness --run-id {{run}} --errors {{errors}} {{args}}
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+from itertools import pairwise
 
 import numpy as np
 import pytest
@@ -21,7 +22,6 @@ from phasespace.gravity.m4.config import (
     H_E_WIDE,
     PROTOCOL,
     T_E,
-    CorrectionConfig,
     ProtocolNotFrozenError,
 )
 from phasespace.gravity.m4.evaluation import evaluate_unit, to_unit
@@ -29,11 +29,13 @@ from phasespace.gravity.m4.robustness import (
     ConstraintSet,
     DrawResult,
     ErrorDraw,
+    Execution,
     availability,
     calibrate_budget,
     constraint_families,
     error_draws,
     executed_departure,
+    execution_models,
     gates_error,
     gates_normals,
     held_out_sets,
@@ -86,23 +88,55 @@ def test_executed_departure_hand_values() -> None:
     assert phase - 229.0 == pytest.approx(0.0679921, abs=1e-6)
 
 
+def _draw_result(
+    uncorrected: bool, commanded: tuple[float, float], executed: bool | None
+) -> DrawResult:
+    nan2 = (math.nan, math.nan)
+    return DrawResult(
+        uncorrected_feasible=uncorrected,
+        commanded_m_s=commanded,
+        executions=(Execution("gates_primary", commanded, executed),),
+        converged=False,
+        diverged=executed is None,
+        commanded_feasible=None,
+        iterations=3,
+        initial_residual_km=nan2,
+        propagations=6,
+        nfev=0,
+    )
+
+
 def test_success_at_budget_rules() -> None:
-    corrected = DrawResult(False, True, 2.5, True, True, (2.0, 1.5), 2, (5.0, 5.0), 4, 0)
+    # D25: commanded |dv| <= B and feasible after the executed correction; chord
+    # convergence plays no part (converged=False in every case here).
+    corrected = _draw_result(False, (2.0, 1.5), True)  # |dv| = 2.5 m/s
+    assert corrected.commanded_m_s_norm == pytest.approx(2.5)
     assert not corrected.survives(0.0)
     assert not corrected.survives(1.0)
-    assert corrected.survives(3.0)
-    infeasible_after = replace(corrected, corrected_feasible=False, executed_feasible=False)
-    assert not infeasible_after.survives(30.0)
-    # D24: survival is judged after the executed (perturbed) correction.
-    execution_fails = replace(corrected, executed_feasible=False)
-    assert not execution_fails.survives(30.0)
-    nan2 = (math.nan, math.nan)
-    free = DrawResult(True, False, math.inf, False, False, nan2, 3, (500.0, 5.0), 5, 0)
-    assert free.survives(0.0)
-    assert free.survives(10.0)  # uncorrected feasible counts at every B (default)
-    literal = CorrectionConfig(uncorrected_feasible_counts=False)
-    assert free.survives(0.0, literal)
-    assert not free.survives(10.0, literal)
+    assert corrected.survives(2.5) and corrected.survives(3.0)
+    execution_fails = _draw_result(False, (2.0, 1.5), False)
+    assert not any(execution_fails.survives(b) for b in (0.0, 1.0, 3.0, 10.0, 30.0))
+    diverged = _draw_result(False, (150.0, 0.0), None)
+    assert not any(diverged.survives(b) for b in (0.0, 1.0, 3.0, 10.0, 30.0, 100.0))
+    # A draw feasible without correction survives at every B, whatever its MCC does.
+    free = _draw_result(True, (20.0, 0.0), False)
+    assert all(free.survives(b) for b in (0.0, 1.0, 3.0, 10.0, 30.0))
+    with pytest.raises(ValueError, match="defined"):
+        corrected.survives(101.0)
+    with pytest.raises(ValueError, match="defined"):
+        corrected.survives(-1.0)
+
+
+def test_survival_is_monotone_in_budget_for_every_outcome_combination() -> None:
+    budgets = np.linspace(0.0, 100.0, 401)
+    for uncorrected in (False, True):
+        for norm in (0.0, 0.7, 2.5, 9.9, 30.0, 64.0, 150.0):
+            for executed in (False, True, None):
+                if executed is None and norm <= 100.0:
+                    continue
+                d = _draw_result(uncorrected, (norm, 0.0), executed)
+                s = [d.survives(float(b)) for b in budgets]
+                assert all(a <= b for a, b in pairwise(s))
 
 
 def test_budget_calibration_rule() -> None:
@@ -116,18 +150,22 @@ def test_budget_calibration_rule() -> None:
 def test_zero_error_draw_needs_no_correction_and_a_small_error_is_corrected() -> None:
     elite = evaluate_unit(to_unit(C1))
     small = ErrorDraw(2e-7, 0.0, 0.0)  # ~0.6 mm/s along the burn
-    rob = solution_robustness(elite, [ErrorDraw(0.0, 0.0, 0.0), small])
+    zeros = np.zeros((2, 2))  # zero execution errors: executed = commanded
+    rob = solution_robustness(
+        elite, [ErrorDraw(0.0, 0.0, 0.0), small], executions=(GATES_PRIMARY,), normals=zeros
+    )
     assert not rob.singular and rob.condition < 1e3
     zero, corrected = rob.draws
     # Re-propagating the nominal through t_c reproduces its targets (restart only).
     assert max(abs(v) for v in zero.initial_residual_km) < 1.0
-    assert zero.converged and zero.delta_v_required_m_s == 0.0 and zero.corrected_feasible
-    assert zero.survives(0.0) and zero.survives(1.0)
+    assert zero.converged and zero.commanded_m_s == (0.0, 0.0) and zero.uncorrected_feasible
+    assert zero.executions[0].feasible and zero.survives(0.0) and zero.survives(1.0)
     # A sub-mm/s execution error moves h_vp by kilometres (M3: ~10 km per mm/s) and the
     # chord MCC brings it back with a tiny correction.
     assert max(abs(v) for v in corrected.initial_residual_km) > 1.0
-    assert corrected.converged and corrected.corrected_feasible
-    assert 0.0 < corrected.delta_v_required_m_s < 0.1
+    assert corrected.converged and corrected.commanded_feasible
+    assert 0.0 < corrected.commanded_m_s_norm < 0.1
+    assert corrected.executions[0].feasible
     assert rob.survival(1.0) == 1.0
 
 
@@ -158,43 +196,81 @@ def test_gates_error_covariance_matches_hand_built_q() -> None:
         gates_error(np.zeros(2), z[0], model)
 
 
-def test_gates_normals_are_seeded_and_held_out_sets_refuse() -> None:
-    normals = gates_normals(GATES_PRIMARY, T_E)
+def test_gates_normals_and_pairing() -> None:
+    normals = gates_normals(T_E)
     assert normals.shape == (32, 2)
-    assert np.array_equal(normals, gates_normals(GATES_PRIMARY, T_E))
-    expected = np.random.default_rng((GATES_PRIMARY.seed, T_E.seed)).standard_normal((32, 2))
+    assert np.array_equal(normals, gates_normals(T_E))
+    expected = np.random.default_rng((7401, T_E.seed)).standard_normal((32, 2))
     assert np.array_equal(normals, expected)
     assert GATES_STRESS.sigma_s == 3e-2 and GATES_STRESS.sigma_r_m_s == 0.010
+    assert GATES_STRESS.sigma_p_rad == GATES_PRIMARY.sigma_p_rad
+    assert GATES_STRESS.sigma_a_m_s == GATES_PRIMARY.sigma_a_m_s
+    # 9.1 pairing: the stress set goes only with the primary held-out injection set.
+    assert execution_models(T_E) == (GATES_PRIMARY,)
+    assert H_E_NOMINAL.executions == ("gates_primary", "gates_stress")
+    assert H_E_WIDE.executions == ("gates_primary",)
     with pytest.raises(ProtocolNotFrozenError):
-        gates_normals(GATES_STRESS, T_E, confirm_frozen=True)
+        execution_models(H_E_NOMINAL, confirm_frozen=True)
     with pytest.raises(ProtocolNotFrozenError):
-        gates_normals(GATES_PRIMARY, H_E_NOMINAL, confirm_frozen=True)
+        gates_normals(H_E_NOMINAL, confirm_frozen=True)
 
 
 def test_executed_correction_adds_the_gates_error() -> None:
     elite = evaluate_unit(to_unit(C1))
     draws = [ErrorDraw(0.0, 0.0, 0.0), ErrorDraw(2e-7, 0.0, 0.0)]
-    exact = solution_robustness(elite, draws, execution=GATES_PRIMARY, normals=np.zeros((2, 2)))
+    models = (GATES_PRIMARY, GATES_STRESS)
+    exact = solution_robustness(elite, draws, executions=models, normals=np.zeros((2, 2)))
     zero, small = exact.draws
-    assert zero.delta_v_required_m_s == 0.0 and zero.executed_feasible  # no burn, no error
-    assert small.converged and small.executed_feasible == small.corrected_feasible
-    commanded = np.array(small.executed_delta_v_m_s)  # zero normals: executed = commanded
-    assert np.linalg.norm(commanded) == pytest.approx(small.delta_v_required_m_s, rel=1e-12)
+    assert zero.commanded_m_s == (0.0, 0.0)  # no burn, no execution error
+    assert [x.feasible for x in zero.executions] == [True, True]
+    commanded = np.array(small.commanded_m_s)
+    for x in small.executions:  # zero normals: executed = commanded
+        assert x.delta_v_m_s == small.commanded_m_s and x.feasible == small.commanded_feasible
     normals = np.array([[0.0, 0.0], [1.0, -2.0]])
-    rob = solution_robustness(elite, draws, execution=GATES_PRIMARY, normals=normals)
-    executed = np.array(rob.draws[1].executed_delta_v_m_s)
-    expected = gates_error(commanded, normals[1], GATES_PRIMARY)
-    assert executed - commanded == pytest.approx(expected, abs=1e-12)
-    # |error| >= sigma_r = 10 mm/s along the burn here, far above the ~0.6 mm/s commanded.
-    assert np.linalg.norm(executed - commanded) > 0.009
+    rob = solution_robustness(elite, draws, executions=models, normals=normals)
+    d = rob.draws[1]
+    # The commanded MCC does not depend on the execution sets (common random numbers).
+    assert d.commanded_m_s == small.commanded_m_s
+    for k, model in enumerate(models):
+        executed = np.array(d.executions[k].delta_v_m_s)
+        expected = gates_error(commanded, normals[1], model)
+        assert executed - commanded == pytest.approx(expected, abs=1e-12)
+        # |error| >= sigma_r = 10 mm/s along the burn here, far above the commanded.
+        assert np.linalg.norm(executed - commanded) > 0.009
+    assert d.propagations == small.propagations
     with pytest.raises(ValueError, match="normal pair"):
-        solution_robustness(elite, draws, execution=GATES_PRIMARY)
+        solution_robustness(elite, draws, executions=models, normals=np.zeros((3, 2)))
+    with pytest.raises(ValueError, match="executed"):
+        solution_robustness(elite, draws, executions=(), normals=np.zeros((2, 2)))
+
+
+def test_survival_on_c1_is_monotone_in_budget_for_fixed_seeds() -> None:
+    """D25 regression: with fixed injection and execution seeds, s(B) never decreases.
+
+    The draws use the T_E scales with a non-protocol seed (9002, the smoke error seed).
+    """
+    dist = replace(T_E, name="test", draws=4, seed=9002)
+    elite = evaluate_unit(to_unit(C1))
+    models = (GATES_PRIMARY, GATES_STRESS)
+    rob = solution_robustness(
+        elite, error_draws(dist), executions=models, normals=gates_normals(dist)
+    )
+    budgets = [0.0, *PROTOCOL.correction.budget_grid_m_s, 100.0]
+    fine = [*budgets, *np.linspace(0.0, 30.0, 61).tolist()]
+    for k in range(len(models)):
+        s = [rob.survival(b, k) for b in sorted(fine)]
+        assert all(a <= b for a, b in pairwise(s))
+        for d in rob.draws:
+            per_draw = [d.survives(b, k) for b in sorted(fine)]
+            assert all(a <= b for a, b in pairwise(per_draw))
+    # The c1 smoke observation behind D25: these draws move h_vp by far more than 1 km.
+    assert all(max(abs(v) for v in d.initial_residual_km) > 1.0 for d in rob.draws)
 
 
 def test_infeasible_solutions_are_rejected() -> None:
     bad = toy_evaluate((0.05, 0.5, 0.5))
     with pytest.raises(ValueError, match="feasible"):
-        solution_robustness(bad, [])
+        solution_robustness(bad, [], executions=(GATES_PRIMARY,), normals=np.zeros((0, 2)))
 
 
 # --- changed constraints ----------------------------------------------------------------------

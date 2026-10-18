@@ -1,11 +1,9 @@
-"""Declared constants of the M4 protocol (docs/studies/gravity-atlas/protocol.md, v1 DRAFT).
+"""Declared constants of the M4 protocol (docs/studies/gravity-atlas/protocol.md, v1).
 
 Every constant below cites the protocol section it comes from. Method hyperparameters
 are the protocol's tuning grids (section 6); which grid entry each method uses in the
 pilot and the main runs is *to be set on the tuning set per protocol section 6 ("How
-hyperparameters are set")* and is never chosen here. Where the protocol is silent or
-ambiguous, the choice made in code is marked ``PROTOCOL ISSUE`` and is listed in the M4
-implementation report for the study owner to confirm or change before the freeze.
+hyperparameters are set")* and is never chosen here.
 
 `require_frozen` guards every command that would produce comparative evidence: it
 refuses unless the protocol's status line says `frozen` and the caller confirmed it.
@@ -82,8 +80,7 @@ class NumericalGate:
     recheck_return_time_s: float = 0.1
     recheck_gamma_deg: float = 1e-3
     recheck_max_replacements: int = 3
-    """PROTOCOL ISSUE (5.6, "re-checked, up to 3 times"): read as at most 3 replacement
-    elites per cell after the first failure (at most 4 re-checks per cell)."""
+    """5.6: after a failing elite, at most 3 replacements per cell (<= 4 re-checks)."""
     lsoda_fraction: float = 0.05
     lsoda_seed: int = 7301
     stop_fraction: float = 0.01
@@ -104,8 +101,8 @@ class GroundTruth:
     refinement_points: int = 32
     refinement_half_width: float = 2.0 ** (-20.0 / 3.0)
     """Level-1 half-width in u (the GT map's mean spacing); level L uses / 2^(L-1).
-    PROTOCOL ISSUE (5.3): one Sobol generator per box, seeded with the level's seed, so
-    every box of a level has the same relative pattern (order independent)."""
+    5.3: one Sobol generator per box, seeded with the level's seed, so every box of a
+    level has the same relative pattern (independent of the order of the boxes)."""
     saturation_tolerance: float = 0.10
 
 
@@ -125,11 +122,8 @@ class LocalSolve:
 
 @dataclass(frozen=True, slots=True)
 class MultiStartConfig:
-    """MS: c_MS propagations per local solve (the start's own propagation excluded).
-
-    PROTOCOL ISSUE (6, MS): "at most c_MS propagations per start" does not say whether
-    the start counts; as in M3, the cap covers the solve, the start is counted in N.
-    """
+    """MS: c_MS propagations per local solve (section 6: the start's own propagation is
+    counted in N but not against c_MS)."""
 
     max_propagations_per_start: int = 100
 
@@ -146,11 +140,10 @@ class BasinHoppingConfig:
 
 @dataclass(frozen=True, slots=True)
 class DifferentialEvolutionConfig:
-    """DE: total population NP; scipy popsize = NP / 3 (section 6).
+    """DE: nominal population NP; scipy popsize = NP // 3 (section 6).
 
-    PROTOCOL ISSUE (6, DE): with init="sobol" SciPy 1.18 rounds the population up to the
-    next power of two (30 -> 32, 60 -> 64, 120 -> 128). The code passes popsize = NP // 3
-    as written and records the effective population; maxiter uses the effective size.
+    With init="sobol" SciPy rounds the population up to the next power of two, so the
+    effective population is 32, 64 or 128 (`effective_population`); maxiter uses it.
     """
 
     population: int = 30
@@ -159,8 +152,12 @@ class DifferentialEvolutionConfig:
     recombination: float = 0.9
     restart_seed_stride: int = 1000
     updating: Literal["deferred"] = "deferred"
-    """PROTOCOL ISSUE (6, DE): `updating` is unspecified; "deferred" makes the result
-    independent of the worker count (SciPy forces it whenever workers != 1)."""
+    """Section 6: updating='deferred' makes the result independent of the worker count."""
+
+    @property
+    def effective_population(self) -> int:
+        """The population SciPy uses with init="sobol": 3 * (NP // 3) rounded up to 2^k."""
+        return 2 ** math.ceil(math.log2(3 * (self.population // 3)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,16 +179,15 @@ class MapElitesConfig:
     init_batch: int = 1024
     batch: int = 64
     max_stalled_batches: int = 100
-    """Safety stop when consecutive batches make no new propagation (all cache hits)."""
+    """Section 6: safety stop after 100 consecutive batches without a new propagation."""
 
 
 @dataclass(frozen=True, slots=True)
 class CorridorEmitterConfig:
     """T2: T's loop plus one r1-only least-squares solve per batch (cap 40, box +-0.02).
 
-    PROTOCOL ISSUE (6, T2): "the rest of the batch is T's variation" is read as batch - 1
-    = 63 variation offspring per batch (the emitter takes one slot whatever its
-    propagation count), with parents drawn from the archive after the emitter's solve.
+    Section 6: each batch is the emitter solve plus batch - 1 = 63 variation offspring,
+    whose parents are drawn after the emitter's evaluations entered the archive.
     """
 
     map_elites: MapElitesConfig = field(default_factory=MapElitesConfig)
@@ -216,8 +212,7 @@ MAP_ELITES_GRID: Final = (
     MapElitesConfig(0.01, 0.2),
 )
 T2_GRID: Final = tuple(CorridorEmitterConfig(m) for m in MAP_ELITES_GRID)
-"""PROTOCOL ISSUE (6 vs 7.4): section 7.4 counts 2 T2 configurations, section 6 lists
-none; until resolved T2 inherits T's 3-entry grid."""
+"""Section 6: T2 is tuned over T's three (sigma_iso, sigma_line) entries."""
 CONTINUATION: Final = ContinuationConfig()
 
 METHODS: Final = ("D", "MS", "MBH", "DE", "CC", "T", "T2")
@@ -251,9 +246,9 @@ def method_grid(method: str) -> tuple[MethodConfig, ...]:
 
 
 RNG_STREAMS: Final = {"MBH": 1, "T": 2, "T2": 3}
-"""PROTOCOL ISSUE (6): method-internal randomness (MBH hops, MAP-Elites variation) has no
-declared generator; the code uses numpy.random.default_rng((seed, stream)) with these
-fixed stream ids, separate from the shared Sobol scrambling generator default_rng(seed)."""
+"""Section 6: method-internal randomness (MBH hops, MAP-Elites variation and parents, the
+T2 emitter's elite) uses numpy.random.default_rng((seed, stream)) with these stream ids,
+separate from the Sobol scrambling generator default_rng(seed)."""
 
 # The validated M3 candidates (runs gravity-free-return-c1-v2 / -c2-v2) seeding CC*.
 ORACLE_SEEDS: Final[tuple[tuple[str, float, float, float], ...]] = (
@@ -306,33 +301,47 @@ class ErrorDistribution:
     draws: int
     seed: int
     held_out: bool
+    executions: tuple[str, ...] = ("gates_primary",)
+    """The MCC execution-error sets evaluated with this injection set (9.1 pairing)."""
     truncation_sigmas: float = 3.0
 
 
 T_E: Final = ErrorDistribution("T_E", 3e-4, 0.02, 0.1, 32, 7001, held_out=False)
-H_E_NOMINAL: Final = ErrorDistribution("H_E_nominal", 3e-4, 0.02, 0.1, 50, 7101, held_out=True)
+H_E_NOMINAL: Final = ErrorDistribution(
+    "H_E_nominal",
+    3e-4,
+    0.02,
+    0.1,
+    50,
+    7101,
+    held_out=True,
+    executions=("gates_primary", "gates_stress"),
+)
 H_E_WIDE: Final = ErrorDistribution("H_E_wide", 6e-4, 0.04, 0.2, 50, 7102, held_out=True)
 ERROR_DISTRIBUTIONS: Final = {d.name: d for d in (T_E, H_E_NOMINAL, H_E_WIDE)}
 
 
 @dataclass(frozen=True, slots=True)
 class CorrectionConfig:
-    """One in-plane MCC at t_c, chord iterations with a fixed Jacobian (9.1)."""
+    """One in-plane MCC at t_c, commanded by chord iterations on a fixed Jacobian (9.1).
+
+    Survival (D25): a draw survives at budget B iff it is feasible without correction, or
+    the commanded correction has |dv| <= B and the trajectory after the *executed*
+    correction (Gates-model errors) is feasible. Chord convergence is a diagnostic.
+    """
 
     t_c_days: float = 1.0
     fd_step_m_s: float = 0.1
     cond_max: float = 1e8
-    """cond_2 of J in km per (m/s). PROTOCOL ISSUE (9.1): units of cond(J) unstated."""
+    """2-norm condition number of J; J's rows are both km and its columns both m/s, so the
+    value does not depend on the unit choice."""
     max_iterations: int = 3
     tolerance_km: float = 1.0
+    """Early stop of the chord iterations (and the convergence diagnostic)."""
     divergence_m_s: float = 100.0
+    """The chord stops when |dv| exceeds this; it is above every B in the grid."""
     budget_grid_m_s: tuple[float, ...] = (1.0, 3.0, 10.0, 30.0)
     calibration_band: tuple[float, float] = (0.2, 0.8)
-    uncorrected_feasible_counts: bool = True
-    """PROTOCOL ISSUE (9.1): success at B > 0 requires chord convergence, so a draw whose
-    uncorrected trajectory is feasible but whose chord fails would survive at B = 0 and
-    fail at B > 0 (s(B) not monotone). With True a feasible uncorrected draw survives at
-    every B (no correction needed)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -343,11 +352,10 @@ class GatesModel:
     Q = (sigma_r^2 + V^2 sigma_s^2) e e^T + (sigma_a^2 + V^2 sigma_p^2) (I - e e^T),
     V = |dv_m|, e = dv_m / V; I - e e^T is the single in-plane transverse direction.
 
-    The executed burn is dv_m + eta, eta ~ N(0, Q) (not truncated), with standard normal
-    pairs from default_rng((seed, injection_seed)): a stream independent of the injection
-    draws and common to every solution of every method (common random numbers).
-    PROTOCOL ISSUE (D24): the seeds 7401 / 7402, the pairing of each Gates set with the
-    injection sets, and "no commanded burn (dv_m = 0) -> no execution error" are proposals.
+    The executed burn is dv_m + eta, eta ~ N(0, Q) (not truncated); a zero commanded burn
+    is not executed and has no error. Draw k's standard normal pair comes from
+    default_rng((GATES_NORMALS_SEED, injection seed)) and is shared by every Gates set,
+    every solution and every method (common random numbers, 9.1).
     """
 
     name: str
@@ -359,14 +367,15 @@ class GatesModel:
     """Proportional pointing error, rad."""
     sigma_a_m_s: float
     """Fixed transverse error, m/s (in-plane only in the planar model)."""
-    seed: int
     held_out: bool
 
 
-GATES_PRIMARY: Final = GatesModel("gates_primary", 5e-3, 0.010, 3e-4, 0.0009, 7401, False)
-GATES_STRESS: Final = GatesModel("gates_stress", 3e-2, 0.010, 3e-4, 0.0009, 7402, True)
-"""Held-out stress set: sigma_s = 3e-2 (Burnett et al.'s pessimistic value), others primary."""
+GATES_PRIMARY: Final = GatesModel("gates_primary", 5e-3, 0.010, 3e-4, 0.0009, False)
+GATES_STRESS: Final = GatesModel("gates_stress", 3e-2, 0.010, 3e-4, 0.0009, True)
+"""Held-out stress set: sigma_s = 3e-2 (Burnett et al.'s pessimistic value), others primary.
+It is evaluated only with H_E-nominal, on the same draws and normals as the primary set."""
 GATES_MODELS: Final = {g.name: g for g in (GATES_PRIMARY, GATES_STRESS)}
+GATES_NORMALS_SEED: Final = 7401
 
 
 # --- section 9.2: changed constraints ----------------------------------------------------
@@ -384,9 +393,9 @@ class ConstraintFamilies:
     gamma_c_deg: tuple[float, float] = (-8.0, -5.0)
     corridor_width_deg: tuple[float, float] = (0.5, 2.0)
     h_cap_km: float = 30_000.0
-    """PROTOCOL ISSUE (9.2): the code uses one Sobol generator per family, each seeded
-    with 7201 (dimensions 3, 2, 5 for F1, F2, F3), and one default_rng(7202) drawing the
-    three permutations in the order F1, F2, F3; the first 10 permuted sets are tuning."""
+    """9.2: one Sobol generator per family, each seeded with 7201 (dimensions 3, 2, 5 for
+    F1, F2, F3), and one default_rng(7202) drawing the three permutations in the order F1,
+    F2, F3; the first 10 permuted sets of each family are tuning sets."""
 
 
 # --- section 8 / 11: statistics ----------------------------------------------------------
@@ -404,6 +413,8 @@ class Statistics:
     z_alpha: float = 2.807
     z_power: float = 0.842
     seed_count_bounds: tuple[int, int] = (10, 16)
+    h2_permutations: int = 10_000
+    h2_permutation_seed: int = 4242
 
 
 @dataclass(frozen=True, slots=True)
@@ -423,11 +434,15 @@ class ProtocolConfig:
     errors: tuple[ErrorDistribution, ...] = (T_E, H_E_NOMINAL, H_E_WIDE)
     correction: CorrectionConfig = field(default_factory=CorrectionConfig)
     correction_execution: tuple[GatesModel, ...] = (GATES_PRIMARY, GATES_STRESS)
+    gates_normals_seed: int = GATES_NORMALS_SEED
     constraints: ConstraintFamilies = field(default_factory=ConstraintFamilies)
     statistics: Statistics = field(default_factory=Statistics)
     grids: dict[str, tuple[Any, ...]] = field(
         default_factory=lambda: {m: method_grid(m) for m in METHODS}
     )
+    rng_streams: dict[str, int] = field(default_factory=lambda: dict(RNG_STREAMS))
+    oracle_seeds: tuple[tuple[str, float, float, float], ...] = ORACLE_SEEDS
+    cc_star_safety_cap: int = CC_STAR_SAFETY_CAP
 
 
 PROTOCOL: Final = ProtocolConfig()
