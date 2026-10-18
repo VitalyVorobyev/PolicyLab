@@ -68,6 +68,21 @@
 
 **D27 — Stray test-generated main run quarantined (disclosure).** When the freeze landed, a pre-freeze test that expected the guard to refuse instead executed a main-stage MS search (config 0, seed 1001). It wrote `runs/gravity-m4-main-ms-c0-s1001-v1` at 2026-10-18T15:44:07Z from a dirty tree (`git_dirty = true`, commit 90c5775). The run contains a search catalog only: no robustness or held-out evaluation, and nobody inspected its contents. It is not evidence (dirty tree) and it blocks the run id that step 7 needs. It was moved unread to `runs/_quarantine/`. The tests now exercise the guard against temporary protocol files and temporary run directories (commit bfc1d14). The legitimate seed-1001 MS run will be produced by the protocol's step 7 under the same id.
 
+**D28 — Gravity Atlas scope and the K3 branch (2026-10-18, owner's decision, before the pilot analysis was seen).**
+- **Scope.** The owner questioned the study's practical value. Agreed: Gravity Atlas becomes a validated physics demo plus one complete, honestly reported method comparison, and the study then ends. The sensible end point is the frozen protocol's step 8 analysis, run overnight. The lab's next study is chosen from a cross-field opportunity scan.
+- **Calibration result.** Step 4 calibration found no B in [0.2, 0.8]. Median survival was 0.9375 at 1, 3 and 10 m/s and 1.0 at 30 m/s. B = 1 m/s by the fallback rule.
+- **If K3 passes,** step 7 and step 8 run as frozen.
+- **If K3 fires,** the owner chose, before seeing the pilot analysis, a v2 amendment with these rules:
+  - execution-error survival (P1) is reported as a descriptive result only, not a confirmatory endpoint;
+  - coverage and changed-constraint availability (P2) are the primary endpoints;
+  - nothing else changes: seeds, budgets, configurations, the held-out sets and the statistics procedure stay as frozen;
+  - the amendment is logged before any main-run data exists.
+- **Outcome.** The step 6 pilot analysis (`gravity-m4-pilot-analysis-v1`, clean at c0429bc) found that **K3 is not triggered**, so the protocol runs as frozen and the v2 branch is unused.
+  - Pilot median survivals at B = 1 m/s (T_E, primary set): D 0.94, MS 0.78, CC 0.72, DE 0.69, T 0.59, T2 0.59, MBH 0.125. These are pilot values, not evidence.
+  - Main seeds: n = 16 (seeds 1001–1016), clamped from 275.
+  - The pre-declared normal-approximation power at n = 16 for the smallest declared effect is 0.027. This low power is disclosed; contrasts near the declared minimum effect cannot be resolved.
+  - The projection is 5.14 M PE, with no reductions needed; K4 is not triggered.
+
 ## Conditions for revising the plan
 
 A milestone may change only because of observed source state, physical feasibility, research data, runtime limits or a clear user product choice. Document each meaningful change and its reason. Do not enlarge scope simply because implementing another framework sounds elegant.
