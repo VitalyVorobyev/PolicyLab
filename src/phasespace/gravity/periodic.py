@@ -206,3 +206,42 @@ def continue_lyapunov(
             ),
         )
     return orbit
+
+
+def monodromy_matrix(
+    mu: float, state0: FloatArray, period: float, *, solver: SolverSettings = CORRECTOR_SOLVER
+) -> FloatArray:
+    """4x4 state transition matrix over one period (the monodromy matrix).
+
+    Integrates the state and the variational equations from `state0` for `period`.
+    For a periodic orbit its eigenvalues are 1 (twice, flow and Jacobi directions) and a
+    reciprocal pair (lambda, 1/lambda).
+    """
+    s0 = np.asarray(state0, dtype=np.float64)
+    if s0.shape != (STATE_DIM,):
+        raise ValueError(f"state0 must have shape ({STATE_DIM},), got {s0.shape}")
+    if not (math.isfinite(period) and period > 0.0):
+        raise ValueError(f"period must be finite and positive, got {period}")
+    augmented0 = np.concatenate([s0, np.eye(STATE_DIM).reshape(-1)])
+
+    def rhs(t: float, y: FloatArray) -> FloatArray:
+        return variational_derivative(y, mu)
+
+    sol = solve_ivp(
+        rhs, (0.0, period), augmented0, method=solver.method, rtol=solver.rtol, atol=solver.atol
+    )
+    if sol.status != 0:
+        raise RuntimeError(f"monodromy integration failed: {sol.message}")
+    final = np.asarray(sol.y[:, -1], dtype=np.float64)
+    return final[STATE_DIM:].reshape(STATE_DIM, STATE_DIM)
+
+
+def stability_index(monodromy: FloatArray) -> tuple[float, float]:
+    """(lambda_max, nu): largest eigenvalue modulus and nu = (lambda_max + 1/lambda_max)/2.
+
+    nu is the stability index listed by the JPL periodic-orbit catalog (nu > 1: unstable).
+    A perturbation along the unstable eigenvector grows by lambda_max per period.
+    """
+    moduli = np.abs(np.linalg.eigvals(monodromy))
+    lambda_max = float(np.max(moduli))
+    return lambda_max, 0.5 * (lambda_max + 1.0 / lambda_max)

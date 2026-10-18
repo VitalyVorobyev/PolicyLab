@@ -31,5 +31,5 @@ check: lint format-check typecheck
 verify: check test
 
 # Export the M1 reference run (Earth-Moon L1 Lyapunov orbit) to a new directory under runs/.
-gravity-reference run_id="gravity-l1-lyapunov-reference":
-    uv run python -m phasespace.gravity.export --out runs/{{run_id}}
+gravity-reference run_id="gravity-l1-lyapunov-reference-v2":
+    uv run python -m phasespace.gravity.export --runs-dir runs --run-id {{run_id}}

@@ -26,6 +26,8 @@ JACOBI_DRIFT_TOLERANCE = 1e-10
 TOLERANCE_SET_AGREEMENT = 1e-7
 DRIFT_PERIODS = 3
 LOOSE = SolverSettings(method="DOP853", rtol=1e-10, atol=1e-10)
+INDEPENDENT = SolverSettings(method="LSODA", rtol=1e-13, atol=1e-13)
+SAMPLE_ERROR_BOUND = 1e-9
 
 
 def _state(orbit: JplOrbit) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
@@ -61,6 +63,17 @@ def test_two_tolerance_sets_agree(orbit: JplOrbit) -> None:
     loose = propagate(state0, orbit.period, SYSTEM, solver=LOOSE)
     assert np.max(np.abs(tight.final_state - loose.final_state)) < TOLERANCE_SET_AGREEMENT
     assert loose.nfev < tight.nfev
+
+
+@pytest.mark.parametrize("orbit", CATALOG.orbits, ids=lambda o: f"row{o.row_index}")
+def test_independent_integrator_agrees_over_one_period(orbit: JplOrbit) -> None:
+    # Bounds the error of the default DOP853 1e-12 run along the whole period, not just at
+    # the end: LSODA (ODEPACK multistep) at 1e-13 as the reference.
+    state0 = _state(orbit)
+    default = propagate(state0, orbit.period, SYSTEM)
+    reference = propagate(state0, orbit.period, SYSTEM, solver=INDEPENDENT)
+    times = np.linspace(0.0, orbit.period, 1001)
+    assert np.max(np.abs(default.sample(times) - reference.sample(times))) < SAMPLE_ERROR_BOUND
 
 
 def test_propagation_is_repeatable() -> None:
@@ -99,14 +112,49 @@ def test_radial_plunge_fires_inward_collision_event(
     assert ((x - center_x) * vx + y * vy) / distance < 0.0
 
 
-def test_outward_crossing_does_not_fire() -> None:
-    radius = SYSTEM.moon_radius_km / SYSTEM.length_scale_km
-    # Starts inside the collision radius moving outward fast; crosses r2 = R increasing.
-    result = propagate(np.array([1.0 - MU + 0.5 * radius, 0.0, 5.0, 0.0]), 0.01, SYSTEM)
+MOON_RADIUS = SYSTEM.moon_radius_km / SYSTEM.length_scale_km
+EARTH_RADIUS = SYSTEM.earth_radius_km / SYSTEM.length_scale_km
+
+
+@pytest.mark.parametrize(
+    ("state", "termination"),
+    [
+        # Half a lunar radius from the Moon's center, moving outward (r2 = 0.5 R increasing).
+        ([1.0 - MU + 0.5 * MOON_RADIUS, 0.0, 5.0, 0.0], Termination.START_INSIDE_MOON),
+        # Same point moving inward: used to pass through the Moon and report 'horizon'.
+        ([1.0 - MU + 0.5 * MOON_RADIUS, 0.0, -5.0, 0.0], Termination.START_INSIDE_MOON),
+        ([-MU, 0.9 * EARTH_RADIUS, 0.0, 0.0], Termination.START_INSIDE_EARTH),
+    ],
+)
+def test_start_inside_body_is_not_propagated(state: list[float], termination: Termination) -> None:
+    state0 = np.array(state)
+    result = propagate(state0, 0.01, SYSTEM, t0=0.25)
+    assert result.termination is termination
+    assert result.nfev == 0
+    assert result.dense is None
+    assert result.events == () and result.periapses == ()
+    np.testing.assert_array_equal(result.t, [0.25])
+    np.testing.assert_array_equal(result.final_state, state0)
+
+
+def test_start_inside_disabled_body_propagates() -> None:
+    state0 = np.array([1.0 - MU + 0.5 * MOON_RADIUS, 0.0, 5.0, 0.0])
+    result = propagate(state0, 0.001, SYSTEM, collision=CollisionRadii(6371.0, None))
+    assert result.termination is Termination.HORIZON
+
+
+def test_start_on_surface_moving_outward_does_not_fire() -> None:
+    # Exactly on the lunar surface (x - x_moon == 0 exactly, so r2 == R exactly), moving
+    # radially outward: g = r2 - R starts at 0 and increases; an inward-only event must
+    # not fire and the start is not "inside".
+    state0 = np.array([1.0 - MU, MOON_RADIUS, 0.0, 2.0])
+    _, r2 = primary_distances(state0, MU)
+    assert float(r2) == MOON_RADIUS
+    result = propagate(state0, 0.01, SYSTEM)
     assert result.termination is Termination.HORIZON
     assert result.events == ()
-    _, r2 = primary_distances(result.final_state, MU)
-    assert float(r2) > radius
+    _, r2_final = primary_distances(result.final_state, MU)
+    assert float(r2_final) > MOON_RADIUS
 
 
 def test_horizon_termination() -> None:

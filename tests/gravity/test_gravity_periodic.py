@@ -14,6 +14,8 @@ from phasespace.gravity.periodic import (
     continue_lyapunov,
     correct_symmetric_orbit,
     linear_lyapunov_guess,
+    monodromy_matrix,
+    stability_index,
 )
 from phasespace.gravity.propagation import propagate
 from phasespace.gravity.reference import JPL_EARTH_MOON, JPL_L1_LYAPUNOV_REFERENCE
@@ -22,10 +24,12 @@ CATALOG = load_catalog()
 MU = CATALOG.mu
 L1 = collinear_lagrange_points(MU)[0]
 
-# Agreement with the catalog (normalized units).
+# Agreement with the catalog (normalized units). Same values as the export checks
+# (phasespace.gravity.export); rationale there and in docs/studies/gravity-atlas/README.md.
 CATALOG_STATE_TOLERANCE = 1e-10
 CATALOG_PERIOD_TOLERANCE = 1e-10
 CATALOG_JACOBI_TOLERANCE = 1e-10
+STABILITY_INDEX_REL_TOLERANCE = 1e-9
 
 
 def _assert_matches_catalog(
@@ -104,3 +108,21 @@ def test_reference_module_matches_fixture() -> None:
     assert JPL_EARTH_MOON.length_scale_km == CATALOG.lunit_km
     assert JPL_EARTH_MOON.time_scale_s == CATALOG.tunit_s
     assert JPL_EARTH_MOON.moon_radius_km == CATALOG.radius_secondary_km
+
+
+@pytest.mark.parametrize("orbit", CATALOG.orbits, ids=lambda o: f"row{o.row_index}")
+def test_monodromy_stability_index_matches_jpl(orbit: JplOrbit) -> None:
+    # Catalog state and period only (no corrector): nu = (lambda + 1/lambda) / 2.
+    state0 = np.array([orbit.x0, orbit.y0, orbit.vx0, orbit.vy0])
+    phi = monodromy_matrix(MU, state0, orbit.period)
+    lambda_max, nu = stability_index(phi)
+    assert nu == pytest.approx(orbit.stability, rel=STABILITY_INDEX_REL_TOLERANCE)
+    assert lambda_max == pytest.approx(
+        orbit.stability + math.sqrt(orbit.stability**2 - 1.0), rel=STABILITY_INDEX_REL_TOLERANCE
+    )
+    # The flow is divergence-free (trace of the Jacobian is 0), so det(phi) = 1.
+    assert np.linalg.det(phi) == pytest.approx(1.0, abs=1e-8)
+    eigenvalues = sorted(np.linalg.eigvals(phi), key=abs)
+    # Reciprocal pair and a double unit eigenvalue.
+    assert abs(eigenvalues[0]) * abs(eigenvalues[-1]) == pytest.approx(1.0, abs=1e-8)
+    assert abs(eigenvalues[1] - 1.0) < 1e-5 and abs(eigenvalues[2] - 1.0) < 1e-5

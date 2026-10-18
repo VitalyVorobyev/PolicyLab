@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 import pytest
 from jpl_catalog import load_catalog
 
-from phasespace.gravity.system import EARTH_MOON, EarthMoonSystem
+from phasespace.gravity.reference import JPL_EARTH_MOON
+from phasespace.gravity.system import EARTH_MOON, LENGTH_SCALE_CONVENTIONS, EarthMoonSystem
 from phasespace.gravity.units import (
     inertial_to_rotating,
     length_from_km,
@@ -47,10 +49,23 @@ def test_jpl_catalog_scales_consistent_with_de440_gm() -> None:
 
 
 def test_system_rejects_invalid_constants() -> None:
+    convention = "jpl_periodic_orbits_catalog"
     with pytest.raises(ValueError):
-        EarthMoonSystem("bad", 0.0, 1.0, 1.0, 1.0, 1.0, "test")
+        EarthMoonSystem("bad", 0.0, 1.0, 1.0, 1.0, 1.0, "test", convention)
     with pytest.raises(ValueError):
-        EarthMoonSystem("bad", 0.01, -1.0, 1.0, 1.0, 1.0, "test")
+        EarthMoonSystem("bad", 0.01, -1.0, 1.0, 1.0, 1.0, "test", convention)
+    unknown: Any = "mean_earth_moon_distance"
+    with pytest.raises(ValueError):
+        EarthMoonSystem("bad", 0.01, 1.0, 1.0, 1.0, 1.0, "test", unknown)
+
+
+def test_length_scale_conventions() -> None:
+    assert EARTH_MOON.length_scale_convention == "nssdca_lunar_semimajor_axis"
+    assert JPL_EARTH_MOON.length_scale_convention == "jpl_periodic_orbits_catalog"
+    assert set(LENGTH_SCALE_CONVENTIONS) == {
+        "nssdca_lunar_semimajor_axis",
+        "jpl_periodic_orbits_catalog",
+    }
 
 
 def test_scalar_conversions_hand_computed() -> None:

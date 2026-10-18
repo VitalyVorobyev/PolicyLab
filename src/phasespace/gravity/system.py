@@ -13,6 +13,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Final, Literal, get_args
+
+type LengthScaleConvention = Literal["nssdca_lunar_semimajor_axis", "jpl_periodic_orbits_catalog"]
+"""Which length unit km values refer to: the 384 400 km NSSDCA lunar semimajor axis, or
+the JPL periodic-orbit catalog's lunit (389 703.264829278 km)."""
+
+LENGTH_SCALE_CONVENTIONS: Final[tuple[str, ...]] = get_args(LengthScaleConvention.__value__)
 
 # Gravitational parameters from the JPL planetary ephemeris DE440 as listed on
 # https://ssd.jpl.nasa.gov/astro_par.html (retrieved 2026-10-18); Park et al. (2021),
@@ -43,6 +50,7 @@ class EarthMoonSystem:
         earth_radius_km: Earth radius used for default collision detection.
         moon_radius_km: Moon radius used for default collision detection.
         source: Human-readable provenance of the constants.
+        length_scale_convention: Machine-readable name of the length-unit convention.
     """
 
     name: str
@@ -52,8 +60,11 @@ class EarthMoonSystem:
     earth_radius_km: float
     moon_radius_km: float
     source: str
+    length_scale_convention: LengthScaleConvention
 
     def __post_init__(self) -> None:
+        if self.length_scale_convention not in LENGTH_SCALE_CONVENTIONS:
+            raise ValueError(f"unknown length_scale_convention {self.length_scale_convention!r}")
         if not (0.0 < self.mu <= 0.5):
             raise ValueError(f"mu must be in (0, 0.5], got {self.mu}")
         for label, value in (
@@ -90,6 +101,7 @@ def system_from_gm(
     earth_radius_km: float,
     moon_radius_km: float,
     source: str,
+    length_scale_convention: LengthScaleConvention,
 ) -> EarthMoonSystem:
     """Build a system whose mu and time unit follow from GM values and the length unit.
 
@@ -105,6 +117,7 @@ def system_from_gm(
         earth_radius_km=earth_radius_km,
         moon_radius_km=moon_radius_km,
         source=source,
+        length_scale_convention=length_scale_convention,
     )
 
 
@@ -120,5 +133,6 @@ EARTH_MOON = system_from_gm(
         "length unit 384400 km and mean radii: NASA NSSDCA Earth/Moon Fact Sheets; "
         "time unit derived as sqrt(L^3 / (GM_earth + GM_moon)); retrieved 2026-10-18"
     ),
+    length_scale_convention="nssdca_lunar_semimajor_axis",
 )
 """Project default Earth-Moon system (DE440 GMs, 384 400 km length unit)."""

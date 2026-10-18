@@ -34,6 +34,7 @@ JPL_EARTH_MOON: Final = EarthMoonSystem(
         f"({JPL_PERIODIC_ORBITS_URL}, retrieved {JPL_RETRIEVED_ON}); Earth radius 6371.0 km "
         "from the NASA NSSDCA Earth Fact Sheet"
     ),
+    length_scale_convention="jpl_periodic_orbits_catalog",
 )
 """Earth-Moon constants of the JPL periodic-orbit catalog (note lunit != 384 400 km)."""
 

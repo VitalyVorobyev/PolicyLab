@@ -47,6 +47,7 @@ class JplCatalog:
             earth_radius_km=EARTH_MEAN_RADIUS_KM,
             moon_radius_km=self.radius_secondary_km,
             source=self.source_url,
+            length_scale_convention="jpl_periodic_orbits_catalog",
         )
 
 

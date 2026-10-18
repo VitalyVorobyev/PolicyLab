@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -12,7 +13,9 @@ import numpy as np
 import pytest
 from jpl_catalog import load_catalog
 
+from phasespace.gravity import export
 from phasespace.gravity.export import (
+    DEFAULT_RUN_ID,
     Check,
     ReferenceComputation,
     compute_reference,
@@ -75,9 +78,122 @@ def test_manifest_schema_fields(tmp_path: Path, computation: ReferenceComputatio
     assert validation["reference"]["url"] == CATALOG.source_url
     assert validation["checks"]
     for check in validation["checks"]:
-        assert set(check) == {"name", "observed", "threshold", "passed"}
+        assert set(check) == {"name", "observed", "threshold", "passed", "definition"}
         assert check["passed"] is True
         assert check["observed"] <= check["threshold"]
+        assert check["definition"]
+
+
+EXPECTED_CHECKS = {
+    "periodicity_max_abs_state_error_one_period",
+    "jacobi_max_abs_drift_exported_samples",
+    "jacobi_max_abs_drift_3_periods",
+    "tight_tolerance_max_abs_state_difference_samples",
+    "independent_integrator_max_abs_state_difference_samples",
+    "jpl_catalog_abs_diff_vy0",
+    "jpl_catalog_abs_diff_period",
+    "jpl_catalog_abs_diff_jacobi",
+    "jpl_catalog_rel_diff_stability_index",
+    "non_horizon_terminations_or_collision_events",
+    "non_finite_sample_values",
+    "non_increasing_sample_times",
+}
+
+
+def test_manifest_matches_v1_contract(tmp_path: Path, computation: ReferenceComputation) -> None:
+    # Key sets of docs/data-contract.md (all required fields present, nothing undocumented).
+    out = tmp_path / "gravity-test-run"
+    _write(out, computation)
+    manifest = _load(out / "manifest.json")
+    assert set(manifest) == {
+        "schema_version",
+        "run_id",
+        "study_id",
+        "experiment_id",
+        "status",
+        "created_at",
+        "source",
+        "environment",
+        "model",
+        "solver",
+        "random_seed",
+        "artifacts",
+        "metrics",
+        "limitations",
+        "validation",
+    }
+    assert set(manifest["source"]) == {
+        "repository",
+        "git_commit",
+        "git_dirty",
+        "generator",
+        "generator_version",
+    }
+    environment = manifest["environment"]
+    assert set(environment) == {
+        "python",
+        "python_implementation",
+        "numpy",
+        "scipy",
+        "platform",
+        "machine",
+    }
+    assert all(isinstance(v, str) and v for v in environment.values())
+    model = manifest["model"]
+    assert model["length_scale_convention"] == "jpl_periodic_orbits_catalog"
+    assert model["velocity_scale_km_s"] == CATALOG.lunit_km / CATALOG.tunit_s
+    assert model["primaries"]["moon"] == {
+        "x": 1.0 - CATALOG.mu,
+        "y": 0.0,
+        "radius_km": CATALOG.radius_secondary_km,
+    }
+    solver = manifest["solver"]
+    assert solver["max_evaluations"] == 1_000_000
+    assert solver["collision_events"] == {
+        "earth_radius_km": 6371.0,
+        "moon_radius_km": CATALOG.radius_secondary_km,
+        "function": "distance_minus_radius",
+        "direction": "decreasing",
+        "terminal": True,
+        "grazing_detection": "periapsis_below_radius",
+        "start_inside": "not_propagated",
+    }
+    assert [c["role"] for c in solver["comparisons"]] == [
+        "tight_tolerance",
+        "independent_integrator",
+    ]
+    for block in (*solver["comparisons"], solver["monodromy"], solver["differential_correction"]):
+        assert block["name"] in {"DOP853", "LSODA", "Radau", "RK45"}
+        assert block["rtol"] > 0.0 and block["atol"] > 0.0
+    convergence = solver["differential_correction"]["convergence"]
+    assert (
+        convergence["half_period_abs_vx"]
+        < solver["differential_correction"]["half_period_abs_vx_tolerance"]
+    )
+    assert convergence["iterations_final_member"] >= 1
+    assert {c["name"] for c in manifest["validation"]["checks"]} == EXPECTED_CHECKS
+    reference = manifest["validation"]["reference"]
+    assert reference["stability_index"] == next(
+        o.stability for o in CATALOG.orbits if o.row_index == 2600
+    )
+    units = {"normalized_cr3bp", "km", "km/s", "day", "hour", "count", "dimensionless"}
+    for name, metric in manifest["metrics"].items():
+        assert set(metric) == {"value", "unit", "definition"}
+        assert re.fullmatch(r"[a-z0-9_]+", name)
+        assert metric["unit"] in units, name
+        if metric["unit"] == "km":
+            assert f"length_scale_km = {CATALOG.lunit_km} km" in metric["definition"], name
+        if metric["unit"] in {"km", "km/s"}:
+            assert "jpl_periodic_orbits_catalog" in metric["definition"], name
+
+
+def test_monodromy_metrics_match_catalog_stability(computation: ReferenceComputation) -> None:
+    # Independent reference: the catalog's nu gives lambda_max = nu + sqrt(nu^2 - 1).
+    nu = next(o.stability for o in CATALOG.orbits if o.row_index == 2600)
+    lambda_max = computation.metrics["monodromy_lambda_max"]["value"]
+    assert lambda_max == pytest.approx(nu + np.sqrt(nu * nu - 1.0), rel=1e-9)
+    assert lambda_max == pytest.approx(1808.93, abs=0.01)
+    assert computation.metrics["monodromy_stability_index"]["value"] == pytest.approx(nu, rel=1e-9)
 
 
 def test_artifact_hash_and_trajectory_invariants(
@@ -139,20 +255,54 @@ def test_rejects_unsafe_run_id(tmp_path: Path, computation: ReferenceComputation
 
 
 def test_status_requires_all_checks_to_pass() -> None:
-    ok = Check("a", 1e-12, 1e-10)
-    bad = Check("b", 1e-8, 1e-10)
-    nan = Check("c", float("nan"), 1e-10)
+    ok = Check("a", 1e-12, 1e-10, "test")
+    bad = Check("b", 1e-8, 1e-10, "test")
+    nan = Check("c", float("nan"), 1e-10, "test")
     assert run_status([ok]) == "validated"
     assert run_status([ok, bad]) == "computed_unvalidated"
     assert run_status([ok, nan]) == "computed_unvalidated"
     assert run_status([]) == "computed_unvalidated"
+    assert nan.to_json()["observed"] is None
+    assert nan.to_json()["passed"] is False
+    assert ok.to_json()["observed"] == 1e-12
+
+
+def test_write_is_atomic_and_leaves_no_staging(
+    tmp_path: Path, computation: ReferenceComputation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failing_rename(src: object, dst: object) -> None:
+        raise OSError("simulated failure")
+
+    monkeypatch.setattr(export.os, "rename", failing_rename)
+    with pytest.raises(OSError, match="simulated failure"):
+        _write(tmp_path / "gravity-test-run", computation)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_refusal_leaves_no_staging(tmp_path: Path, computation: ReferenceComputation) -> None:
+    existing = tmp_path / "gravity-test-run"
+    existing.mkdir()
+    with pytest.raises(FileExistsError):
+        _write(existing, computation)
+    assert [p.name for p in tmp_path.iterdir()] == ["gravity-test-run"]
+    assert list(existing.iterdir()) == []
 
 
 def test_cli_writes_run_and_refuses_existing(tmp_path: Path) -> None:
+    assert main(["--runs-dir", str(tmp_path), "--run-id", "cli-run"]) == 0
     out = tmp_path / "cli-run"
-    assert main(["--out", str(out)]) == 0
     manifest = _load(out / "manifest.json")
     assert manifest["status"] == "validated"
+    assert manifest["run_id"] == "cli-run"
+    assert _load(out / "trajectory.json")["run_id"] == "cli-run"
     assert len(manifest["source"]["git_commit"]) == 40
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["cli-run"]
     with pytest.raises(SystemExit):
-        main(["--out", str(out)])
+        main(["--runs-dir", str(tmp_path), "--run-id", "cli-run"])
+    with pytest.raises(SystemExit):
+        main(["--runs-dir", str(tmp_path), "--run-id", "../escape"])
+
+
+def test_default_run_id_is_v2() -> None:
+    # v1 predates the numerics-review fixes and must not be published.
+    assert DEFAULT_RUN_ID == "gravity-l1-lyapunov-reference-v2"
