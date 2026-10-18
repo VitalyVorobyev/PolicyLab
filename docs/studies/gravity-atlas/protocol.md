@@ -11,10 +11,10 @@ The protocol is frozen only on the study owner's explicit approval. Until then i
 4. The configuration hash `config_sha256`, printed by `just gravity-m4-config` at that commit (draft value at the time of writing: `4cfc119543dd0c53d95750d24561badf1e440aea9170db76ffd165553bf3415a`). Every evidence manifest must carry this hash, `protocol_status = "frozen"` and `git_dirty = false`.
 5. The owner's approval, stated in the D-entry.
 
-**Still open before the freeze:** §1 precondition 4 (two method references verified by metadata only), and the owner's review of this text.
+**Still open before the freeze:** nothing. The owner approved the freeze on 2026-10-18 (D26).
 
 **Order of the post-freeze steps.** Each step writes new run directories and never repeats or overwrites one.
-1. *Projection check* (§7.4): a smoke run on the quiet machine re-measures the wall time per PE. If the projection exceeds 8 h, the pre-declared reductions apply.
+1. *Projection check* (§7.4): recount the projected PE total against the PE ceiling. Wall time is logged but does not trigger reductions (D26).
 2. *Ground truth* (§5.3 a–c) with the K1 reproducibility check: `just gravity-m4-groundtruth --confirm-frozen`. K1 failure stops the study.
 3. *Tuning* (§6): `just gravity-m4-tune --confirm-frozen` (32 runs), then `just gravity-m4-robustness <run> T_E --confirm-frozen` for each run.
 4. *Calibration of B* (§9.1) on the D tuning catalogs. B is recorded before step 5.
@@ -43,7 +43,7 @@ Steps 4, 5, 6 (seed count) and 8 exist as tested functions (`calibrate_budget`, 
 1. **Literature: replaced by a claim restriction (D24).** Everything read in the controllable-set lineage (`literature.md` §9–§11) characterizes the *existence* of feasible returns under nominal dynamics. The protocol may be frozen with these unread: Du & Li, AST 179:113609 (no open-access copy; metadata and reference list only) and Zhu et al., AST 170:111492 (metadata and reference list only). Du et al., AST 176:112680 and CMDA 138:46 were read as abstracts. *Restriction:* the report must not claim that robustness of free-return sets is unstudied, only that budget-matched catalog-member robustness across generators was not found. Read 113609 before publication if it becomes available.
 2. **Open questions answered.** Done (D23, §15). The D24 and D25 amendments are integrated in §2, §7.4, §9.1, §10–§12 and §14.
 3. **Smoke run.** Done: `gravity-m4-smoke-v1` measured the costs that D25 accepted. `gravity-m4-smoke-v2` re-measured the robustness evaluator after the D25 survival definition (§7.4).
-4. **Method references.** *Open.* Leary (2000) and Storn & Price (1997) are verified by metadata only. The owner either verifies them by full text, or accepts metadata-only citation of these two standard algorithm references at freeze. The implementations used are SciPy's and the definitions in §6.
+4. **Method references.** *Accepted at freeze (D26).* Storn & Price (1997), *J. Global Optim.* 11:341–359, doi:10.1023/A:1008202821328, and Leary (2000), *J. Global Optim.* 18:367–383, doi:10.1023/A:1026500301312, are verified against Crossref metadata (2026-10-18). The owner accepted metadata-only citation of these two standard algorithm references. The implementations used are SciPy's and the definitions in §6.
 5. **Record the freeze** as in the freeze checklist.
 
 A frozen protocol is never edited in place. Changes create v2 with a changelog entry and reason, and every result states which version it used.
@@ -217,7 +217,7 @@ All methods share the following:
 - Local solve cap: c_MS new propagations per start.
 - Hyperparameter c_MS ∈ {100, 300}.
 
-**MBH, monotonic basin hopping** (after Leary 2000; metadata verified only, see §1 precondition 4).
+**MBH, monotonic basin hopping** (after Leary 2000; Crossref metadata verified, see §1 precondition 4).
 - The incumbent x* starts as the result of the first local solve from the Sobol stream (MS rule for starts with undefined r).
 - Each hop:
   - perturb with u′ = clip(u* + U(−δ, δ)³);
@@ -226,7 +226,7 @@ All methods share the following:
 - After n_fail consecutive rejections, restart from the next Sobol point.
 - Hyperparameters (δ, n_fail) ∈ {(0.005, 10), (0.02, 10), (0.02, 30)}.
 
-**DE, differential evolution** (Storn & Price 1997; metadata verified only).
+**DE, differential evolution** (Storn & Price 1997; Crossref metadata verified, see §1 precondition 4).
 - `scipy.optimize.differential_evolution` (SciPy 1.18.1) on J in [0, 1]³: strategy `rand1bin`, mutation dithered in (0.5, 1), recombination 0.9, `init="sobol"`, `polish=False`, `tol=0`, **`updating="deferred"`** (stated explicitly; it makes the result independent of the worker count), `rng = seed + 1000 k` for restart k = 0, 1, …
 - `popsize` = ⌊NP/3⌋. With `init="sobol"` SciPy rounds the population up to a power of two, so the **effective population** NP_eff is 32, 64 and 128 for NP = 30, 60 and 120.
 - maxiter = ⌊R/NP_eff⌋ − 1, where R is the remaining budget. If DE terminates before N is used, it restarts on the remaining budget; a remainder smaller than one population is spent by a restart that the budget interrupts.
@@ -304,7 +304,7 @@ Catalog snapshots are taken at 2¹¹, 2¹², 2¹³ and 2¹⁴ propagations. Cove
 
 ### 7.4 Compute estimate and ceiling
 
-**Ceiling: 8 h of wall time on this machine** (Apple M4 Pro, 10 workers), which may be split across sessions.
+**Ceiling: 7.8 M PE**, defined as 8 h at the reference rate of 3.7 ms per PE (Apple M4 Pro, 10 workers, measured on c1 by the implementer). The ceiling is a propagation count so that concurrent load on the machine cannot change the course of the study (D26). Wall time is logged for every stage and reported, but it never triggers a reduction. The work may be split across sessions.
 
 **Measured costs** (the robustness costs from c1 with 8 smoke error draws, T_E scales, seed 9002, which is not a protocol seed):
 
@@ -340,16 +340,16 @@ Per-elite robustness costs, with ≈ 30 elites per catalog:
 
 This is **≈ 4.3 h at the measured 3.7 ms/PE**, and 4.8–7.7 h at the M3 planning rates (4.1–6.6 ms), within the ceiling at every rate. It matches the compute accepted in D25 (≈ 4.3 M PE including the Gates stress set). Each main seed beyond 10 adds ≈ 0.20 M PE (7 × 2¹⁴ search + 210 elites × 409.4), so n = 16 gives ≈ 5.4 M PE (≈ 5.6 h at 3.7 ms/PE, ≈ 9.9 h at 6.6 ms/PE).
 
-**Projection rule.** A projection is the PE total of the remaining stages times the wall time per PE *measured on this machine without concurrent load*:
-- (a) before the ground-truth stage, from a new smoke run with 10 workers (freeze checklist step 1), using the parallel batch lines (D, CC, T, T2);
-- (b) after the pilot, from the measured throughput of the completed stages, with the seed count n.
+**Projection rule.** A projection is the PE total of all stages, counted from the per-stage PE costs in the table above (RHS-evaluation ratios, which do not depend on machine load):
+- (a) before the ground-truth stage (freeze checklist step 1);
+- (b) after the pilot, with the measured PE per draw of the completed stages and the seed count n.
 
-**Pre-declared reductions**, applied in this order, only while a projection of the total exceeds 8 h:
+**Pre-declared reductions**, applied in this order, only while a projection of the total exceeds 7.8 M PE:
 1. The GT map shrinks from 2²⁰ to 2¹⁹ (still 32 × N), saving 524 288 PE. Available at projection (a) only.
 2. K per held-out error set drops from 50 to 32.
 3. T2 is dropped.
 
-If the projection still exceeds 8 h, stop and revise the protocol (v2) (K4). N is fixed at 2¹⁴ (D23).
+If the projection still exceeds 7.8 M PE, stop and revise the protocol (v2) (K4). N is fixed at 2¹⁴ (D23).
 
 ## 8. Seeds
 
@@ -515,7 +515,7 @@ P1 deliberately combines coverage and per-solution robustness, because D16 asks 
 | K1 | The GT 2¹⁷ prefix does not reproduce `gravity-free-return-map-3d-sobol17-v1` | Stop; investigate the numerics before any comparison. |
 | K2 | > 1 % of elites fail the §5.6 re-check, or > 1 % of any method's propagations fail the §5.2 gate | Stop; investigate. Numerics come before comparison (`research-methodology.md`). |
 | K3 | After B calibration, the pilot median s_i of *every* method is < 0.05 or > 0.95 under T_E (primary Gates set) | P1 cannot discriminate; revise to v2 before the main runs. |
-| K4 | A §7.4 projection exceeds 8 h after the reductions | Stop; revise the scope (v2). |
+| K4 | A §7.4 projection exceeds 7.8 M PE after the reductions | Stop; revise the scope (v2). |
 | K5 | **D (or CC) ≥ T on P1, P2 and coverage (point estimates) at equal budget** | Publish the null ("a dense map / a continuation catalog dominates at equal budget"). Stop adding methods. No QD variants are added to rescue the result (D07; roadmap M4 go/no-go). |
 | K6 | H1 not supported for any baseline, and T not better than D on either endpoint | Publish as a negative result with the full metric set. |
 | K7 | G grows by > 10 % between the 2¹⁹ prefix and all sources | Report coverage as an upper bound and as secondary only; P1 and P2 are unaffected. |
