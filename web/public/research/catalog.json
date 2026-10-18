@@ -25,8 +25,8 @@
           "label": "Earth–Moon L1 Lyapunov orbit (JPL catalog reference)"
         },
         {
-          "run_id": "gravity-free-return-map-2d-grid-v1-web-dev",
-          "path": "gravity-atlas/free-return-map-2d-grid-v1-web-dev",
+          "run_id": "gravity-free-return-map-2d-grid-v1-web",
+          "path": "gravity-atlas/free-return-map-2d-grid-v1-web",
           "kind": "outcome_grid",
           "label": "Free-return feasibility map, 720 × 126 grid (outcome grid)"
         },
