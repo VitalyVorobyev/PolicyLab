@@ -467,6 +467,8 @@ Every run manifest records the protocol version, config hash, commit, `git_dirty
 
 ## 15. Open questions for the user before freezing
 
+**Resolved 2026-10-18 (D23):** the user accepted all six recommendations below. The remaining freeze blockers are listed in the preconditions.
+
 1. **Run budget N.** *Recommend N = 2¹⁴.* A dense map then covers about 16 of 27 known cells (unsaturated), and the total is ≈ 4.3–6.9 h. N = 2¹⁵ would cost ≈ 6.5–10.4 h and need reductions.
 2. **Correction budget B.** *Recommend calibrating B on the dense-map tuning catalogs* to a median survival in [0.2, 0.8], from {1, 3, 10, 30} m/s, with s(B) reported for the whole grid. The alternative is a fixed B = 10 m/s declared now, which risks a floor or ceiling effect.
 3. **Injection-error scales.** *Recommend the declared σ = (0.03 %, 0.02°, 0.1 s)* with a 2× held-out set, labelled as design values. The alternative is to first find a citable TLI dispersion source, which delays the freeze.

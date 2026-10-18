@@ -58,6 +58,8 @@
 
 **D22 — M3 refinement cap raised from 200 to 1000 propagations per start.** Under 200, 0 of 10 starts converged because the 2 m/s grid cannot resolve the narrow target valley; under 1000, all 10 converged to 2 distinct candidates. The total stays within the M3 budget. M4 budgets are set separately by its frozen protocol.
 
+**D23 — M4 protocol open questions answered (2026-10-18; protocol still `draft`).** Budget N = 2^14 propagations per method per seed; continuation-catalog baseline seeded within budget, with an oracle-seeded copy reported only as an unmatched reference; full M3 search box; correction budget B calibrated on dense-map tuning catalogs from {1, 3, 10, 30} m/s to a median survival in [0.2, 0.8], with survival reported for all B; injection-error scales declared as design values (σ = 0.03 % Δv magnitude, 0.02° direction, 0.1 s timing) plus a held-out 2× set; a pre-registered secondary MAP-Elites arm with local refinement (T2) outside the Holm family. Freezing still requires reading the Du & Li 2026 controllable-set papers and an M4 smoke run. The main comparison must not run before the freeze.
+
 ## Conditions for revising the plan
 
 A milestone may change only because of observed source state, physical feasibility, research data, runtime limits or a clear user product choice. Document each meaningful change and its reason. Do not enlarge scope simply because implementing another framework sounds elegant.
