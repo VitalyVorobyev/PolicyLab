@@ -181,14 +181,63 @@ def catalog_table(run_id: str, log: Sequence[Evaluation], budget: int) -> bytes:
     return dumps_table(sample_table(run_id, CATALOG_COLUMNS, rows))
 
 
+def load_table(run_dir: Path, path: str) -> dict[str, Any]:
+    """A run's JSON artifact, its sha256 verified against the run's manifest."""
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    matches = [a for a in manifest["artifacts"] if a["path"] == path]
+    if len(matches) != 1:
+        raise ValueError(f"{run_dir}: the manifest lists no single artifact {path!r}")
+    data = (run_dir / path).read_bytes()
+    if hashlib.sha256(data).hexdigest() != matches[0]["sha256"]:
+        raise ValueError(f"{run_dir / path}: sha256 mismatch")
+    table: dict[str, Any] = json.loads(data)
+    return table
+
+
 def load_log(run_dir: Path, path: str) -> list[LogEntry]:
     """Log entries of an evaluations table (sha256 verified against the manifest)."""
-    manifest = json.loads((run_dir / "manifest.json").read_text())
-    (artifact,) = [a for a in manifest["artifacts"] if a["path"] == path]
-    data = (run_dir / path).read_bytes()
-    if hashlib.sha256(data).hexdigest() != artifact["sha256"]:
-        raise ValueError(f"{run_dir / path}: sha256 mismatch")
-    return [evaluation_from_row(r) for r in json.loads(data)["rows"]]
+    table = load_table(run_dir, path)
+    names = [c["name"] for c in table["columns"]]
+    if names != [c.name for c in EVALUATION_COLUMNS]:
+        raise ValueError(f"{run_dir / path}: unexpected evaluation columns")
+    return [evaluation_from_row(r) for r in table["rows"]]
+
+
+def method_run_id(stage: str, method: str, config_index: int, seed: int) -> str:
+    """Run id of one budget-matched method run (protocol section 13)."""
+    return f"gravity-m4-{stage}-{method.lower()}-c{config_index}-s{seed}-v1"
+
+
+def robustness_run_id(source_run: str, errors: str) -> str:
+    """Run id of the robustness run of `source_run` under the injection set `errors`."""
+    return f"{source_run}-robustness-{errors.lower().replace('_', '-')}"
+
+
+def robustness_columns(executions: Sequence[str]) -> tuple[Column, ...]:
+    """Columns of `robustness.json`: one row per catalog elite and error draw, with one
+    executed-feasibility column per Gates set paired with the injection set (9.1)."""
+    return (
+        Column("cell_d1", "count", "bin of log10 h_p"),
+        Column("cell_d2", "count", "bin of t_ret"),
+        Column("index", "count", "propagation index of the elite in the source run"),
+        Column("draw", "count", "error draw k (common random numbers)"),
+        Column("singular", "count", "1 if cond(J) > 1e8 or J undefined (no MCC commanded)"),
+        Column("uncorrected_feasible", "count", "1 if feasible without correction"),
+        Column("commanded_delta_v_km_s", "km/s", "|dv| of the commanded MCC (0 if none)"),
+        *(
+            Column(
+                f"executed_feasible_{name}",
+                "count",
+                f"1 if feasible after the MCC executed under {name}; null if not propagated",
+            )
+            for name in executions
+        ),
+        Column("converged", "count", "diagnostic: 1 if the final chord |R| <= 1 km"),
+        Column("diverged", "count", "diagnostic: 1 if the chord stopped at |dv| > 100 m/s"),
+        Column("commanded_feasible", "count", "diagnostic: feasible with the exact MCC"),
+        Column("iterations", "count", "chord iterations"),
+        Column("nfev", "count", "right-hand-side evaluations of the draw"),
+    )
 
 
 def _metric(value: float | int, unit: str, definition: str) -> dict[str, Any]:
@@ -293,7 +342,10 @@ def build_manifest(
     created_at: datetime,
     definition: FreeReturnDefinition = DEFAULT_DEFINITION,
     protocol_path: Path = PROTOCOL_PATH,
+    extra_m4: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """The run manifest; `extra_m4` adds keys to the `m4` block (analysis runs record their
+    input runs and their results there)."""
     status = protocol_status(protocol_path)
     extra = list(limitations)
     if status != "frozen":
@@ -333,6 +385,7 @@ def build_manifest(
             "config_sha256": config_sha256(),
             "stage": stage,
             "methods": list(methods),
+            **(extra_m4 or {}),
         },
     }
 

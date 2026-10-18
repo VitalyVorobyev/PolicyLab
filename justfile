@@ -96,6 +96,26 @@ gravity-m4-ccstar *args:
 gravity-m4-robustness run errors *args:
     uv run python -m phasespace.gravity.m4 --runs-dir runs robustness --run-id {{run}} --errors {{errors}} {{args}}
 
+# M4 step 4: calibrate B on the D tuning catalogs (T_E, primary Gates set; protocol 9.1), reading stored runs.
+# just gravity-m4-calibrate --confirm-frozen   (writes gravity-m4-calibration-v1)
+gravity-m4-calibrate *args:
+    uv run python -m phasespace.gravity.m4 --runs-dir runs calibrate {{args}}
+
+# M4 step 5: configuration selection (protocol 6) at the calibrated B; prints the --configs value.
+# just gravity-m4-select --confirm-frozen   (writes gravity-m4-selection-v1)
+gravity-m4-select *args:
+    uv run python -m phasespace.gravity.m4 --runs-dir runs select {{args}}
+
+# M4 step 6: after the pilot and its T_E robustness, the seed count n, K3 and the 7.4 re-projection.
+# just gravity-m4-pilot-analysis --confirm-frozen   (writes gravity-m4-pilot-analysis-v1)
+gravity-m4-pilot-analysis *args:
+    uv run python -m phasespace.gravity.m4 --runs-dir runs pilot-analysis {{args}}
+
+# M4 step 8: the final analysis (5.3 d, 5.6 LSODA sample, 10-12) as a new run.
+# just gravity-m4-analysis --confirm-frozen --workers 10   (writes gravity-m4-analysis-v1)
+gravity-m4-analysis *args:
+    uv run python -m phasespace.gravity.m4 --runs-dir runs analysis {{args}}
+
 # Install the website's pinned dependencies (npm, from web/package-lock.json).
 web-install:
     cd web && npm ci

@@ -9,6 +9,10 @@
     uv run python -m phasespace.gravity.m4 groundtruth --confirm-frozen
     uv run python -m phasespace.gravity.m4 robustness --run-id <run> --errors T_E \\
         --confirm-frozen
+    uv run python -m phasespace.gravity.m4 calibrate --confirm-frozen
+    uv run python -m phasespace.gravity.m4 select --confirm-frozen
+    uv run python -m phasespace.gravity.m4 pilot-analysis --confirm-frozen
+    uv run python -m phasespace.gravity.m4 analysis --confirm-frozen [--workers 10]
     uv run python -m phasespace.gravity.m4 config
 
 `config` prints the configuration hash and the key constants (no computation). `smoke` is
@@ -18,7 +22,9 @@ robustness cost probe on the M3 candidate c1 (smoke error seed 9002, never T_E o
 draws) and per-method timing. Its outputs verify that the code runs and measure cost;
 they are not comparative evidence. Every other command refuses to run unless the
 protocol's status line says `frozen` and `--confirm-frozen` is given. Every command
-writes a new run directory and never overwrites one.
+writes a new run directory and never overwrites one. `calibrate`, `select`,
+`pilot-analysis` and `analysis` (freeze checklist steps 4, 5, 6 and 8; `analysis.py`) read
+stored runs only; `analysis` also propagates its 5 % LSODA re-check sample.
 """
 
 from __future__ import annotations
@@ -37,7 +43,8 @@ from typing import Any, Final
 
 from phasespace.gravity.export import git_source, validate_run_id, write_run_directory
 from phasespace.gravity.free_return_export import load_map_records
-from phasespace.gravity.free_return_map import Column, dumps_table, sample_table
+from phasespace.gravity.free_return_map import dumps_table, sample_table
+from phasespace.gravity.m4 import analysis
 from phasespace.gravity.m4.catalog import recheck, rechecked_catalog
 from phasespace.gravity.m4.config import (
     CC_STAR_SAFETY_CAP,
@@ -81,6 +88,9 @@ from phasespace.gravity.m4.runs import (
     build_manifest,
     evaluations_table,
     load_log,
+    method_run_id,
+    robustness_columns,
+    robustness_run_id,
     write_method_runs,
 )
 
@@ -276,7 +286,7 @@ def _search_task(
     git_dirty: bool,
 ) -> str:
     """One budget-matched method run (serial inside; runs are parallelized across tasks)."""
-    run_id = f"gravity-m4-{stage}-{method.lower()}-c{config_index}-s{seed}-v1"
+    run_id = method_run_id(stage, method, config_index, seed)
     out_dir = runs_dir / run_id
     if out_dir.exists():
         raise FileExistsError(f"{out_dir} already exists; runs are never overwritten")
@@ -462,7 +472,7 @@ def run_robustness(
     models = execution_models(dist, confirm_frozen=confirm_frozen)
     draws = error_draws(dist, confirm_frozen=confirm_frozen)
     normals = gates_normals(dist, confirm_frozen=confirm_frozen)
-    run_id = f"{source_run}-robustness-{errors.lower().replace('_', '-')}"
+    run_id = robustness_run_id(source_run, errors)
     if (runs_dir / run_id).exists():
         raise FileExistsError(f"{runs_dir / run_id} already exists; runs are never overwritten")
     log = [e.evaluation for e in load_log(runs_dir / source_run, "evaluations.json")]
@@ -492,28 +502,7 @@ def run_robustness(
                     d.nfev,
                 ]
             )
-    columns = (
-        Column("cell_d1", "count", "bin of log10 h_p"),
-        Column("cell_d2", "count", "bin of t_ret"),
-        Column("index", "count", "propagation index of the elite in the source run"),
-        Column("draw", "count", "error draw k (common random numbers)"),
-        Column("singular", "count", "1 if cond(J) > 1e8 or J undefined (no MCC commanded)"),
-        Column("uncorrected_feasible", "count", "1 if feasible without correction"),
-        Column("commanded_delta_v_km_s", "km/s", "|dv| of the commanded MCC (0 if none)"),
-        *(
-            Column(
-                f"executed_feasible_{m.name}",
-                "count",
-                f"1 if feasible after the MCC executed under {m.name}; null if not propagated",
-            )
-            for m in models
-        ),
-        Column("converged", "count", "diagnostic: 1 if the final chord |R| <= 1 km"),
-        Column("diverged", "count", "diagnostic: 1 if the chord stopped at |dv| > 100 m/s"),
-        Column("commanded_feasible", "count", "diagnostic: feasible with the exact MCC"),
-        Column("iterations", "count", "chord iterations"),
-        Column("nfev", "count", "right-hand-side evaluations of the draw"),
-    )
+    columns = robustness_columns([m.name for m in models])
     names = ", ".join(m.name for m in models)
     manifest = build_manifest(
         run_id,
@@ -590,6 +579,59 @@ def print_config(*, full: bool) -> None:
     print("\n".join(lines))
 
 
+def _analysis_command(
+    args: argparse.Namespace, runs_dir: Path, commit: str, dirty: bool, protocol_path: Path
+) -> dict[str, Any]:
+    """Steps 4, 5, 6 and 8 of the freeze checklist (they read stored runs only)."""
+    common: dict[str, Any] = {
+        "git_commit": commit,
+        "git_dirty": dirty,
+        "run_id": str(args.run_id),
+        "protocol_path": protocol_path,
+    }
+    if args.command == "calibrate":
+        manifest = analysis.run_calibration(runs_dir, **common)
+        print(f"B = {manifest['m4']['calibration']['budget_m_s']:g} m/s")
+    elif args.command == "select":
+        manifest = analysis.run_selection(
+            runs_dir,
+            calibration_run=str(args.calibration_run),
+            groundtruth_run=str(args.groundtruth_run),
+            **common,
+        )
+        print(f"selected: --configs {manifest['m4']['selection']['configs_argument']}")
+    elif args.command == "pilot-analysis":
+        manifest = analysis.run_pilot_analysis(
+            runs_dir,
+            calibration_run=str(args.calibration_run),
+            selection_run=str(args.selection_run),
+            **common,
+        )
+        pilot = manifest["m4"]["pilot"]
+        print(
+            f"n = {pilot['seed_count']} (unclamped {pilot['seed_count_unclamped']}), main seeds "
+            f"{pilot['main_seeds']}; K3 {'TRIGGERED' if pilot['k3_triggered'] else 'not triggered'}"
+            f"; projection {pilot['projection_total_pe']:.0f} PE, reductions "
+            f"{pilot['reductions'] or 'none'}; K4 "
+            f"{'TRIGGERED' if pilot['k4_triggered'] else 'not triggered'}"
+        )
+    else:
+        manifest = analysis.run_analysis(
+            runs_dir,
+            confirm_frozen=bool(args.confirm_frozen),
+            calibration_run=str(args.calibration_run),
+            selection_run=str(args.selection_run),
+            pilot_run=str(args.pilot_run),
+            groundtruth_run=str(args.groundtruth_run),
+            ccstar_run=str(args.ccstar_run),
+            workers=int(args.workers),
+            **common,
+        )
+        block = manifest["m4"]["analysis"]
+        print(f"H1 per baseline: {block['h1']}; criteria: {block['criteria']}")
+    return manifest
+
+
 def _parse_configs(text: str) -> dict[str, int]:
     out: dict[str, int] = {}
     for part in filter(None, (p.strip() for p in text.split(","))):
@@ -620,6 +662,10 @@ def main(argv: Sequence[str] | None = None, *, protocol_path: Path = PROTOCOL_PA
         "ccstar": "the oracle-seeded continuation reference CC*",
         "groundtruth": "the coverage ground truth (5.3 a-c) and the K1 check",
         "robustness": "re-check and execution-error tolerance of a run's catalog",
+        "calibrate": "step 4: the correction budget B from the D tuning catalogs (9.1)",
+        "select": "step 5: configuration selection on the tuning runs (6)",
+        "pilot-analysis": "step 6: seed count n, K3 and the 7.4 re-projection (8)",
+        "analysis": "step 8: ground-truth union, metrics, statistics, LSODA sample (10-12)",
     }
     subs: dict[str, argparse.ArgumentParser] = {}
     for name, text in guarded.items():
@@ -635,6 +681,21 @@ def main(argv: Sequence[str] | None = None, *, protocol_path: Path = PROTOCOL_PA
     subs["stage"].add_argument("--configs", default="", help="e.g. MS=0,MBH=1,DE=0,T=2,T2=0")
     subs["robustness"].add_argument("--run-id", required=True)
     subs["robustness"].add_argument("--errors", choices=sorted(ERROR_DISTRIBUTIONS), required=True)
+    for name, default in (
+        ("calibrate", analysis.CALIBRATION_RUN_ID),
+        ("select", analysis.SELECTION_RUN_ID),
+        ("pilot-analysis", analysis.PILOT_ANALYSIS_RUN_ID),
+        ("analysis", analysis.ANALYSIS_RUN_ID),
+    ):
+        subs[name].add_argument("--run-id", default=default, help="the new run's id")
+    for name in ("select", "pilot-analysis", "analysis"):
+        subs[name].add_argument("--calibration-run", default=analysis.CALIBRATION_RUN_ID)
+    for name in ("pilot-analysis", "analysis"):
+        subs[name].add_argument("--selection-run", default=analysis.SELECTION_RUN_ID)
+    for name in ("select", "analysis"):
+        subs[name].add_argument("--groundtruth-run", default=analysis.GROUNDTRUTH_RUN_ID)
+    subs["analysis"].add_argument("--pilot-run", default=analysis.PILOT_ANALYSIS_RUN_ID)
+    subs["analysis"].add_argument("--ccstar-run", default=analysis.CCSTAR_RUN_ID)
     args = parser.parse_args(argv)
     runs_dir: Path = args.runs_dir
     if args.command == "config":
@@ -683,6 +744,12 @@ def main(argv: Sequence[str] | None = None, *, protocol_path: Path = PROTOCOL_PA
         print(run_ccstar(runs_dir, commit, dirty, workers))
     elif args.command == "groundtruth":
         print(run_groundtruth(runs_dir, workers, commit, dirty))
+    elif args.command in ("calibrate", "select", "pilot-analysis", "analysis"):
+        try:
+            manifest = _analysis_command(args, runs_dir, commit, dirty, protocol_path)
+        except (analysis.EvidenceError, FileNotFoundError, FileExistsError) as exc:
+            parser.error(str(exc))
+        print(f"wrote {runs_dir / manifest['run_id']} (git_dirty={dirty})")
     else:
         print(
             run_robustness(

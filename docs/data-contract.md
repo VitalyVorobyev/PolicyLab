@@ -390,8 +390,15 @@ interface M4Block {
                                // "frozen"); only "frozen" runs can be comparative evidence
   config_sha256: string;       // sha256 of the canonical JSON (sorted keys, compact) of
                                // phasespace.gravity.m4.config.PROTOCOL: every declared constant
-  stage: "smoke" | "tune" | "pilot" | "main" | "reference" | "ground_truth" | "robustness";
-  methods: M4Method[];         // one per method in the run; [] for ground_truth / robustness
+  stage: "smoke" | "tune" | "pilot" | "main" | "reference" | "ground_truth" | "robustness"
+       | "calibration" | "selection" | "pilot_analysis" | "analysis";
+  methods: M4Method[];         // one per method in the run; [] for every other stage
+  inputs?: { run_id: string; manifest_sha256: string; git_commit: string }[];
+                               // analysis stages: every stored run read
+  calibration?: object;        // stage-specific results of the analysis stages (below)
+  selection?: object;
+  pilot?: object;
+  analysis?: object;
 }
 
 interface M4Method {
@@ -412,5 +419,10 @@ interface M4Method {
 - Metrics carry budget counters (`propagations`, `cache_hits`, `rhs_evaluations`), numerical health (`numerical_failures`, `gate_failures`), cost (`wall_time_hours`, `propagation_time_hours`, `overhead_fraction`) and the method's own counters (`counter_*`), prefixed by the lower-case method name when a run holds several methods (smoke runs).
 - A `robustness` run evaluates one injection set (`T_E`, `H_E_nominal` or `H_E_wide`) with every Gates execution-error set paired with it (protocol 9.1; `H_E_nominal` carries `gates_primary` and `gates_stress`). It holds `robustness.json`, one row per catalog elite and error draw: re-checked cell and index, singular-Jacobian flag, uncorrected feasibility, commanded |Δv| (km/s; 0 when no correction is commanded), one `executed_feasible_<gates set>` column per paired set (null when not propagated because the chord diverged), and the diagnostics chord convergence, divergence, feasibility with the exact commanded correction, iterations and nfev. Survival at budget B (decision D25) is `uncorrected_feasible or (commanded_delta_v_km_s ≤ B and executed_feasible_<set>)`. Its metrics record the re-check counts and the Gates-model parameters (`mcc_<gates set>_*`, `mcc_gates_normals_seed`, decision D24); its limitations name the injection and execution error sets and their seeds.
 - A run made before the protocol is frozen states in `limitations` that it is not comparative evidence.
+- **Analysis stages** (freeze checklist steps 4, 5, 6 and 8; `phasespace.gravity.m4.analysis`) read stored runs only and refuse any input whose manifest lacks the frozen `config_sha256`, `protocol_status = "frozen"` or `git_dirty = false`. Each records its inputs in `m4.inputs`.
+  - `calibration` (`gravity-m4-calibration-v1`): `m4.calibration = {budget_m_s, medians}` and `calibration.json` (median pooled s_i of the D tuning elites per grid value of B).
+  - `selection` (`gravity-m4-selection-v1`): `m4.selection = {budget_m_s, configs, configs_argument, satisfiable_tuning_sets}`; `tuning_scores.json` (P1, P2 and coverage against G_tune per tuning run), `selection.json` (per configuration: means, ranks, rank sum, selected) and `tuning_sets.json` (the 30 tuning sets and their satisfiability).
+  - `pilot_analysis` (`gravity-m4-pilot-analysis-v1`): `m4.pilot = {seed_count, seed_count_unclamped, main_seeds, achieved_power, k3_triggered, pilot_median_survival, pe_per_draw_t_e, projection_total_pe, reductions, k4_triggered, ...}`; `pilot_scores.json`, `seed_count.json` (SD of T − X per baseline and endpoint) and `projection.json` (protocol 7.4 items per scenario).
+  - `analysis` (`gravity-m4-analysis-v1`): `m4.analysis = {budget_m_s, configs, main_seeds, h1, criteria}`; `per_run.json` (every protocol section-10 metric per main run and for CC*), `anytime.json` (checkpoint snapshots), `results.json` (long format: summaries, anytime means with CIs, the ten primary contrasts with sign-flip p and Holm, H1, secondary estimates, CC*, H2, criteria K2/K5/K6/K7, ground-truth cell counts, LSODA sample), `lsoda.json` (the 5 % sample, full M3 S3 validation) and `heldout_sets.json` (held-out satisfiability).
 
 Prefer schema validation on producer and consumer sides (Python + TypeScript). Avoid generating a complicated cross-language framework before first two consumers exist.
