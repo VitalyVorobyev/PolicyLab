@@ -17,8 +17,8 @@ format-check:
 
 # Format Python code.
 format:
+    uv run ruff check --fix-only .
     uv run ruff format .
-    uv run ruff check --fix .
 
 # Run strict Python type checking.
 typecheck:

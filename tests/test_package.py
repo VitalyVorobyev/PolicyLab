@@ -1,5 +1,5 @@
-import policylab
+import phasespace
 
 
 def test_package_imports() -> None:
-    assert policylab is not None
+    assert phasespace is not None

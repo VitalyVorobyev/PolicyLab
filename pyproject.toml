@@ -1,7 +1,7 @@
 [project]
-name = "policylab"
+name = "phasespace"
 version = "0.1.0"
-description = "A research workbench for training, evaluating, inspecting, and playing against self-learning game agents."
+description = "A small public laboratory of computational research studies."
 readme = "README.md"
 authors = [
     { name = "Vitaly Vorobyev", email = "vit.vorobiev@gmail.com" }
