@@ -1,7 +1,8 @@
 """M4 robustness evaluators (protocol 9.1, 9.2) on constructed cases.
 
 No held-out error set or held-out constraint set is evaluated here: the held-out
-accessors are only checked to refuse while the protocol is a draft.
+accessors are checked to refuse under a draft protocol (a temporary file) and without
+confirmation under the frozen one, and to return correctly shaped data once allowed.
 """
 
 from __future__ import annotations
@@ -9,9 +10,11 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 from itertools import pairwise
+from pathlib import Path
 
 import numpy as np
 import pytest
+from m4_protocol import protocol_file
 from m4_toy import surface, toy_evaluate
 from scipy.stats import truncnorm
 
@@ -21,6 +24,7 @@ from phasespace.gravity.m4.config import (
     H_E_NOMINAL,
     H_E_WIDE,
     PROTOCOL,
+    PROTOCOL_PATH,
     T_E,
     ProtocolNotFrozenError,
 )
@@ -67,10 +71,20 @@ def test_tuning_error_draws_are_seeded_truncated_and_scaled() -> None:
         assert abs(d.timing_s) <= 3 * T_E.sigma_timing_s
 
 
-def test_held_out_error_draws_refuse_before_the_freeze() -> None:
+def test_held_out_error_draws_refuse_before_the_freeze(tmp_path: Path) -> None:
+    draft = protocol_file(tmp_path, "draft")
+    frozen = protocol_file(tmp_path, "frozen")
     for dist in (H_E_NOMINAL, H_E_WIDE):
-        with pytest.raises(ProtocolNotFrozenError):
-            error_draws(dist, confirm_frozen=True)
+        with pytest.raises(ProtocolNotFrozenError, match="draft"):
+            error_draws(dist, confirm_frozen=True, protocol_path=draft)
+        for path in (frozen, PROTOCOL_PATH):
+            with pytest.raises(ProtocolNotFrozenError, match="confirm-frozen"):
+                error_draws(dist, protocol_path=path)
+        draws = error_draws(dist, confirm_frozen=True, protocol_path=frozen)
+        assert len(draws) == dist.draws == 50
+        assert draws == error_draws(dist, confirm_frozen=True)
+    # The tuning set needs no freeze, whatever the protocol says.
+    assert error_draws(T_E, protocol_path=draft) == error_draws(T_E)
 
 
 def test_parking_orbit_rate_matches_the_protocol_values() -> None:
@@ -196,7 +210,7 @@ def test_gates_error_covariance_matches_hand_built_q() -> None:
         gates_error(np.zeros(2), z[0], model)
 
 
-def test_gates_normals_and_pairing() -> None:
+def test_gates_normals_and_pairing(tmp_path: Path) -> None:
     normals = gates_normals(T_E)
     assert normals.shape == (32, 2)
     assert np.array_equal(normals, gates_normals(T_E))
@@ -209,10 +223,24 @@ def test_gates_normals_and_pairing() -> None:
     assert execution_models(T_E) == (GATES_PRIMARY,)
     assert H_E_NOMINAL.executions == ("gates_primary", "gates_stress")
     assert H_E_WIDE.executions == ("gates_primary",)
-    with pytest.raises(ProtocolNotFrozenError):
-        execution_models(H_E_NOMINAL, confirm_frozen=True)
-    with pytest.raises(ProtocolNotFrozenError):
-        gates_normals(H_E_NOMINAL, confirm_frozen=True)
+    draft = protocol_file(tmp_path, "draft")
+    with pytest.raises(ProtocolNotFrozenError, match="draft"):
+        execution_models(H_E_NOMINAL, confirm_frozen=True, protocol_path=draft)
+    with pytest.raises(ProtocolNotFrozenError, match="draft"):
+        gates_normals(H_E_NOMINAL, confirm_frozen=True, protocol_path=draft)
+    with pytest.raises(ProtocolNotFrozenError, match="confirm-frozen"):
+        execution_models(H_E_NOMINAL)
+    with pytest.raises(ProtocolNotFrozenError, match="confirm-frozen"):
+        gates_normals(H_E_NOMINAL)
+    frozen = protocol_file(tmp_path, "frozen")
+    assert execution_models(H_E_NOMINAL, confirm_frozen=True, protocol_path=frozen) == (
+        GATES_PRIMARY,
+        GATES_STRESS,
+    )
+    held_out = gates_normals(H_E_NOMINAL, confirm_frozen=True, protocol_path=frozen)
+    expected_held_out = np.random.default_rng((7401, 7101)).standard_normal((50, 2))
+    assert np.array_equal(held_out, expected_held_out)
+    assert execution_models(T_E, protocol_path=draft) == (GATES_PRIMARY,)
 
 
 def test_executed_correction_adds_the_gates_error() -> None:
@@ -301,9 +329,18 @@ def test_constraint_families_ranges_and_split() -> None:
     assert len(tuning_sets()) == 30
 
 
-def test_held_out_constraint_sets_refuse_before_the_freeze() -> None:
-    with pytest.raises(ProtocolNotFrozenError):
-        held_out_sets(confirm_frozen=True)
+def test_held_out_constraint_sets_refuse_before_the_freeze(tmp_path: Path) -> None:
+    with pytest.raises(ProtocolNotFrozenError, match="draft"):
+        held_out_sets(confirm_frozen=True, protocol_path=protocol_file(tmp_path, "draft"))
+    for path in (protocol_file(tmp_path, "frozen"), PROTOCOL_PATH):
+        with pytest.raises(ProtocolNotFrozenError, match="confirm-frozen"):
+            held_out_sets(confirm_frozen=False, protocol_path=path)
+    held_out = held_out_sets(confirm_frozen=True, protocol_path=protocol_file(tmp_path, "frozen"))
+    tuning = tuning_sets()
+    assert len(held_out) == 66 and [c.family for c in held_out].count("F2") == 22
+    # The split is a partition: no set is both tuning and held out, and all 96 are used.
+    keys = {(c.family, c.index) for c in held_out} | {(c.family, c.index) for c in tuning}
+    assert len(keys) == 96 and len(keys) == len(held_out) + len(tuning)
 
 
 def test_availability_on_constructed_catalog() -> None:

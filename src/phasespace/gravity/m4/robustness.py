@@ -37,6 +37,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Final
 
 import numpy as np
@@ -56,6 +57,7 @@ from phasespace.gravity.m4.config import (
     GATES_MODELS,
     GATES_NORMALS_SEED,
     PROTOCOL,
+    PROTOCOL_PATH,
     ConstraintFamilies,
     CorrectionConfig,
     ErrorDistribution,
@@ -91,10 +93,12 @@ def truncated_normal(uniform: FloatArray, truncation: float) -> FloatArray:
     return np.asarray(ndtri(lo + uniform * (ndtr(truncation) - lo)), dtype=np.float64)
 
 
-def error_draws(dist: ErrorDistribution, *, confirm_frozen: bool = False) -> list[ErrorDraw]:
+def error_draws(
+    dist: ErrorDistribution, *, confirm_frozen: bool = False, protocol_path: Path = PROTOCOL_PATH
+) -> list[ErrorDraw]:
     """The K draws of a distribution; a held-out one requires the frozen protocol."""
     if dist.held_out:
-        require_frozen(confirm_frozen)
+        require_frozen(confirm_frozen, protocol_path)
     return _draws(dist)
 
 
@@ -473,23 +477,27 @@ def gates_normals(
     *,
     seed: int = GATES_NORMALS_SEED,
     confirm_frozen: bool = False,
+    protocol_path: Path = PROTOCOL_PATH,
 ) -> FloatArray:
     """Standard normal pairs for the K draws of an injection set, from
     default_rng((7401, injection seed)), shared by every Gates set; a held-out injection
     set requires the frozen protocol."""
     if injection.held_out:
-        require_frozen(confirm_frozen)
+        require_frozen(confirm_frozen, protocol_path)
     rng = np.random.default_rng((seed, injection.seed))
     return np.asarray(rng.standard_normal((injection.draws, 2)), dtype=np.float64)
 
 
 def execution_models(
-    injection: ErrorDistribution, *, confirm_frozen: bool = False
+    injection: ErrorDistribution,
+    *,
+    confirm_frozen: bool = False,
+    protocol_path: Path = PROTOCOL_PATH,
 ) -> tuple[GatesModel, ...]:
     """The Gates sets paired with an injection set (9.1); held-out ones need the freeze."""
     models = tuple(GATES_MODELS[name] for name in injection.executions)
     if any(m.held_out for m in models):
-        require_frozen(confirm_frozen)
+        require_frozen(confirm_frozen, protocol_path)
     return models
 
 
@@ -593,10 +601,13 @@ def tuning_sets(cfg: ConstraintFamilies = PROTOCOL.constraints) -> list[Constrai
 
 
 def held_out_sets(
-    *, confirm_frozen: bool, cfg: ConstraintFamilies = PROTOCOL.constraints
+    *,
+    confirm_frozen: bool,
+    cfg: ConstraintFamilies = PROTOCOL.constraints,
+    protocol_path: Path = PROTOCOL_PATH,
 ) -> list[ConstraintSet]:
     """The held-out sets; only after the freeze (9.2: evaluated in the final analysis)."""
-    require_frozen(confirm_frozen)
+    require_frozen(confirm_frozen, protocol_path)
     sets = {(c.family, c.index): c for c in constraint_families(cfg)}
     return [
         sets[(f, i)]

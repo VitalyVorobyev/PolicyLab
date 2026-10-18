@@ -35,6 +35,7 @@ from phasespace.gravity.free_return_map import Column, dumps_table, sample_table
 from phasespace.gravity.m4.catalog import build_catalog, checkpoint_catalogs
 from phasespace.gravity.m4.config import (
     PROTOCOL,
+    PROTOCOL_PATH,
     PROTOCOL_RELATIVE_PATH,
     checkpoints_for,
     config_sha256,
@@ -291,8 +292,9 @@ def build_manifest(
     git_dirty: bool,
     created_at: datetime,
     definition: FreeReturnDefinition = DEFAULT_DEFINITION,
+    protocol_path: Path = PROTOCOL_PATH,
 ) -> dict[str, Any]:
-    status = protocol_status()
+    status = protocol_status(protocol_path)
     extra = list(limitations)
     if status != "frozen":
         extra.append(

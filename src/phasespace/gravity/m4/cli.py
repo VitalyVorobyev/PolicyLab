@@ -598,7 +598,9 @@ def _parse_configs(text: str) -> dict[str, int]:
     return out
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, *, protocol_path: Path = PROTOCOL_PATH) -> int:
+    """Run the command line. `protocol_path` is the protocol whose status the freeze guard
+    reads (tests substitute a temporary file; there is deliberately no flag for it)."""
     parser = argparse.ArgumentParser(
         prog="python -m phasespace.gravity.m4", description="Gravity Atlas M4 comparison runs."
     )
@@ -658,7 +660,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     try:
-        require_frozen(bool(args.confirm_frozen))
+        require_frozen(bool(args.confirm_frozen), protocol_path)
     except ProtocolNotFrozenError as exc:
         parser.error(str(exc))
     workers = int(args.workers)

@@ -1,4 +1,4 @@
-"""Gravity Atlas M4: budget-matched comparison machinery (protocol v1, DRAFT).
+"""Gravity Atlas M4: budget-matched comparison machinery (protocol v1, frozen: D26).
 
 Implements docs/studies/gravity-atlas/protocol.md: the common evaluator and budget
 counter (`evaluation`), catalogs and elite re-checks (`catalog`), the compared methods
