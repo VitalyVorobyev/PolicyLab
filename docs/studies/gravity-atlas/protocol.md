@@ -30,10 +30,10 @@ Steps 4, 5, 6 (seed count) and 8 exist as tested functions (`calibrate_budget`, 
 | | |
 |---|---|
 | Protocol version | v1 |
-| Status | **`draft`. Not frozen.** It must not be used to produce comparative results. |
-| Frozen date | — |
-| Git commit at freeze | — |
-| Config hash at freeze | — (`just gravity-m4-config`) |
+| Status | **`frozen`** (v1). Changes only as a versioned, logged amendment (v2). |
+| Frozen date | 2026-10-18, on the study owner's explicit approval (D26) |
+| Git commit at freeze | `90c57756d809d1bee0c238e7954c43fe147b055e` |
+| Config hash at freeze | `4cfc119543dd0c53d95750d24561badf1e440aea9170db76ffd165553bf3415a` (`just gravity-m4-config`) |
 | Author of the draft | drafted 2026-10-18 for review by the study owner |
 | Inputs | D16–D25 (`docs/decisions.md`); `README.md`; `literature.md`; `m3-feasibility-design.md` (M3 GO, clean runs at `9a721b0` and `ccf326e`); smoke runs `gravity-m4-smoke-v1` (`84fac87`) and `gravity-m4-smoke-v2` (`373717f`) |
 | Configuration | `src/phasespace/gravity/m4/config.py` (every constant; hashed into each manifest). Appendix A repeats the key constants; a test checks both agree. |
