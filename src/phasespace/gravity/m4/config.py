@@ -3,7 +3,8 @@
 Every constant below cites the protocol section it comes from. Method hyperparameters
 are the protocol's tuning grids (section 6); which grid entry each method uses in the
 pilot and the main runs is *to be set on the tuning set per protocol section 6 ("How
-hyperparameters are set")* and is never chosen here.
+hyperparameters are set")* and is never chosen here. The protocol's appendix A repeats
+the key constants in machine-readable form; a test checks that both agree.
 
 `require_frozen` guards every command that would produce comparative evidence: it
 refuses unless the protocol's status line says `frozen` and the caller confirmed it.
