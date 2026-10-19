@@ -1,7 +1,7 @@
 # Gravity Atlas — Active Research Specification (v0)
 
 **Theme:** Dynamical systems, trajectory optimization, quality-diversity, robustness.  
-**Status:** first study; experiment design provisional until the feasibility milestone completes.  
+**Status:** closed 2026-10-19 after the frozen M4 comparison (`docs/decisions.md` D28, D29). Result: H1 is supported against all five baselines, through coverage. MAP-Elites catalogs contain more solutions that survive held-out errors, but their individual solutions are less robust than the dense map's.  
 **RL required?** No. Explicitly *not* part of the first comparison.
 
 ## Nearest prior work

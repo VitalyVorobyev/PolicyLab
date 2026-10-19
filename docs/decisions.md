@@ -83,6 +83,33 @@
   - The pre-declared normal-approximation power at n = 16 for the smallest declared effect is 0.027. This low power is disclosed; contrasts near the declared minimum effect cannot be resolved.
   - The projection is 5.14 M PE, with no reductions needed; K4 is not triggered.
 
+**D29 — Gravity Atlas M4 result; the study closes (2026-10-19).**
+- **Evidence.** `gravity-m4-analysis-v1` (clean, commit c0429bc, frozen config hash). It covers:
+  - 112 main runs: 7 arms × seeds 1001–1016;
+  - CC\*;
+  - 226 held-out robustness runs, H_E-nominal and H_E-wide for every catalog.
+- **H1 is supported against all five baselines.** All ten primary contrasts favour T, with Holm-adjusted p ≤ 0.041. The weakest contrast is T − DE on P1: +4.7, 95 % CI [1.1, 8.9].
+  - P1, the expected number of surviving solutions at B = 1 m/s: T 20.9, DE 16.2, CC 14.2, D 12.2, MS 1.9, MBH 0.24.
+  - P2: T 0.91, CC 0.75, DE 0.68, MS 0.38, D 0.37, MBH 0.09.
+- **Interpretation, required alongside any headline.** T wins through coverage. It fills 99.6 % of the 32 reachable 10 × 10 cells, against D 44 %, CC 56 % and DE 68 %. Its individual solutions are *less* robust:
+  - mean per-solution survival is T 0.66 vs D 0.88 (paired difference −0.22, CI [−0.24, −0.19]);
+  - H2 is weakly supported: Spearman ρ(s_i, selection margin) = −0.089, p = 0.049, over 507 elites.
+  - The defensible claim is "a MAP-Elites catalog *contains* more solutions that survive held-out errors". The claim "MAP-Elites *finds* more robust solutions" is not supported.
+- **The correction is nearly inert at the calibrated B.** For T, P1 is 20.5 at B = 0 and 20.9 at B = 1 m/s. The Gates stress set changes P1 by at most 0.004 for any arm. So P1 mainly measures uncorrected injection-error tolerance; the s(B) curves to 30 m/s are reported.
+- **Stop rules.** K2, K5, K6 and K7 are not triggered, and the DOP853 re-check found 0 failures.
+- **LSODA sample.** The 5 % LSODA sample had 4 of 97 elites (4.1 %) fail the full M3 S3 validation. This is reported beside K2, which is defined on the re-check, and must be disclosed.
+  - Two are Jacobi-drift threshold failures, one D and one T elite, both in cell (7, 5).
+  - Two are T2 elites in cell (8, 9) whose outcome changes under tight tolerance and under LSODA.
+- **Other findings.**
+  - DE is unstable across seeds: P1 SD 8.5, worst seed 0.
+  - T2, which adds local refinement, does not beat T: P1 −0.76, CI [−1.2, −0.31].
+  - MS and MBH concentrate on very few cells, with means of 2.6 and 0.5 elites.
+- **Execution disclosure.**
+  - `stage --stage main` covers only seeds 1001–1010. The extension seeds 1011–1016 were run with per-seed `search` calls, which use the same `_search_task` code at the same commit.
+  - The final batch was stopped and resumed twice. Runs are written atomically, so the only work lost was runs in flight, which were redone from scratch; no partial run directories remained.
+  - Robustness runs were executed in parallel across catalogs. Each run is serial and deterministic.
+- **Close.** As agreed in D28, Gravity Atlas ends here as a validated physics demo plus this comparison. A preprint (M5) is the owner's call and is not scheduled.
+
 ## Conditions for revising the plan
 
 A milestone may change only because of observed source state, physical feasibility, research data, runtime limits or a clear user product choice. Document each meaningful change and its reason. Do not enlarge scope simply because implementing another framework sounds elegant.
