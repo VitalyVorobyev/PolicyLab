@@ -4,7 +4,7 @@
  * empty array for `solver.comparisons`) when absent.
  */
 
-export type StudyStatus = "active" | "planned" | "conditional";
+export type StudyStatus = "active" | "complete" | "planned" | "conditional";
 
 export interface CatalogRun {
   run_id: string;
@@ -67,7 +67,7 @@ export const FREE_RETURN_OUTCOMES = [
 ] as const;
 export type FreeReturnOutcome = (typeof FREE_RETURN_OUTCOMES)[number];
 
-export const ARTIFACT_KINDS = ["trajectory", "sample_table", "outcome_grid"] as const;
+export const ARTIFACT_KINDS = ["trajectory", "sample_table", "outcome_grid", "atlas", "error_fan"] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 export const COMPARISON_ROLES = ["tight_tolerance", "independent_integrator"] as const;
@@ -326,6 +326,97 @@ export interface LoadedTableRun {
 export interface LoadedGridRun {
   manifest: Manifest;
   grid: OutcomeGrid;
+  manifestUrl: string;
+  artifactUrl: string;
+}
+
+/** Display polyline in km (barycentric synodic frame) and days after launch; equal lengths, t strictly increasing. */
+export interface Polyline {
+  t_days: Float64Array;
+  x_km: Float64Array;
+  y_km: Float64Array;
+}
+
+export interface SummaryStat {
+  mean: number | null;
+  median: number | null;
+  sd: number | null;
+  min: number | null;
+  max: number | null;
+}
+
+export const SUMMARY_KEYS = ["p1", "p2", "coverage", "mean_s", "elites"] as const;
+export type SummaryKey = (typeof SUMMARY_KEYS)[number];
+
+/** Arms of the M4 comparison, in the order the atlas lists them. */
+export const ATLAS_ARMS = ["D", "MS", "MBH", "DE", "CC", "T", "T2"] as const;
+export type ArmId = (typeof ATLAS_ARMS)[number];
+
+export interface AtlasElite {
+  cell: readonly [number, number];
+  index: number;
+  theta_deg: number;
+  delta_v_km_s: number;
+  alpha_deg: number;
+  perilune_altitude_km: number;
+  return_time_days: number;
+  entry_flight_path_angle_deg: number;
+  /** Fraction of the error draws that succeed with at most the correction budget. */
+  survival: number;
+  uncorrected_feasible_draws: number;
+  perilune: { t_days: number; x_km: number; y_km: number };
+  path: Polyline;
+}
+
+export interface AtlasArm {
+  arm: ArmId;
+  fan_path: string;
+  summary: Record<SummaryKey, SummaryStat>;
+  elites: AtlasElite[];
+}
+
+export interface GridDim {
+  bins: number;
+  edges: number[];
+  /** Descriptor 1 only: perilune altitude edges in km. */
+  edges_km?: number[];
+}
+
+export interface Atlas {
+  schema_version: 1;
+  run_id: string;
+  earth: { x_km: number; y_km: number; radius_km: number };
+  moon: { x_km: number; y_km: number; radius_km: number };
+  parking_orbit_radius_km: number;
+  seed: number;
+  draws: number;
+  budget_m_s: number;
+  grid: {
+    d1: GridDim & { edges_km: number[] };
+    d2: GridDim & { edges_days: number[] };
+    reachable_cells: [number, number][];
+  };
+  contrasts: { endpoint: "P1" | "P2"; baseline: string; p_holm: number }[];
+  arms: AtlasArm[];
+}
+
+export interface FanDraw extends Polyline {
+  outcome: FreeReturnOutcome;
+  uncorrected_feasible: boolean;
+  survived: boolean;
+}
+
+export interface ErrorFan {
+  schema_version: 1;
+  run_id: string;
+  arm: ArmId;
+  draws: number;
+  elites: { cell: readonly [number, number]; index: number; draws: FanDraw[] }[];
+}
+
+export interface LoadedAtlasRun {
+  manifest: Manifest;
+  atlas: Atlas;
   manifestUrl: string;
   artifactUrl: string;
 }

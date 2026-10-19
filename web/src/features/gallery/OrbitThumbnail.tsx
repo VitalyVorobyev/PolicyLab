@@ -54,9 +54,7 @@ export function useFeaturedRun(): CatalogRun | undefined {
 export function FeaturedCaption({ run }: { run: CatalogRun }) {
   const loaded = useRun(run.run_id, run.path);
   if (loaded.status !== "ready") return <>{run.label}, in the rotating Earth–Moon frame.</>;
-  const { manifest } = loaded.value;
-  const m = manifest.metrics;
-  const status = manifest.status === "validated" ? "validated" : manifest.status === "computed_unvalidated" ? "computed, not validated" : "illustrative";
+  const m = loaded.value.manifest.metrics;
   const facts = [
     m.departure_delta_v_km_s !== undefined ? `one ${fixed(m.departure_delta_v_km_s.value, 3)} km/s impulse` : null,
     m.perilune_altitude_km !== undefined ? `a ${fixed(m.perilune_altitude_km.value, 0)} km perilune` : null,
@@ -64,8 +62,7 @@ export function FeaturedCaption({ run }: { run: CatalogRun }) {
   ].filter((f): f is string => f !== null);
   return (
     <>
-      {run.label}, {status}{facts.length > 0 ? `: ${facts.join(", ")}` : ""}. Rotating Earth–Moon frame, equal x and y scale. It shows
-      that free returns exist in the model; the study’s comparison has not been run yet.
+      {run.label}{facts.length > 0 ? `: ${facts.join(", ")}` : ""}. Rotating Earth–Moon frame, drawn to scale.
     </>
   );
 }

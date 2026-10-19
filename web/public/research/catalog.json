@@ -4,7 +4,7 @@
     {
       "study_id": "gravity-atlas",
       "title": "Gravity Atlas",
-      "status": "active",
+      "status": "complete",
       "runs": [
         {
           "run_id": "gravity-free-return-c1-v2",
@@ -35,6 +35,12 @@
           "path": "gravity-atlas/free-return-dv-probe-v1",
           "kind": "sample_table",
           "label": "Fine Δv probe at θ = 229° and 251°"
+        },
+        {
+          "run_id": "gravity-m4-demo-atlas-v1",
+          "path": "gravity-atlas/m4-demo-atlas-v1",
+          "kind": "atlas",
+          "label": "Atlas of free returns: seven search methods"
         }
       ]
     },

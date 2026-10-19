@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { loadCatalog, loadGridRun, loadRun, loadTableRun } from "./load";
-import type { Catalog, LoadedGridRun, LoadedRun, LoadedTableRun } from "./types";
+import { loadAtlasRun, loadCatalog, loadErrorFan, loadGridRun, loadRun, loadTableRun } from "./load";
+import type { Catalog, ErrorFan, LoadedAtlasRun, LoadedGridRun, LoadedRun, LoadedTableRun } from "./types";
+import { checkFanMatchesArm } from "./validate";
 
 export type Resource<T> =
   | { status: "loading" }
@@ -83,6 +84,32 @@ export function useTableRun(runId: string, path: string): Resource<LoadedTableRu
 
 export function useGridRun(runId: string, path: string): Resource<LoadedGridRun> {
   return useResource(`outcome_grid:${runId}@${path}`, gridLoader);
+}
+
+const atlasLoader = keyed(loadAtlasRun);
+
+export function useAtlasRun(runId: string, path: string): Resource<LoadedAtlasRun> {
+  return useResource(`atlas:${runId}@${path}`, atlasLoader);
+}
+
+/** Key format: "error_fan:<run_id>@<path>#<fan file>"; the fan is checked against the (cached) atlas. */
+const fanLoader = async (key: string): Promise<ErrorFan> => {
+  const at = key.indexOf("@");
+  const hash = key.indexOf("#");
+  const runId = key.slice(key.indexOf(":") + 1, at);
+  const path = key.slice(at + 1, hash);
+  const file = key.slice(hash + 1);
+  const atlasRun = await cached(`atlas:${runId}@${path}`, () => atlasLoader(`atlas:${runId}@${path}`));
+  const arm = atlasRun.atlas.arms.find((a) => a.fan_path === file);
+  if (arm === undefined) throw new Error(`The atlas lists no arm with the fan file ${file}.`);
+  const fan = await loadErrorFan(path, file, undefined, runId);
+  checkFanMatchesArm(fan, arm, file);
+  return fan;
+};
+
+/** The error fan of one arm (`fanPath` is the arm's `fan_path`), fetched only when first asked for. */
+export function useErrorFan(runId: string, path: string, fanPath: string): Resource<ErrorFan> {
+  return useResource(`error_fan:${runId}@${path}#${fanPath}`, fanLoader);
 }
 
 /** Key format: "trajectories:" + "<run_id>@<path>" entries joined by "|". */

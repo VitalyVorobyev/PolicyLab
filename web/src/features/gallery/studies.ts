@@ -16,11 +16,10 @@ export const STUDIES: readonly StudySummary[] = [
   {
     study_id: "gravity-atlas",
     title: "Gravity Atlas",
-    question:
-      "At equal compute, does a diverse archive of Earth–Moon free-return trajectories hold more solutions that survive unseen injection errors and changed constraints than strong conventional optimizers do?",
-    status: "active",
+    question: "Which search method finds the free returns to the Moon that survive a bad launch?",
+    status: "complete",
     progress:
-      "Physics engine validated against the JPL catalog; free returns found, validated and mapped. Next: a frozen protocol, then the matched-budget comparison.",
+      "Finished. Seven search methods built catalogs of Earth–Moon free returns from the same budget; the MAP-Elites archive held the most trajectories that survive launch errors. Try it in the demonstration.",
     specPath: "docs/studies/gravity-atlas/README.md",
     route: "/gravity",
   },
@@ -56,5 +55,6 @@ export const STUDIES: readonly StudySummary[] = [
 export const STUDY_STATUS_LABEL: Record<StudyStatus, string> = {
   active: "Active",
   planned: "Planned",
+  complete: "Complete",
   conditional: "Planned, conditional",
 };

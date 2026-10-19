@@ -1,8 +1,8 @@
 import { DataError } from "./errors";
 import { isSafeRelativePath, researchUrl } from "./paths";
 import { sha256Hex } from "./sha256";
-import type { ArtifactKind, Catalog, LoadedGridRun, LoadedRun, LoadedTableRun, Manifest } from "./types";
-import { artifactOf, parseCatalog, parseManifest, parseOutcomeGrid, parseSampleTable, parseTrajectory } from "./validate";
+import type { ArtifactKind, Catalog, ErrorFan, LoadedAtlasRun, LoadedGridRun, LoadedRun, LoadedTableRun, Manifest } from "./types";
+import { artifactOf, parseAtlas, parseCatalog, parseErrorFan, parseManifest, parseOutcomeGrid, parseSampleTable, parseTrajectory } from "./validate";
 
 export type Fetcher = (url: string) => Promise<Response>;
 
@@ -53,7 +53,13 @@ interface VerifiedArtifact {
  * check that its single artifact has the expected kind, and verify the artifact bytes against the
  * manifest's SHA-256 before parsing them as JSON.
  */
-async function loadVerified(runPath: string, kind: ArtifactKind, fetcher: Fetcher, expectedRunId?: string): Promise<VerifiedArtifact> {
+async function loadVerified(
+  runPath: string,
+  kind: ArtifactKind,
+  fetcher: Fetcher,
+  expectedRunId?: string,
+  fileName?: string,
+): Promise<VerifiedArtifact> {
   if (!isSafeRelativePath(runPath)) {
     throw new DataError("unsafe_path", runPath, `"${runPath}" is not a plain relative path inside the research directory.`);
   }
@@ -66,7 +72,7 @@ async function loadVerified(runPath: string, kind: ArtifactKind, fetcher: Fetche
       `The catalog lists run "${expectedRunId}" here, but the manifest's run_id is "${manifest.run_id}".`,
     );
   }
-  const artifact = artifactOf(manifest, kind);
+  const artifact = artifactOf(manifest, kind, fileName);
   if (artifact === undefined) {
     throw new DataError(
       "invalid",
@@ -103,4 +109,16 @@ export async function loadTableRun(runPath: string, fetcher: Fetcher = defaultFe
 export async function loadGridRun(runPath: string, fetcher: Fetcher = defaultFetch, expectedRunId?: string): Promise<LoadedGridRun> {
   const { manifest, json, manifestUrl, artifactUrl } = await loadVerified(runPath, "outcome_grid", fetcher, expectedRunId);
   return { manifest, grid: parseOutcomeGrid(json, manifest, artifactUrl), manifestUrl, artifactUrl };
+}
+
+/** A run whose artifacts are an atlas (kind "atlas") and its error fans; only the atlas is loaded here. */
+export async function loadAtlasRun(runPath: string, fetcher: Fetcher = defaultFetch, expectedRunId?: string): Promise<LoadedAtlasRun> {
+  const { manifest, json, manifestUrl, artifactUrl } = await loadVerified(runPath, "atlas", fetcher, expectedRunId);
+  return { manifest, atlas: parseAtlas(json, manifest, artifactUrl), manifestUrl, artifactUrl };
+}
+
+/** One arm's error fan from an atlas run, verified against the manifest's checksum for that file. */
+export async function loadErrorFan(runPath: string, fileName: string, fetcher: Fetcher = defaultFetch, expectedRunId?: string): Promise<ErrorFan> {
+  const { manifest, json, artifactUrl } = await loadVerified(runPath, "error_fan", fetcher, expectedRunId, fileName);
+  return parseErrorFan(json, manifest, artifactUrl);
 }

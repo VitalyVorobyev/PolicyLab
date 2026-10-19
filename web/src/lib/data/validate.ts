@@ -10,8 +10,18 @@ import {
   SOLVER_NAMES,
   STATE_ORDER,
   TERMINATIONS,
+  ATLAS_ARMS,
+  SUMMARY_KEYS,
   type Artifact,
   type ArtifactKind,
+  type ArmId,
+  type Atlas,
+  type AtlasArm,
+  type AtlasElite,
+  type ErrorFan,
+  type FanDraw,
+  type Polyline,
+  type SummaryStat,
   type DerivedFrom,
   type FreeReturnOutcome,
   type GridAxis,
@@ -234,7 +244,7 @@ function close(actual: number, expected: number): boolean {
   return Math.abs(actual - expected) <= CONSISTENCY_RTOL * Math.abs(expected);
 }
 
-const STUDY_STATUSES: readonly StudyStatus[] = ["active", "planned", "conditional"];
+const STUDY_STATUSES: readonly StudyStatus[] = ["active", "complete", "planned", "conditional"];
 
 export function parseCatalog(value: unknown, source = "catalog.json"): Catalog {
   const r = root(source, value, "catalog");
@@ -495,16 +505,25 @@ export function parseManifest(value: unknown, source = "manifest.json"): Manifes
       throw new DataError("invalid", source, `status is "validated" but these checks did not pass: ${failed.join(", ")}.`);
     }
   }
-  if (manifest.artifacts.length !== 1) {
+  // Single-artifact runs, or an atlas run: its atlas artifact first, then one error fan per arm.
+  const [first, ...rest] = manifest.artifacts;
+  const isAtlasRun = first?.kind === "atlas" && rest.length > 0 && rest.every((a) => a.kind === "error_fan");
+  if (manifest.artifacts.length !== 1 && !isAtlasRun) {
     throw new DataError("invalid", source, `artifacts: expected exactly one artifact (this site shows single-artifact runs), got ${manifest.artifacts.length}.`);
   }
   return manifest;
 }
 
-/** The run's single artifact if it has the given kind; undefined otherwise. */
-export function artifactOf(manifest: Manifest, kind: ArtifactKind): Artifact | undefined {
-  const artifact = manifest.artifacts.length === 1 ? manifest.artifacts[0] : undefined;
-  return artifact?.kind === kind ? artifact : undefined;
+/**
+ * The run's artifact of the given kind; undefined otherwise. Single-artifact runs have one; an
+ * atlas run has one "atlas" and several "error_fan" artifacts, told apart by `fileName`.
+ */
+export function artifactOf(manifest: Manifest, kind: ArtifactKind, fileName?: string): Artifact | undefined {
+  if (manifest.artifacts.length === 1) {
+    const only = manifest.artifacts[0];
+    return only?.kind === kind && (fileName === undefined || only.path === fileName) ? only : undefined;
+  }
+  return manifest.artifacts.find((a) => a.kind === kind && (fileName === undefined || a.path === fileName));
 }
 
 /** The run's single trajectory artifact; undefined for other kinds. */
@@ -709,4 +728,181 @@ export function parseOutcomeGrid(value: unknown, manifest: Manifest, source = "o
     throw new DataError("invalid", source, `feasible.rows has ${rows.length} rows, but the grid has ${feasibleCount} feasible cells.`);
   }
   return { schema_version: 1, run_id: runId, phaseAxis, deltaVAxis, impulse_angle_deg: impulse, outcomes, codes, feasible: { columns, rows } };
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// M4 demo atlas: kinds "atlas" and "error_fan" (docs/data-contract.md, "M4 demo atlas").
+// ---------------------------------------------------------------------------------------------
+
+/** A display polyline: equal-length finite arrays, at least 2 points, time strictly increasing. */
+function parsePolyline(r: Reader): Polyline {
+  const number = (key: string): Float64Array => {
+    const values = r.array(key, 2);
+    const out = new Float64Array(values.length);
+    values.forEach((v, i) => {
+      if (typeof v !== "number" || !Number.isFinite(v)) r.fail(`${key}[${i}]`, "a finite number", v);
+      out[i] = v;
+    });
+    return out;
+  };
+  const t = number("t_days");
+  const x = number("x_km");
+  const y = number("y_km");
+  if (x.length !== t.length || y.length !== t.length) {
+    r.fail("", "t_days, x_km and y_km of equal length", new Described(`${t.length}, ${x.length} and ${y.length} values`));
+  }
+  for (let i = 1; i < t.length; i++) {
+    if (!((t[i] ?? 0) > (t[i - 1] ?? 0))) r.fail("t_days", "strictly increasing times", new Described(`${t[i]} after ${t[i - 1]} at index ${i}`));
+  }
+  return { t_days: t, x_km: x, y_km: y };
+}
+
+function parseCell(r: Reader, key: string, raw: unknown, bins: [number, number]): [number, number] {
+  const [i, j] = Array.isArray(raw) ? (raw as unknown[]) : [];
+  const ok = (v: unknown, n: number): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0 && v < n;
+  if (!Array.isArray(raw) || raw.length !== 2 || !ok(i, bins[0]) || !ok(j, bins[1])) {
+    r.fail(key, `a [d1, d2] cell inside the ${bins[0]} x ${bins[1]} grid`, new Described(JSON.stringify(raw)));
+  }
+  return [i, j];
+}
+
+function parseEdges(r: Reader, key: string, bins: number): number[] {
+  const edges = r.array(key).map((v, i) => {
+    if (typeof v !== "number" || !Number.isFinite(v)) r.fail(`${key}[${i}]`, "a finite number", v);
+    return v;
+  });
+  if (edges.length !== bins + 1) r.fail(key, `${bins + 1} edges (bins + 1)`, new Described(`${edges.length} edges`));
+  if (edges.some((e, i) => i > 0 && !(e > (edges[i - 1] ?? 0)))) r.fail(key, "strictly increasing edges", new Described("edges that do not increase"));
+  return edges;
+}
+
+function parseSummaryStat(r: Reader): SummaryStat {
+  const stat = (key: string): number | null => r.nullable(key, (k) => r.finite(k));
+  return { mean: stat("mean"), median: stat("median"), sd: stat("sd"), min: stat("min"), max: stat("max") };
+}
+
+function parseAtlasElite(e: Reader, bins: [number, number], draws: number): AtlasElite {
+  const survival = e.finite("survival");
+  if (survival < 0 || survival > 1) e.fail("survival", "a fraction between 0 and 1");
+  const perilune = e.object("perilune");
+  return {
+    cell: parseCell(e, "cell", e.array("cell"), bins),
+    index: e.integer("index", 0),
+    theta_deg: e.finite("theta_deg"),
+    delta_v_km_s: e.finite("delta_v_km_s"),
+    alpha_deg: e.finite("alpha_deg"),
+    perilune_altitude_km: e.positive("perilune_altitude_km"),
+    return_time_days: e.positive("return_time_days"),
+    entry_flight_path_angle_deg: e.finite("entry_flight_path_angle_deg"),
+    survival,
+    uncorrected_feasible_draws: e.integer("uncorrected_feasible_draws", 0, draws),
+    perilune: { t_days: perilune.finite("t_days"), x_km: perilune.finite("x_km"), y_km: perilune.finite("y_km") },
+    path: parsePolyline(e.object("path")),
+  };
+}
+
+function parseBody(r: Reader): { x_km: number; y_km: number; radius_km: number } {
+  return { x_km: r.finite("x_km"), y_km: r.finite("y_km"), radius_km: r.positive("radius_km") };
+}
+
+/** Artifact of kind "atlas": the seven arms' seed-1001 catalogs, 16-seed summaries and the grid. */
+export function parseAtlas(value: unknown, manifest: Manifest, source = "atlas.json"): Atlas {
+  const r = root(source, value, "atlas");
+  const runId = checkRunId(r, manifest, source);
+  r.literal("frame", "barycentric_synodic");
+  r.literal("length_unit", "km");
+  r.literal("time_unit", "day");
+  const draws = r.integer("draws", 1);
+
+  const g = r.object("grid");
+  const d1 = g.object("d1");
+  const d2 = g.object("d2");
+  const bins1 = d1.integer("bins", 1);
+  const bins2 = d2.integer("bins", 1);
+  const bins: [number, number] = [bins1, bins2];
+  const grid = {
+    d1: { bins: bins1, edges: parseEdges(d1, "edges", bins1), edges_km: parseEdges(d1, "edges_km", bins1) },
+    d2: { bins: bins2, edges: parseEdges(d2, "edges", bins2), edges_days: parseEdges(d2, "edges_days", bins2) },
+    reachable_cells: g.array("reachable_cells", 1).map((raw, i) => parseCell(g, `reachable_cells[${i}]`, raw, bins)),
+  };
+  const reachable = new Set(grid.reachable_cells.map(([i, j]) => `${i},${j}`));
+  if (reachable.size !== grid.reachable_cells.length) g.fail("reachable_cells", "distinct cells");
+
+  const arms: AtlasArm[] = r.objects("arms").map((a, n): AtlasArm => {
+    const arm = a.oneOf("arm", ATLAS_ARMS);
+    if (arm !== ATLAS_ARMS[n]) a.fail("arm", `"${ATLAS_ARMS[n] ?? "?"}" (arms come in the order ${ATLAS_ARMS.join(", ")})`);
+    const summary = a.object("summary");
+    const seen = new Set<string>();
+    const elites = a.objects("elites").map((e) => {
+      const elite = parseAtlasElite(e, bins, draws);
+      const key = `${elite.cell[0]},${elite.cell[1]}`;
+      if (!reachable.has(key) || seen.has(key)) e.fail("cell", "a distinct reachable cell", new Described(key));
+      seen.add(key);
+      return elite;
+    });
+    return {
+      arm,
+      fan_path: a.safePath("fan_path", { fileName: true }),
+      summary: Object.fromEntries(SUMMARY_KEYS.map((k) => [k, parseSummaryStat(summary.object(k))])) as AtlasArm["summary"],
+      elites,
+    };
+  });
+  if (arms.length !== ATLAS_ARMS.length) r.fail("arms", `${ATLAS_ARMS.length} arms`, new Described(`${arms.length} arms`));
+
+  return {
+    schema_version: 1,
+    run_id: runId,
+    earth: parseBody(r.object("earth")),
+    moon: parseBody(r.object("moon")),
+    parking_orbit_radius_km: r.positive("parking_orbit_radius_km"),
+    seed: r.integer("seed"),
+    draws,
+    budget_m_s: r.positive("budget_m_s"),
+    grid,
+    contrasts: r.objects("contrasts").map((c) => ({ endpoint: c.oneOf("endpoint", ["P1", "P2"] as const), baseline: c.string("baseline"), p_holm: c.finite("p_holm") })),
+    arms,
+  };
+}
+
+/** Artifact of kind "error_fan": every elite's error-draw paths, without correction. */
+export function parseErrorFan(value: unknown, manifest: Manifest, source = "fan.json"): ErrorFan {
+  const r = root(source, value, "error fan");
+  const runId = checkRunId(r, manifest, source);
+  const arm: ArmId = r.oneOf("arm", ATLAS_ARMS);
+  r.literal("frame", "barycentric_synodic");
+  r.literal("length_unit", "km");
+  r.literal("time_unit", "day");
+  // The contract types `error_draws` as the draw list; the published file stores the draw count.
+  const raw = (value as Json).error_draws;
+  const draws = Array.isArray(raw) ? raw.length : r.integer("error_draws", 1);
+  const elites = r.objects("elites").map((e) => {
+    const cell = e.array("cell");
+    if (cell.length !== 2 || !cell.every((v) => typeof v === "number" && Number.isInteger(v) && v >= 0)) {
+      e.fail("cell", "a [d1, d2] cell", new Described(JSON.stringify(cell)));
+    }
+    const list = e.objects("draws").map(
+      (d): FanDraw => ({
+        outcome: d.oneOf("outcome", FREE_RETURN_OUTCOMES),
+        uncorrected_feasible: d.boolean("uncorrected_feasible"),
+        survived: d.boolean("survived"),
+        ...parsePolyline(d),
+      }),
+    );
+    if (list.length !== draws) e.fail("draws", `${draws} draws`, new Described(`${list.length} draws`));
+    return { cell: cell as [number, number], index: e.integer("index", 0), draws: list };
+  });
+  return { schema_version: 1, run_id: runId, arm, draws, elites };
+}
+
+/** The fan must describe exactly the arm's catalog, in the same order; anything else would mislabel paths. */
+export function checkFanMatchesArm(fan: ErrorFan, arm: AtlasArm, source: string): void {
+  if (fan.arm !== arm.arm) throw new DataError("invalid", source, `The fan is for arm "${fan.arm}", but the atlas lists it under "${arm.arm}".`);
+  const same =
+    fan.elites.length === arm.elites.length &&
+    fan.elites.every((f, k) => {
+      const e = arm.elites[k];
+      return e !== undefined && f.index === e.index && f.cell[0] === e.cell[0] && f.cell[1] === e.cell[1];
+    });
+  if (!same) throw new DataError("invalid", source, `The fan's trajectories (cells and indices) differ from arm "${arm.arm}" in the atlas.`);
 }

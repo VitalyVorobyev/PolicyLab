@@ -110,6 +110,13 @@
   - Robustness runs were executed in parallel across catalogs. Each run is serial and deterministic.
 - **Close.** As agreed in D28, Gravity Atlas ends here as a validated physics demo plus this comparison. A preprint (M5) is the owner's call and is not scheduled.
 
+### D30. Gravity Atlas public page is an interactive demonstration
+
+- **Decision.** `/gravity` is a story-first demo: the orbit view with the selected free return and its 50 launch-error variants, the 10 × 10 atlas, and a switch over the seven methods, with short problem, method and finding text. Provenance, run ids, checksums, status badges, milestone history and the L1 / feasibility-map / Δv-probe material no longer appear there; the technical record stays in the docs and the repository.
+- **Data.** The page reads only `gravity-m4-demo-atlas-v1` (kinds `atlas` and `error_fan`, added to the website validator). The browser draws stored polylines and interpolates positions between vertices; it recomputes nothing. Scores are the 16-seed summaries; the atlas shows seed 1001.
+- **Catalog.** Study status `complete` added for finished studies; Gravity Atlas is `complete`. The earlier M1–M3 run directories stay published because the validator tests use them as real-data fixtures.
+- **Contract note.** `ErrorFan.error_draws` is documented as the draw list but published as the draw count (50); the validator accepts both.
+
 ## Conditions for revising the plan
 
 A milestone may change only because of observed source state, physical feasibility, research data, runtime limits or a clear user product choice. Document each meaningful change and its reason. Do not enlarge scope simply because implementing another framework sounds elegant.

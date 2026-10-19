@@ -6,7 +6,7 @@ import { FeaturedCaption, OrbitThumbnail, useFeaturedRun } from "./OrbitThumbnai
 import { STUDIES, STUDY_STATUS_LABEL, type StudySummary } from "./studies";
 
 function StudyStatus({ study }: { study: StudySummary }) {
-  const active = study.status === "active";
+  const active = study.status === "active" || study.status === "complete";
   const Icon = active ? CheckCircleIcon : DashedCircleIcon;
   return (
     <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${active ? "text-valid" : "text-graphite"}`}>
@@ -32,7 +32,7 @@ function FeaturedStudy({ study }: { study: StudySummary }) {
             to={study.route ?? "/"}
             className="inline-flex items-center rounded-sm bg-ink px-4 py-2.5 font-medium text-sheet no-underline hover:bg-canvas-raised"
           >
-            Open Gravity Atlas
+            Explore the atlas
           </Link>
           <a className="prose-link inline-flex items-center gap-1.5 text-graphite" href={docUrl(study.specPath)} rel="noreferrer">
             Study specification

@@ -1,7 +1,5 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { bandWidthMs, probeRows } from "../../features/gravity/ProbeStrip";
-import { countOutcomes, feasibleCells } from "../../features/gravity/grid";
 import { clone, publicJson, publishedRunPath } from "../../test/fixtures";
 import { DataError, type DataErrorKind } from "./errors";
 import { parseManifest, parseOutcomeGrid, parseSampleTable, parseTrajectory } from "./validate";
@@ -110,14 +108,15 @@ describe("M3 fixtures (published free-return runs)", () => {
     expect(gridRunManifest.derived_from?.run_id).toBe("gravity-free-return-map-2d-grid-v1");
     const grid = parseOutcomeGrid(gridJson, gridRunManifest);
     expect(grid.codes).toHaveLength(720 * 126);
-    const counts = countOutcomes(grid);
+    const counts = new Map<string, number>();
+    for (const code of grid.codes) counts.set(grid.outcomes[code] ?? "?", (counts.get(grid.outcomes[code] ?? "?") ?? 0) + 1);
     expect(counts.get("feasible")).toBe(161);
     expect(counts.get("no_return_within_t_max")).toBe(64681);
     expect(counts.get("perilune_out_of_band")).toBe(22281);
     expect(counts.get("return_before_lunar_encounter")).toBe(3314);
     expect(counts.get("moon_collision")).toBe(283);
-    const plus = [...feasibleCells(grid).values()].filter((c) => (c.values.lunar_passage_sense ?? 0) > 0);
-    expect(plus).toHaveLength(5);
+    const sense = grid.feasible.columns.findIndex((c) => c.name === "lunar_passage_sense");
+    expect(grid.feasible.rows.filter((row) => (row[sense] ?? 0) > 0)).toHaveLength(5);
   });
 
   it("decodes a synthetic grid exactly", () => {
@@ -126,17 +125,9 @@ describe("M3 fixtures (published free-return runs)", () => {
     expect(grid.feasible.rows).toEqual([[0, 1, 500], [2, 0, 900]]);
   });
 
-  it("parses the probe table and measures the band widths", () => {
+  it("parses the probe table", () => {
     const table = parseSampleTable(probeJson, probeRunManifest);
     expect(table.rows).toHaveLength(7002);
-    const rows = probeRows(table);
-    expect(rows.map((r) => [r.phaseDeg, r.feasibleRuns.map((f) => f.count)])).toEqual([
-      [229, [569]],
-      [251, [19]],
-    ]);
-    const [lo, hi] = bandWidthMs(569, 2e-5);
-    expect(lo).toBeCloseTo(11.36, 10);
-    expect(hi).toBeCloseTo(11.4, 10);
   });
 });
 

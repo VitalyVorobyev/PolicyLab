@@ -33,6 +33,10 @@
   --color-accent-strong: #f0bb4f;
   --color-accent-ink: #7f5300;
 
+  /* Error-fan paths on the canvas: returned home / failed. Also told apart by marker shape. */
+  --color-fan-ok: #4fd1b0;
+  --color-fan-fail: #f2785c;
+
   --color-valid: #1d6a48;
   --color-caution: #8c4a0e;
   --color-danger: #a12b2b;

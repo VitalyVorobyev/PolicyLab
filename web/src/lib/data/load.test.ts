@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { publicBytes, publishedRunPath, RUN_PATH, staticFetcher } from "../../test/fixtures";
 import { DataError } from "./errors";
-import { loadCatalog, loadGridRun, loadRun, loadTableRun } from "./load";
+import { loadAtlasRun, loadCatalog, loadGridRun, loadRun, loadTableRun } from "./load";
 import { sha256Hex } from "./sha256";
 
 const TRAJECTORY_URL = `/research/${RUN_PATH}/trajectory.json`;
@@ -102,10 +102,11 @@ describe("loadCatalog", () => {
     const runs = catalog.studies.flatMap((s) => s.runs);
     expect(runs.length).toBeGreaterThan(0);
     for (const run of runs) {
-      const load = { trajectory: loadRun, sample_table: loadTableRun, outcome_grid: loadGridRun }[run.kind];
+      const load = { trajectory: loadRun, sample_table: loadTableRun, outcome_grid: loadGridRun, atlas: loadAtlasRun }[run.kind as string];
+      if (load === undefined) throw new Error(`no loader for kind ${run.kind}`);
       const loaded = await load(run.path, staticFetcher(), run.run_id);
       expect(loaded.manifest.study_id).toBe(catalog.studies.find((s) => s.runs.includes(run))?.study_id);
     }
-    expect(new Set(runs.map((r) => r.kind))).toEqual(new Set(["trajectory", "sample_table", "outcome_grid"]));
+    expect(new Set(runs.map((r) => r.kind))).toEqual(new Set(["trajectory", "sample_table", "outcome_grid", "atlas"]));
   });
 });

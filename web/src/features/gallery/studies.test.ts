@@ -10,9 +10,9 @@ describe("gallery copy", () => {
     expect(STUDIES.map((s) => [s.study_id, s.status])).toEqual(catalog.studies.map((s) => [s.study_id, s.status]));
   });
 
-  it("links only active studies to a page", () => {
+  it("links only active or complete studies to a page", () => {
     for (const study of STUDIES) {
-      expect(study.route !== undefined).toBe(study.status === "active");
+      expect(study.route !== undefined).toBe(study.status === "active" || study.status === "complete");
     }
   });
 });
