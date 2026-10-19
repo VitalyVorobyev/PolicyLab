@@ -151,7 +151,7 @@ export function AtlasGrid({ atlas, arm, active, onHover, onSelect }: Props) {
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 pl-[2.75rem] text-xs text-canvas-text">
         <span className="flex items-center gap-2">
           <span className="h-2.5 w-14 rounded-[2px]" style={{ background: SURVIVAL_GRADIENT }} aria-hidden="true" />
-          <Term tip="The share of 50 launch errors the square's trajectory survives, from 0 to 100 percent. The number inside each square is the same value.">
+          <Term tip="The share of 50 launch errors the square's trajectory survives, from 0 to 100 percent. The number inside each square is the same value. Every trajectory faces the same 50 errors, and the same few errors knock out many trajectories alike, which is why some values repeat.">
             Survival 0–100 %
           </Term>
         </span>
