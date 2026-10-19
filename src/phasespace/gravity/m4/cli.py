@@ -13,6 +13,7 @@
     uv run python -m phasespace.gravity.m4 select --confirm-frozen
     uv run python -m phasespace.gravity.m4 pilot-analysis --confirm-frozen
     uv run python -m phasespace.gravity.m4 analysis --confirm-frozen [--workers 10]
+    uv run python -m phasespace.gravity.m4 demo-export --confirm-frozen [--workers 10]
     uv run python -m phasespace.gravity.m4 config
 
 `config` prints the configuration hash and the key constants (no computation). `smoke` is
@@ -24,7 +25,9 @@ they are not comparative evidence. Every other command refuses to run unless the
 protocol's status line says `frozen` and `--confirm-frozen` is given. Every command
 writes a new run directory and never overwrites one. `calibrate`, `select`,
 `pilot-analysis` and `analysis` (freeze checklist steps 4, 5, 6 and 8; `analysis.py`) read
-stored runs only; `analysis` also propagates its 5 % LSODA re-check sample.
+stored runs only; `analysis` also propagates its 5 % LSODA re-check sample. `demo-export`
+writes the curated public demo run (`demo_export.py`) from stored runs and re-propagates
+only the shown seed's elites and their uncorrected error draws.
 """
 
 from __future__ import annotations
@@ -44,7 +47,7 @@ from typing import Any, Final
 from phasespace.gravity.export import git_source, validate_run_id, write_run_directory
 from phasespace.gravity.free_return_export import load_map_records
 from phasespace.gravity.free_return_map import dumps_table, sample_table
-from phasespace.gravity.m4 import analysis
+from phasespace.gravity.m4 import analysis, demo_export
 from phasespace.gravity.m4.catalog import recheck, rechecked_catalog
 from phasespace.gravity.m4.config import (
     CC_STAR_SAFETY_CAP,
@@ -666,6 +669,7 @@ def main(argv: Sequence[str] | None = None, *, protocol_path: Path = PROTOCOL_PA
         "select": "step 5: configuration selection on the tuning runs (6)",
         "pilot-analysis": "step 6: seed count n, K3 and the 7.4 re-projection (8)",
         "analysis": "step 8: ground-truth union, metrics, statistics, LSODA sample (10-12)",
+        "demo-export": "the curated public demo run (one seed's catalogs and error fans)",
     }
     subs: dict[str, argparse.ArgumentParser] = {}
     for name, text in guarded.items():
@@ -696,6 +700,7 @@ def main(argv: Sequence[str] | None = None, *, protocol_path: Path = PROTOCOL_PA
         subs[name].add_argument("--groundtruth-run", default=analysis.GROUNDTRUTH_RUN_ID)
     subs["analysis"].add_argument("--pilot-run", default=analysis.PILOT_ANALYSIS_RUN_ID)
     subs["analysis"].add_argument("--ccstar-run", default=analysis.CCSTAR_RUN_ID)
+    subs["demo-export"].add_argument("--run-id", default=demo_export.DEMO_RUN_ID)
     args = parser.parse_args(argv)
     runs_dir: Path = args.runs_dir
     if args.command == "config":
@@ -747,6 +752,20 @@ def main(argv: Sequence[str] | None = None, *, protocol_path: Path = PROTOCOL_PA
     elif args.command in ("calibrate", "select", "pilot-analysis", "analysis"):
         try:
             manifest = _analysis_command(args, runs_dir, commit, dirty, protocol_path)
+        except (analysis.EvidenceError, FileNotFoundError, FileExistsError) as exc:
+            parser.error(str(exc))
+        print(f"wrote {runs_dir / manifest['run_id']} (git_dirty={dirty})")
+    elif args.command == "demo-export":
+        try:
+            manifest = demo_export.run_demo_export(
+                runs_dir,
+                git_commit=commit,
+                git_dirty=dirty,
+                confirm_frozen=bool(args.confirm_frozen),
+                run_id=str(args.run_id),
+                workers=workers,
+                protocol_path=protocol_path,
+            )
         except (analysis.EvidenceError, FileNotFoundError, FileExistsError) as exc:
             parser.error(str(exc))
         print(f"wrote {runs_dir / manifest['run_id']} (git_dirty={dirty})")

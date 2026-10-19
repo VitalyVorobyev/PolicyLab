@@ -131,3 +131,8 @@ web-verify:
 # Copy a run from runs/ into web/public/research/ after verifying its checksums (never overwrites).
 web-publish-run run destination:
     node web/scripts/publish-run.mjs runs/{{run}} {{destination}}
+
+# M4 public demo run (one seed's catalogs and uncorrected error fans; reads stored runs, re-propagates the shown elites).
+# just gravity-m4-demo-export --confirm-frozen --workers 10   (writes gravity-m4-demo-atlas-v1)
+gravity-m4-demo-export *args:
+    uv run python -m phasespace.gravity.m4 --runs-dir runs demo-export {{args}}

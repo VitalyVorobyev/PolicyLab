@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final
 
@@ -217,6 +217,51 @@ def _arc(
         parking_altitude_km=definition.parking_altitude_km,
     )
     return _propagate(state0, 0.0, t_c, definition)
+
+
+@dataclass(frozen=True, slots=True)
+class UncorrectedTrajectory:
+    """The executed departure of one draw without a correction, with both segments."""
+
+    arc: PropagationResult
+    """TLI to t_c (shorter if a collision or the return shell ended it first)."""
+    tail: PropagationResult | None
+    """t_c to T_MAX with no burn; None when the arc ended before t_c."""
+    record: FreeReturnRecord
+    """`classify` of the joined trajectory (of the arc alone when it ended before t_c)."""
+    gate_passed: bool
+    """The 5.2 Jacobi gate holds on every segment."""
+    feasible: bool
+    """`DrawResult.uncorrected_feasible`: the tail exists, 5.1 holds and the gate holds."""
+
+
+def uncorrected_trajectory(
+    elite: Evaluation,
+    draw: ErrorDraw,
+    definition: FreeReturnDefinition = DEFAULT_DEFINITION,
+    cfg: CorrectionConfig = _CORR,
+) -> UncorrectedTrajectory:
+    """One draw's uncorrected trajectory, built as `solution_robustness` builds it (the arc
+    to t_c joined to a no-burn tail), for export; it does not change any evaluation."""
+    t_c = time_from_days(cfg.t_c_days, definition.system)
+    phase, dv, alpha = executed_departure(
+        elite.phase_deg, elite.delta_v_km_s, elite.impulse_angle_deg, draw, definition
+    )
+    arc = _arc(phase, dv, alpha, definition, t_c)
+    max_drift = PROTOCOL.gate.jacobi_drift_rel_max
+    if arc.termination is not Termination.HORIZON:
+        record = classify(replace(arc, duration=definition.duration), definition)
+        drift = segment_drift_rel(arc)[0]
+        gate = math.isfinite(drift) and drift <= max_drift
+        return UncorrectedTrajectory(arc, None, record, gate, False)
+    # As `_leg` with a zero MCC: the restart state is the arc's final state plus 0.
+    state = arc.final_state
+    state[2:] = state[2:] + velocity_from_km_s(np.zeros(2), definition.system)
+    tail = _propagate(state, t_c, definition.duration - t_c, definition)
+    record = classify(_joined(arc, tail, definition.duration), definition)
+    drift = max(segment_drift_rel(arc)[0], segment_drift_rel(tail)[0])
+    gate = math.isfinite(drift) and drift <= max_drift
+    return UncorrectedTrajectory(arc, tail, record, gate, gate and record.feasible)
 
 
 # --- the correction ------------------------------------------------------------------------

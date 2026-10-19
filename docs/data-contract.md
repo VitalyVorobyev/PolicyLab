@@ -166,8 +166,9 @@ interface DifferentialCorrection extends SolverSettings {
 }
 
 interface Artifact {
-  kind: "trajectory" | "sample_table" | "outcome_grid";
-      // "sample_table" added for M3 maps and searches; "outcome_grid" for the web map
+  kind: "trajectory" | "sample_table" | "outcome_grid" | "atlas" | "error_fan";
+      // "sample_table" added for M3 maps and searches; "outcome_grid" for the web map;
+      // "atlas" and "error_fan" for the M4 demo run (see "M4 demo atlas" below)
   path: string;                // relative to the run directory; no "/", "\\" or ".." segments
   sha256: string;              // 64 lowercase hex characters of the file's exact bytes
 }
@@ -378,7 +379,7 @@ A manifest must include `validation` (see `Validation` above) when `validated`, 
 
 Store independently versioned experiment definitions containing: predeclared candidate parameterization, feasibility thresholds, objective and descriptor bounds, budget measured in numerical propagations (and wall-clock as secondary), seed list, held-out perturbation distribution, numerical solver settings, and statistical analysis procedure.
 
-**M4 runs (additive; `python -m phasespace.gravity.m4`, protocol `docs/studies/gravity-atlas/protocol.md`).** M4 manifests add one optional field, `m4`, and use only the existing artifact kind `sample_table`. Runs without it remain valid. M4 runs stay local under `runs/`; none is published, so the website validator does not check `m4` yet.
+**M4 runs (additive; `python -m phasespace.gravity.m4`, protocol `docs/studies/gravity-atlas/protocol.md`).** M4 manifests add one optional field, `m4`, and use the artifact kind `sample_table` (the demo run uses `atlas` and `error_fan`, below). Runs without it remain valid. M4 evidence runs stay local under `runs/`; only the curated demo run is published.
 
 ```ts
 interface Manifest { /* ... */ m4?: M4Block; }
@@ -391,7 +392,7 @@ interface M4Block {
   config_sha256: string;       // sha256 of the canonical JSON (sorted keys, compact) of
                                // phasespace.gravity.m4.config.PROTOCOL: every declared constant
   stage: "smoke" | "tune" | "pilot" | "main" | "reference" | "ground_truth" | "robustness"
-       | "calibration" | "selection" | "pilot_analysis" | "analysis";
+       | "calibration" | "selection" | "pilot_analysis" | "analysis" | "demo_export";
   methods: M4Method[];         // one per method in the run; [] for every other stage
   inputs?: { run_id: string; manifest_sha256: string; git_commit: string }[];
                                // analysis stages: every stored run read
@@ -399,6 +400,9 @@ interface M4Block {
   selection?: object;
   pilot?: object;
   analysis?: object;
+  demo?: object;               // demo_export: {seed, seed_choice, analysis_run_id,
+                               // groundtruth_run_id, configs, errors, gates, budget_m_s,
+                               // simplification: {nominal, fan}}
 }
 
 interface M4Method {
@@ -424,5 +428,84 @@ interface M4Method {
   - `selection` (`gravity-m4-selection-v1`): `m4.selection = {budget_m_s, configs, configs_argument, satisfiable_tuning_sets}`; `tuning_scores.json` (P1, P2 and coverage against G_tune per tuning run), `selection.json` (per configuration: means, ranks, rank sum, selected) and `tuning_sets.json` (the 30 tuning sets and their satisfiability).
   - `pilot_analysis` (`gravity-m4-pilot-analysis-v1`): `m4.pilot = {seed_count, seed_count_unclamped, main_seeds, achieved_power, k3_triggered, pilot_median_survival, pe_per_draw_t_e, projection_total_pe, reductions, k4_triggered, ...}`; `pilot_scores.json`, `seed_count.json` (SD of T − X per baseline and endpoint) and `projection.json` (protocol 7.4 items per scenario).
   - `analysis` (`gravity-m4-analysis-v1`): `m4.analysis = {budget_m_s, configs, main_seeds, h1, criteria}`; `per_run.json` (every protocol section-10 metric per main run and for CC*), `anytime.json` (checkpoint snapshots), `results.json` (long format: summaries, anytime means with CIs, the ten primary contrasts with sign-flip p and Holm, H1, secondary estimates, CC*, H2, criteria K2/K5/K6/K7, ground-truth cell counts, LSODA sample), `lsoda.json` (the 5 % sample, full M3 S3 validation) and `heldout_sets.json` (held-out satisfiability).
+
+**M4 demo atlas (additive; `python -m phasespace.gravity.m4 demo-export --confirm-frozen`, `just gravity-m4-demo-export`, module `phasespace.gravity.m4.demo_export`).** One curated, published run, `gravity-m4-demo-atlas-v1` (`web/public/research/gravity-atlas/m4-demo-atlas-v1/`, catalog kind `"atlas"`), for the public demo page. It reads stored evidence runs only (refusing any that is not evidence or not an input of `gravity-m4-analysis-v1` with the same manifest sha256) and re-propagates only what it draws: the seed-1001 elites of the seven budget-matched arms (main seed 1001 is the first main seed, fixed in advance; CC* is not included) and their 50 `H_E_nominal` draws without correction. The export fails, writing nothing, unless every re-propagated elite reproduces its stored record within the 5.6 re-check thresholds and every recomputed uncorrected feasibility equals its stored robustness row; these comparisons are recorded as `validation.checks`. Status stays `computed_unvalidated`: the checks verify reproduction of computed_unvalidated runs, not an independent validation (a `validation` block is allowed on such a run). `random_seed` is the `H_E_nominal` draw seed (7101); `m4.stage` is `"demo_export"`, `m4.inputs` lists every run read.
+
+Numbers in records and summaries are copied from stored runs, never recomputed (except the checks above). Paths are display polylines: barycentric synodic frame in km (`x_km = x × length_scale_km`, Earth at `x_km = −μL`, Moon at `(1 − μ)L`), times in days after TLI, simplified by Douglas–Peucker with the per-point tolerance `min(abs_tolerance_km, rel_tolerance × distance to the nearer primary centre)` over the accepted solver steps refined with dense output (`simplification` blocks). Both files are compact JSON.
+
+```ts
+interface Polyline { t_days: number[]; x_km: number[]; y_km: number[] }
+                     // equal lengths >= 2; t strictly increasing; nominal: 0.1 km and
+                     // 1e-5 d resolution, <= 200 points; fan: 1 km and 1e-4 d, <= 120
+
+interface Atlas {    // artifact of kind "atlas" (atlas.json)
+  schema_version: 1; run_id: string;
+  frame: "barycentric_synodic"; length_unit: "km"; time_unit: "day"; frame_definition: string;
+  mu: number; length_scale_km: number; time_scale_seconds: number;
+  earth: { x_km: number; y_km: number; radius_km: number };
+  moon: { x_km: number; y_km: number; radius_km: number };
+  parking_orbit_radius_km: number;   // 6556 (paths start here, about the Earth centre)
+  return_shell_radius_km: number;    // 6492.92 (feasible paths end here)
+  perilune_band_km: [number, number]; gamma_target_deg: number;  // -6.5 (objective e)
+  seed: number; seed_choice: string; main_seeds: number[]; analysis_run_id: string;
+  budget_m_s: number;                // calibrated B (1 m/s)
+  errors: "H_E_nominal"; draws: number; gates: "gates_primary"; survival_definition: string;
+  grid: {
+    d1: GridDim;     // name "log10_perilune_altitude_km": min 2, max log10 30000, edges_km
+    d2: GridDim;     // name "return_time_days": min 5, max 10, edges_days
+    binning: string;
+    reachable_cells: [number, number][];  // G (32 cells, [i_d1, i_d2]), 0-based
+    reachable_definition: string;
+  };
+  h1: Record<string, string>;        // per baseline, from the analysis manifest
+  contrasts: { endpoint: "P1" | "P2"; arm: "T"; baseline: string; mean_difference: number;
+               ci_low: number; ci_high: number; p_value: number; p_holm: number;
+               significant: number }[];          // the ten primary contrasts, verbatim
+  simplification: object; fan_simplification: object;
+  arms: AtlasArm[];                  // D, MS, MBH, DE, CC, T, T2 in this order
+}
+interface GridDim { name: string; definition: string; min: number; max: number; bins: number;
+                    edges: number[];        // bins + 1, descriptor units
+                    edges_km?: number[];    // d1 only: 10^edges (perilune altitude, km)
+                    edges_days?: number[];  // d2 only: = edges (return time, days)
+}
+interface AtlasArm {
+  arm: string; config_index: number; source_run_id: string; robustness_run_id: string;
+  fan_path: string;                  // its error_fan artifact, e.g. "fan-t.json"
+  summary: Record<"p1" | "p2" | "coverage" | "mean_s" | "elites",
+                  { mean: number | null; median: number | null; sd: number | null;
+                    min: number | null; max: number | null }>;   // over the 16 main seeds
+  anytime_coverage: { checkpoint: number; mean: number; ci_low: number; ci_high: number }[];
+  seed_values: Record<"p1" | "p2" | "coverage" | "mean_s" | "elites", number | null>;
+  seed_anytime_coverage: { checkpoint: number; coverage: number }[];   // seed 1001
+  elites: AtlasElite[];              // the seed-1001 catalog after 5.6, by cell; may be []
+}
+interface AtlasElite {
+  cell: [number, number]; index: number;      // propagation index in the source run
+  theta_deg: number; delta_v_km_s: number; alpha_deg: number;  // decision vector
+  perilune_altitude_km: number; lunar_encounter_time_days: number;
+  return_time_days: number; entry_flight_path_angle_deg: number;  // gamma_S
+  objective_deg: number;                      // e = |gamma_S - gamma*|
+  survival: number;                           // s_i at B, primary Gates set (stored rows)
+  uncorrected_feasible_draws: number;         // of the 50 draws
+  perilune: { t_days: number; x_km: number; y_km: number };  // a vertex of `path`
+  path: Polyline;                             // TLI to the return-shell crossing
+}
+
+interface ErrorFan {  // artifact of kind "error_fan" (fan-<arm>.json, one per arm)
+  schema_version: 1; run_id: string; arm: string;
+  frame: "barycentric_synodic"; length_unit: "km"; time_unit: "day";
+  errors: "H_E_nominal"; error_seed: number; budget_m_s: number; gates: "gates_primary";
+  error_draws: { magnitude: number; direction_deg: number; timing_s: number }[];  // draw k
+  elites: { cell: [number, number]; index: number;     // same order as AtlasArm.elites
+            draws: (Polyline & {
+              outcome: FreeReturnOutcome;   // M4 outcome without correction
+              uncorrected_feasible: boolean; // recomputed; equals the stored row
+              survived: boolean;            // stored: success at B (D25)
+            })[] }[];                        // one per error draw, in draw order
+}
+```
+
+A fan path is the uncorrected trajectory as the robustness runs judge it: the executed TLI propagated to t_c = 1 d and continued without a burn, ending at the return shell, a collision or T_MAX = 10 d. `survived` may be true for an infeasible path (the MCC rescued it). The catalog entry uses kind `"atlas"`.
 
 Prefer schema validation on producer and consumer sides (Python + TypeScript). Avoid generating a complicated cross-language framework before first two consumers exist.
