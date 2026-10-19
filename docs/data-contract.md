@@ -506,6 +506,6 @@ interface ErrorFan {  // artifact of kind "error_fan" (fan-<arm>.json, one per a
 }
 ```
 
-A fan path is the uncorrected trajectory as the robustness runs judge it: the executed TLI propagated to t_c = 1 d and continued without a burn, ending at the return shell, a collision or T_MAX = 10 d. `survived` may be true for an infeasible path (the MCC rescued it). The catalog entry uses kind `"atlas"`.
+A fan path is the uncorrected trajectory as the robustness runs judge it: the executed TLI propagated to t_c = 1 d and continued without a burn, ending at the return shell, a collision or T_MAX = 10 d. `survived` may be true for an infeasible path (the MCC rescued it). Its `catalog.json` entry uses kind `"atlas"`; it is added together with the website validator change that accepts the kinds `atlas` and `error_fan` (the validator rejects unknown kinds).
 
 Prefer schema validation on producer and consumer sides (Python + TypeScript). Avoid generating a complicated cross-language framework before first two consumers exist.

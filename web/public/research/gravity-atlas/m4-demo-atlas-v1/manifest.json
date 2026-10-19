@@ -1,0 +1,398 @@
+{
+  "schema_version": 1,
+  "run_id": "gravity-m4-demo-atlas-v1",
+  "study_id": "gravity-atlas",
+  "experiment_id": "cr3bp-free-return-m4-demo-atlas-v1",
+  "status": "computed_unvalidated",
+  "created_at": "2026-10-19T06:51:44Z",
+  "source": {
+    "repository": "VitalyVorobyev/PolicyLab",
+    "git_commit": "638dc77e5d94d1db383de4edd5e5fd840a08c603",
+    "git_dirty": false,
+    "generator": "phasespace.gravity.m4.cli",
+    "generator_version": "0.1.0"
+  },
+  "environment": {
+    "python": "3.12.12",
+    "python_implementation": "CPython",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "machine": "arm64"
+  },
+  "model": {
+    "name": "planar-cr3bp",
+    "coordinate_frame": "barycentric_synodic",
+    "units": "normalized_cr3bp",
+    "mu": 0.012150584394709708,
+    "length_scale_km": 384400.0,
+    "length_scale_convention": "nssdca_lunar_semimajor_axis",
+    "time_scale_seconds": 375190.2618946589,
+    "velocity_scale_km_s": 1.024546847401724,
+    "system_name": "earth-moon-de440-384400km",
+    "constants_source": "GM_earth, GM_moon: JPL DE440 via https://ssd.jpl.nasa.gov/astro_par.html; length unit 384400 km and mean radii: NASA NSSDCA Earth/Moon Fact Sheets; time unit derived as sqrt(L^3 / (GM_earth + GM_moon)); retrieved 2026-10-18",
+    "primaries": {
+      "earth": {
+        "x": -0.012150584394709708,
+        "y": 0.0,
+        "radius_km": 6371.0
+      },
+      "moon": {
+        "x": 0.9878494156052903,
+        "y": 0.0,
+        "radius_km": 1737.4
+      }
+    },
+    "assumptions": [
+      "circular_primaries",
+      "massless_spacecraft",
+      "planar",
+      "unit_angular_rate_counterclockwise"
+    ]
+  },
+  "solver": {
+    "name": "DOP853",
+    "rtol": 1e-12,
+    "atol": 1e-12,
+    "dense_output": true,
+    "max_evaluations": 1000000,
+    "collision_events": {
+      "earth_radius_km": 6371.0,
+      "moon_radius_km": 1737.4,
+      "function": "distance_minus_radius",
+      "direction": "decreasing",
+      "terminal": true,
+      "grazing_detection": "periapsis_below_radius",
+      "start_inside": "not_propagated"
+    },
+    "return_shell": {
+      "radius_km": 6492.92,
+      "altitude_km": 121.92,
+      "function": "distance_minus_radius",
+      "direction": "decreasing",
+      "terminal": true,
+      "grazing_detection": "periapsis_below_radius"
+    }
+  },
+  "random_seed": 7101,
+  "artifacts": [
+    {
+      "kind": "atlas",
+      "path": "atlas.json",
+      "sha256": "fe3c2ce1acf3d232c21a475bafa8b84db719e07abb2cde9e7702150741af0536"
+    },
+    {
+      "kind": "error_fan",
+      "path": "fan-d.json",
+      "sha256": "7ca69473b801fc0b19000e68399c0a4c31aab09cb59640fe7a4d756951d3bb6e"
+    },
+    {
+      "kind": "error_fan",
+      "path": "fan-ms.json",
+      "sha256": "671340b1c4063c0d99017817489b253f220360512ed2ccf6ab201fe8c61edadf"
+    },
+    {
+      "kind": "error_fan",
+      "path": "fan-mbh.json",
+      "sha256": "06be9bba1b7c1c52de4736cdd47d255a3be67cca66010b9788c483c208382464"
+    },
+    {
+      "kind": "error_fan",
+      "path": "fan-de.json",
+      "sha256": "aa6a3ed0644027cd73c7dc63ff1523f8af0a4e99ffdc9bb0acf37ef0bd5c7a18"
+    },
+    {
+      "kind": "error_fan",
+      "path": "fan-cc.json",
+      "sha256": "53f75214d5d729f4e63d070a6b6cacd8c5569748c49ec8b30a632d2d039c232b"
+    },
+    {
+      "kind": "error_fan",
+      "path": "fan-t.json",
+      "sha256": "7736214586f648f039779a4583a603c523db2dcbb97f6f4f3efec069f14b0c7f"
+    },
+    {
+      "kind": "error_fan",
+      "path": "fan-t2.json",
+      "sha256": "fc194f159a15f83e97847129573b42b17649e97e0a5503b23256c32374eec994"
+    }
+  ],
+  "metrics": {
+    "seed": {
+      "value": 1001,
+      "unit": "count",
+      "definition": "main seed of the shown catalogs"
+    },
+    "elites_d": {
+      "value": 12,
+      "unit": "count",
+      "definition": "D elites at seed 1001 after 5.6"
+    },
+    "elites_ms": {
+      "value": 1,
+      "unit": "count",
+      "definition": "MS elites at seed 1001 after 5.6"
+    },
+    "elites_mbh": {
+      "value": 0,
+      "unit": "count",
+      "definition": "MBH elites at seed 1001 after 5.6"
+    },
+    "elites_de": {
+      "value": 32,
+      "unit": "count",
+      "definition": "DE elites at seed 1001 after 5.6"
+    },
+    "elites_cc": {
+      "value": 11,
+      "unit": "count",
+      "definition": "CC elites at seed 1001 after 5.6"
+    },
+    "elites_t": {
+      "value": 32,
+      "unit": "count",
+      "definition": "T elites at seed 1001 after 5.6"
+    },
+    "elites_t2": {
+      "value": 32,
+      "unit": "count",
+      "definition": "T2 elites at seed 1001 after 5.6"
+    },
+    "fan_draws": {
+      "value": 6000,
+      "unit": "count",
+      "definition": "uncorrected draws re-propagated"
+    },
+    "nominal_points_max": {
+      "value": 200,
+      "unit": "count",
+      "definition": "largest nominal polyline"
+    },
+    "fan_points_max": {
+      "value": 83,
+      "unit": "count",
+      "definition": "largest fan polyline"
+    },
+    "fan_points_mean": {
+      "value": 55.475,
+      "unit": "count",
+      "definition": "mean fan polyline size"
+    },
+    "nominal_max_deviation_km": {
+      "value": 149.96295947008477,
+      "unit": "km",
+      "definition": "largest distance of a dense sample to its simplified nominal path, before rounding"
+    },
+    "fan_max_deviation_km": {
+      "value": 999.9350230882051,
+      "unit": "km",
+      "definition": "largest distance of a dense sample to its simplified fan path, before rounding"
+    },
+    "nominal_tolerance_scale_max": {
+      "value": 1.5,
+      "unit": "dimensionless",
+      "definition": "largest tolerance scale the point cap forced on a nominal path (1 = none)"
+    },
+    "fan_tolerance_scale_max": {
+      "value": 1.0,
+      "unit": "dimensionless",
+      "definition": "largest tolerance scale the point cap forced on a fan path (1 = none)"
+    }
+  },
+  "limitations": [
+    "Planar circular restricted three-body model with a single impulsive departure from an idealized circular parking orbit (M3 definitions, D20): no lunar eccentricity, out-of-plane motion, Earth oblateness, solar or other perturbations, finite burns, navigation errors or ephemeris effects.",
+    "A curated public sample: the catalogs of one main seed (1001, the first, fixed in advance) per arm. Comparative claims rest on the 16-seed summaries and contrasts copied verbatim from gravity-m4-analysis-v1, not on this seed.",
+    "random_seed is the H_E_nominal error-draw seed (7101); the draws are regenerated by the frozen generator in the robustness runs' order.",
+    "Paths are simplified polylines for display (see m4.demo.simplification); quantities in the records come from the stored runs, not from the polylines.",
+    "Status computed_unvalidated: the recorded checks verify reproduction of the stored (computed_unvalidated) runs, not an independent validation."
+  ],
+  "m4": {
+    "protocol_path": "docs/studies/gravity-atlas/protocol.md",
+    "protocol_version": "v1",
+    "protocol_status": "frozen",
+    "config_sha256": "4cfc119543dd0c53d95750d24561badf1e440aea9170db76ffd165553bf3415a",
+    "stage": "demo_export",
+    "methods": [],
+    "inputs": [
+      {
+        "run_id": "gravity-m4-analysis-v1",
+        "manifest_sha256": "7a0391884f37d0b18a4e70f6a8a3601bf067930c26a784fa56d8420adcca2a89",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-groundtruth-v1",
+        "manifest_sha256": "9b9b0a148ddf9a49480925678068e8409dc74a05b115e3a9d3b08147571165fb",
+        "git_commit": "b0d289e1da98ca5a2362f5d1c7e5cd66c50cc54c"
+      },
+      {
+        "run_id": "gravity-m4-main-d-c0-s1001-v1",
+        "manifest_sha256": "3453912fccea423cbcab91ec3ae2701f996ee1501ec7b23f80449176ad0a0a8f",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-main-d-c0-s1001-v1-robustness-h-e-nominal",
+        "manifest_sha256": "6ee1aec3a411ee28cc7ae4ac47254d13491c0d5046e28b55847fb1c51f2694fe",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-main-ms-c0-s1001-v1",
+        "manifest_sha256": "fdf7ff876d90cf37d11930bf2970b195af2ce3f0a4519169e36c3a6693169810",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-main-ms-c0-s1001-v1-robustness-h-e-nominal",
+        "manifest_sha256": "9107d025250c6d7175ab0e6535883804d2d5173b5a0df6a20497a13ec3d65ba1",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-main-mbh-c0-s1001-v1",
+        "manifest_sha256": "bab4486b8e64dda818c2bd27400489e51514274a98d6181fe82180007f5761d4",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-main-mbh-c0-s1001-v1-robustness-h-e-nominal",
+        "manifest_sha256": "ae9cd6102f58ba7a704ce66dd4d052f9cfac2881fa85ac106250449ea89db17d",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-main-de-c1-s1001-v1",
+        "manifest_sha256": "a5a8f700af1e0d330b6425e8bd857851a4586a839f657808c1e4eb0bd66cb9af",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-main-de-c1-s1001-v1-robustness-h-e-nominal",
+        "manifest_sha256": "39baddd42a966bbe4b9002f79815ea5d5969455f53cb6e28787a8638a811e61b",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-main-cc-c0-s1001-v1",
+        "manifest_sha256": "be345c768221a57bd336fbd4a3a519fdf052dda4b3c929390103771ed48443e0",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-main-cc-c0-s1001-v1-robustness-h-e-nominal",
+        "manifest_sha256": "25f35e5c0cd4982e88dce877ed28b6b279e8ba0fd84af1ca472cca2b883099ba",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-main-t-c2-s1001-v1",
+        "manifest_sha256": "12fb05fff50bcaad7846fcf187efd2366e755e30a9cc958d2ca53d31f2564580",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-main-t-c2-s1001-v1-robustness-h-e-nominal",
+        "manifest_sha256": "b65728014708d44343ec69df07ce04a39e395f751d5d909df9bbafe8a0beefa5",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-main-t2-c0-s1001-v1",
+        "manifest_sha256": "0ea464a8b08e7ae2692cc77eb02e30a25cd317ac37ebc16e135a3ab0e55c674e",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      },
+      {
+        "run_id": "gravity-m4-main-t2-c0-s1001-v1-robustness-h-e-nominal",
+        "manifest_sha256": "20d152c2a2845386a56221c3f2bf554d2a38b4590b626bdc88afac4784e9d418",
+        "git_commit": "c0429bcd938a1c5bbb5338ee4f1c2f7e792e23d7"
+      }
+    ],
+    "demo": {
+      "seed": 1001,
+      "seed_choice": "the first main seed, fixed before any catalog was inspected (no seed selection); the 16-seed summaries are the evidence, one seed is an example",
+      "analysis_run_id": "gravity-m4-analysis-v1",
+      "groundtruth_run_id": "gravity-m4-groundtruth-v1",
+      "configs": {
+        "D": 0,
+        "MS": 0,
+        "MBH": 0,
+        "DE": 1,
+        "CC": 0,
+        "T": 2,
+        "T2": 0
+      },
+      "errors": "H_E_nominal",
+      "gates": "gates_primary",
+      "budget_m_s": 1.0,
+      "simplification": {
+        "nominal": {
+          "method": "douglas_peucker_per_point_tolerance",
+          "tolerance": "min(abs_tolerance_km, rel_tolerance * distance to the nearer primary centre), point-to-segment distance in the synodic frame",
+          "input": "accepted solver steps, each refined into `substeps` dense-output samples",
+          "rel_tolerance": 0.002,
+          "abs_tolerance_km": 100.0,
+          "max_points": 200,
+          "substeps": 16,
+          "km_decimals": 1,
+          "day_decimals": 5,
+          "cap_rule": "if more than max_points are kept, the tolerance is scaled by 1.5 until they fit"
+        },
+        "fan": {
+          "method": "douglas_peucker_per_point_tolerance",
+          "tolerance": "min(abs_tolerance_km, rel_tolerance * distance to the nearer primary centre), point-to-segment distance in the synodic frame",
+          "input": "accepted solver steps, each refined into `substeps` dense-output samples",
+          "rel_tolerance": 0.015,
+          "abs_tolerance_km": 1000.0,
+          "max_points": 120,
+          "substeps": 8,
+          "km_decimals": 0,
+          "day_decimals": 4,
+          "cap_rule": "if more than max_points are kept, the tolerance is scaled by 1.5 until they fit"
+        }
+      }
+    }
+  },
+  "validation": {
+    "checks": [
+      {
+        "name": "nominal_recheck_failures",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "elites whose re-propagation (production DOP853 1e-12 settings) differs from the stored record in outcome or cell or beyond the 5.6 thresholds"
+      },
+      {
+        "name": "nominal_max_perilune_diff_km",
+        "observed": 0.0,
+        "threshold": 0.01,
+        "passed": true,
+        "definition": "max |h_p re-propagated - h_p stored| over the elites (km)"
+      },
+      {
+        "name": "nominal_max_return_time_diff_s",
+        "observed": 0.0,
+        "threshold": 0.1,
+        "passed": true,
+        "definition": "max |t_ret re-propagated - t_ret stored| over the elites (s)"
+      },
+      {
+        "name": "nominal_max_gamma_diff_deg",
+        "observed": 0.0,
+        "threshold": 0.001,
+        "passed": true,
+        "definition": "max |gamma_S re-propagated - gamma_S stored| over the elites (deg)"
+      },
+      {
+        "name": "fan_uncorrected_feasibility_mismatches",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "draws whose recomputed feasibility without correction differs from the stored robustness row (uncorrected_feasible)"
+      },
+      {
+        "name": "nominal_end_return_shell_error_km",
+        "observed": 0.05732028197689942,
+        "threshold": 0.1,
+        "passed": true,
+        "definition": "max | |last path point - Earth centre| - R_S | over the nominal paths, after rounding (km)"
+      },
+      {
+        "name": "path_start_parking_radius_error_km",
+        "observed": 0.6969840768997528,
+        "threshold": 1.0,
+        "passed": true,
+        "definition": "max | |first path point - Earth centre| - parking radius | over all paths, after rounding (km)"
+      }
+    ],
+    "validated_by": "phasespace.gravity.m4.demo_export (automatic consistency checks with the stored runs)",
+    "validated_at": "2026-10-19T06:51:44Z"
+  }
+}
