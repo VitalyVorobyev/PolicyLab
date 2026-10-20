@@ -17,11 +17,17 @@
    The logistic-normal planner cannot offer exactly the whole pool (softmax shares are
    positive), so it can only approach these values.
 3. **Determinism**: the same seed gives bit-identical parameters.
+4. **Pinned C3 training** (golden test, needs the C2 fit run under `runs/`): the default
+   planner trained against B1 (seed 5, 64 games, 4 minibatches, 4 iterations in chunks
+   of 2) has the parameter hash recorded at C3 (before the C4 changes); the C4 code
+   (no-retention head, mixture citizen) must leave the default training bit-identical.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterator
+from pathlib import Path
 
 import jax
 import jax.numpy as jnp
@@ -136,3 +142,21 @@ def test_first_minibatch_ratio_is_one(citizen: rc.JaxCitizen) -> None:
     deviation = float(np.abs(ratio - 1.0).max())
     print(f"max |ratio - 1| = {deviation:.3e}")
     assert deviation <= 1e-12
+
+
+FIT_RUN = Path(__file__).resolve().parents[2] / "runs" / "citizens-c2-fit-v1"
+C3_REFERENCE_HASH = "5f6087ee94ad547581f34c641e2ca32a7742695632c163c6ee694f7931891394"
+"""SHA-256 of the parameter leaves' bytes, recorded at C3 (commit 6eff4a3) on this
+configuration; the last chunk's mean sampled episode surplus was 557.8553435895737."""
+
+
+@pytest.mark.skipif(not (FIT_RUN / "manifest.json").exists(), reason="C2 fit run absent")
+def test_default_training_is_bit_identical_to_c3() -> None:
+    port = rc.load_citizens(FIT_RUN)["B1"]
+    cfg = ppo.PPOConfig(n_games=64, minibatches=4)
+    planner, curve = ppo.train(port, cfg, seed=5, n_iterations=4, chunk=2)
+    digest = hashlib.sha256()
+    for leaf in jax.tree_util.tree_leaves(ppo.array_part(planner)):
+        digest.update(np.asarray(leaf).tobytes())
+    assert digest.hexdigest() == C3_REFERENCE_HASH
+    assert curve[-1].episode_surplus == 557.8553435895737
