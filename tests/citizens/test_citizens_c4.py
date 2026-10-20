@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 from jax import Array
 
-from phasespace.citizens import game
+from phasespace.citizens import data, game
 from phasespace.citizens.llm import prompts, runner
 from phasespace.citizens.llm.backend import CallResult, ClaudeCLI
 from phasespace.citizens.mechanisms import RECORDED_WITHHELD, baseline_offers
@@ -196,16 +196,80 @@ def test_no_retention_planner_round_trips_and_trains() -> None:
     assert cfg.to_json()["retention"] is False and ppo.PPOConfig().retention is True
 
 
-# --- poolability and grouping ----------------------------------------------------------------------------
+# --- C4 training requests, the shared signature and grouping (P1) -----------------------------------
 
 
-def _train_manifest(run_id: str, model: str, seed: int, retention: bool = True) -> dict[str, Any]:
+def test_c4_training_request_accepts_only_declared_rows_and_seeds() -> None:
+    ok = stage.c4_train_run_id
+    stage.check_c4_training_request(ok("B2", 1003, True), "B2", 1003, True, 1000, {})
+    stage.check_c4_training_request(
+        ok("B23", 2002, False), "B23", 2002, False, 1000, {"retention": False}
+    )
+    stage.check_c4_training_request(ok("Mix", 3001, True), "Mix", 3001, True, 1000, {})
+    stage.check_c4_training_request(ok("B1", 1001, True, 2), "B1", 1001, True, 1000, {})
+    assert ok("B1", 1001, True) == "citizens-c4-train-b1-s1001-v1"
+    assert ok("B3", 2001, False) == "citizens-c4-train-b3-noret-s2001-v1"
+    assert ok("Mix", 3002, True) == "citizens-c4-train-mix-s3002-v1"
+    refused: list[tuple[str, int, bool, int, dict[str, Any], str]] = [
+        ("B2", 5, True, 1000, {}, "not declared"),
+        ("B2", 901, True, 1000, {}, "not declared"),
+        ("B2", 1, True, 1000, {}, "not declared"),
+        ("B2", 2001, True, 1000, {}, "not declared"),  # an ablation seed on a main row
+        ("B2", 1001, False, 1000, {"retention": False}, "not declared"),
+        ("Mix", 3001, False, 1000, {"retention": False}, "no planner row"),
+        ("B9", 1001, True, 1000, {}, "no planner row"),
+        ("B2", 1001, True, 500, {}, "1000 iterations"),
+        ("B2", 1001, True, 1000, {"learning_rate": 3e-4}, "no PPO overrides"),
+    ]
+    for model, seed, retention, iterations, overrides, message in refused:
+        run_id = ok(model, seed, retention) if model != "B9" else "citizens-c4-train-b9-s1001-v1"
+        with pytest.raises(SystemExit, match=message):
+            stage.check_c4_training_request(run_id, model, seed, retention, iterations, overrides)
+    with pytest.raises(SystemExit, match="run ids"):
+        stage.check_c4_training_request("citizens-c4-b2-1001", "B2", 1001, True, 1000, {})
+
+
+def _train_args(tmp_path: Path, model: str, seed: int, *extra: str) -> list[str]:
+    run_id = stage.c4_train_run_id(model, seed, "--no-retention" not in extra)
+    return [
+        "--runs-dir", str(tmp_path), "train", "--milestone", "c4", "--run-id", run_id,
+        "--model", model, "--seed", str(seed), "--iterations", "1000",
+        "--fit-run", str(tmp_path / "no-fit-run"), *extra,
+    ]  # fmt: skip
+
+
+def test_c4_training_refuses_undeclared_seeds_and_the_unfrozen_protocol(tmp_path: Path) -> None:
+    """Both refusals happen before any input is read or any training step is taken
+    (the fit run does not exist)."""
+    with pytest.raises(SystemExit, match="not declared"):
+        stage.main(_train_args(tmp_path, "B2", 7, "--confirm-frozen"))
+    with pytest.raises(SystemExit, match="not declared"):
+        stage.main(_train_args(tmp_path, "B1", 1001, "--no-retention", "--confirm-frozen"))
+    # a declared seed: refused because the C4 protocol is not frozen (draft) or not confirmed
+    with pytest.raises(data.ProtocolNotFrozenError, match="confirm"):
+        stage.main(_train_args(tmp_path, "B2", 1001))
+    with pytest.raises(data.ProtocolNotFrozenError, match="header status"):
+        stage.main(_train_args(tmp_path, "B2", 1001, "--confirm-frozen"))
+    with pytest.raises(SystemExit, match="C4 row"):
+        stage.main(
+            [
+                "--runs-dir", str(tmp_path), "train", "--run-id", "citizens-c3-mix", "--model",
+                "Mix", "--seed", "5", "--iterations", "10",
+            ]
+        )  # fmt: skip
+
+
+def _train_manifest(
+    run_id: str, model: str, seed: int, retention: bool = True, iterations: int = 1000
+) -> dict[str, Any]:
     ppo_record = {**ppo.PPOConfig().to_json(), "retention": retention}
     return {
         "run_id": run_id,
         "source": {"git_dirty": False, "git_commit": "c" * 40},
         "citizens": {
             "stage": "c4_train",
+            "c3_config_sha256": c3config.config_sha256(),
+            "c4_config_sha256": c4_config.config_sha256(),
             "fit_run": {"manifest_sha256": "f" * 64},
             "seeds": {"eval_key": c3config.EVAL_KEY_SEED},
             "training": {
@@ -213,10 +277,22 @@ def _train_manifest(run_id: str, model: str, seed: int, retention: bool = True) 
                 "seed": seed,
                 "ppo": ppo_record,
                 "overrides": {} if retention else {"retention": False},
-                "iterations": 500,
+                "iterations": iterations,
             },
         },
     }
+
+
+def _all_c4_manifests() -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for (model, retention), seeds in c4.expected_rows().items():
+        for seed in seeds:
+            out.append(
+                _train_manifest(
+                    stage.c4_train_run_id(model, seed, retention), model, seed, retention
+                )
+            )
+    return out
 
 
 def _base_manifest() -> dict[str, Any]:
@@ -231,45 +307,141 @@ def _base_manifest() -> dict[str, Any]:
     }
 
 
-def test_training_runs_are_grouped_by_model_and_action_head() -> None:
-    trains = [
-        _train_manifest("b2-1", "B2", 11),
-        _train_manifest("b1-1", "B1", 11),
-        _train_manifest("b1-2", "B1", 12),
-        _train_manifest("b1-n", "B1", 11, retention=False),
-    ]
+def test_expected_rows_are_the_protocol_rows() -> None:
+    rows = c4.expected_rows()
+    assert len(rows) == 9
+    assert sum(len(s) for s in rows.values()) == 35  # 20 main + 12 ablation + 3 mixture
+    assert rows[("Mix", True)] == (3001, 3002, 3003)
+    assert rows[("B3", False)] == (2001, 2002, 2003)
+
+
+def test_training_runs_are_grouped_by_row() -> None:
+    trains = _all_c4_manifests()
     groups = c4.group_training_runs(_base_manifest(), trains)
-    assert list(groups) == [("B1", True), ("B1", False), ("B2", True)]
-    assert groups[("B1", True)] == [1, 2]
+    assert list(groups)[:3] == [("B1", True), ("B1", False), ("B2", True)]
+    assert list(groups)[-1] == ("Mix", True)
+    assert [trains[i]["citizens"]["training"]["seed"] for i in groups[("B1", True)]] == list(
+        c4_config.MAIN_SEEDS
+    )
 
 
-def _set_stage(m: dict[str, Any]) -> None:
-    m["citizens"]["stage"] = "c4_pilot"
+def _set_stage(ms: list[dict[str, Any]]) -> None:
+    ms[3]["citizens"]["stage"] = "c4_pilot"
 
 
-def _set_seed(m: dict[str, Any]) -> None:
-    m["citizens"]["training"]["seed"] = 901
+def _set_c3(ms: list[dict[str, Any]]) -> None:
+    ms[3]["citizens"]["stage"] = "c3_train"
 
 
-def _set_dirty(m: dict[str, Any]) -> None:
-    m["source"]["git_dirty"] = True
+def _set_reserved(ms: list[dict[str, Any]]) -> None:
+    ms[3]["citizens"]["training"]["seed"] = 901
 
 
-CHANGES: list[tuple[Callable[[dict[str, Any]], None], str]] = [
+def _set_c3_seed(ms: list[dict[str, Any]]) -> None:
+    ms[3]["citizens"]["training"]["seed"] = 2
+
+
+def _set_undeclared(ms: list[dict[str, Any]]) -> None:
+    ms[3]["citizens"]["training"]["seed"] = 1006
+
+
+def _set_dirty(ms: list[dict[str, Any]]) -> None:
+    ms[3]["source"]["git_dirty"] = True
+
+
+def _set_iterations_one_row(ms: list[dict[str, Any]]) -> None:
+    for m in ms:
+        if m["citizens"]["training"]["model"] == "B3":
+            m["citizens"]["training"]["iterations"] = 500
+
+
+def _set_iterations_all(ms: list[dict[str, Any]]) -> None:
+    for m in ms:
+        m["citizens"]["training"]["iterations"] = 500
+
+
+def _set_commit(ms: list[dict[str, Any]]) -> None:
+    ms[-1]["source"]["git_commit"] = "d" * 40
+
+
+def _set_ppo(ms: list[dict[str, Any]]) -> None:
+    ms[-1]["citizens"]["training"]["ppo"]["learning_rate"] = 3e-4
+
+
+def _set_override(ms: list[dict[str, Any]]) -> None:
+    ms[-1]["citizens"]["training"]["overrides"]["clip"] = 0.1
+
+
+def _set_fit(ms: list[dict[str, Any]]) -> None:
+    ms[-1]["citizens"]["fit_run"]["manifest_sha256"] = "e" * 64
+
+
+def _drop_seed(ms: list[dict[str, Any]]) -> None:
+    del ms[2]
+
+
+def _drop_row(ms: list[dict[str, Any]]) -> None:
+    ms[:] = [m for m in ms if m["citizens"]["training"]["model"] != "Mix"]
+
+
+def _duplicate(ms: list[dict[str, Any]]) -> None:
+    ms.append(json.loads(json.dumps(ms[0])))
+
+
+def _reduce_one_noret_row(ms: list[dict[str, Any]]) -> None:
+    ms[:] = [m for m in ms if m["run_id"] != "citizens-c4-train-b2-noret-s2003-v1"]
+
+
+CHANGES: list[tuple[Callable[[list[dict[str, Any]]], None], str]] = [
     (_set_stage, "never C4 inputs"),
-    (_set_seed, "reserved"),
+    (_set_c3, "never C4 inputs"),
+    (_set_reserved, "reserved"),
+    (_set_c3_seed, "reserved"),
+    (_set_undeclared, "not declared"),
     (_set_dirty, "dirty"),
+    (_set_iterations_one_row, r"signature differs .*iterations"),
+    (_set_iterations_all, "1000"),
+    (_set_commit, r"signature differs .*git_commit"),
+    (_set_ppo, r"signature differs .*ppo"),
+    (_set_override, r"signature differs .*overrides"),
+    (_set_fit, r"signature differs .*fit_run"),
+    (_drop_seed, "seeds"),
+    (_drop_row, "missing"),
+    (_duplicate, "twice"),
+    (_reduce_one_noret_row, "different seed counts"),
 ]
 
 
 @pytest.mark.parametrize(("change", "message"), CHANGES)
-def test_crossplay_refuses_pilots_reserved_seeds_and_dirty_runs(
-    change: Callable[[dict[str, Any]], None], message: str
+def test_crossplay_refuses_runs_outside_the_shared_signature_and_declared_seeds(
+    change: Callable[[list[dict[str, Any]]], None], message: str
 ) -> None:
-    bad = _train_manifest("b1-2", "B1", 12)
-    change(bad)
+    trains = _all_c4_manifests()
+    change(trains)
     with pytest.raises(stage.RunMismatchError, match=message):
-        c4.group_training_runs(_base_manifest(), [_train_manifest("b1-1", "B1", 11), bad])
+        c4.group_training_runs(_base_manifest(), trains)
+
+
+def test_secondary_rows_may_use_the_pre_declared_reduction() -> None:
+    reduced = [
+        m for m in _all_c4_manifests() if m["citizens"]["training"]["seed"] not in (2003, 3003)
+    ]
+    groups = c4.group_training_runs(_base_manifest(), reduced)
+    assert len(groups[("B1", False)]) == 2 and len(groups[("Mix", True)]) == 2
+    main_reduced = [m for m in _all_c4_manifests() if m["citizens"]["training"]["seed"] != 1005]
+    with pytest.raises(stage.RunMismatchError, match="seeds"):
+        c4.group_training_runs(_base_manifest(), main_reduced)
+
+
+def test_base_run_must_match() -> None:
+    base = _base_manifest()
+    base["citizens"]["fit_run"]["manifest_sha256"] = "0" * 64
+    with pytest.raises(stage.RunMismatchError, match="fit runs"):
+        c4.group_training_runs(base, _all_c4_manifests())
+    dirty = _base_manifest()
+    dirty["source"]["git_dirty"] = True
+    with pytest.raises(stage.RunMismatchError, match="dirty"):
+        c4.group_training_runs(dirty, _all_c4_manifests())
 
 
 def test_check_poolable_any_model() -> None:
@@ -284,11 +456,11 @@ def test_planners_are_loaded_from_run_directories(tmp_path: Path) -> None:
 
     dirs: list[Path] = []
     docs: list[dict[str, Any]] = []
-    for seed, retention in ((21, True), (22, True), (21, False)):
-        run_id = f"t-{seed}-{int(retention)}"
-        manifest = _train_manifest(run_id, "B2", seed, retention)
+    for manifest in _all_c4_manifests():
         manifest["citizens"]["training"]["ppo"]["hidden"] = 8
-        planner = _planner(seed, retention)
+        run_id = manifest["run_id"]
+        retention = bool(manifest["citizens"]["training"]["ppo"]["retention"])
+        planner = _planner(int(manifest["citizens"]["training"]["seed"]), retention)
         written = write_run_directory(
             tmp_path / run_id,
             manifest,
@@ -298,17 +470,156 @@ def test_planners_are_loaded_from_run_directories(tmp_path: Path) -> None:
         docs.append(written)
     policies = c4.load_policies(_base_manifest(), dirs, docs)
     names = [p.name for p in policies]
-    assert names[:2] == ["Planner[B2]", "Planner-noret[B2]"]
-    assert policies[0].seeds == (21, 22) and policies[1].seeds == (21,)
-    assert names[2:] == [
+    assert names[:9] == [
+        "Planner[B1]", "Planner-noret[B1]", "Planner[B2]", "Planner-noret[B2]", "Planner[B3]",
+        "Planner-noret[B3]", "Planner[B23]", "Planner-noret[B23]", "Planner[Mix]",
+    ]  # fmt: skip
+    assert policies[0].seeds == c4_config.MAIN_SEEDS and policies[1].seeds == (2001, 2002, 2003)
+    assert names[9:] == [
         "Equal",
         "Mixed",
         "Proportional",
         "Interpolating k=22",
         *(f"Interpolating k*[{m}]" for m in rc.TRAINABLE_MODELS),
     ]
-    reloaded = policies[1].planners[0]
-    assert not reloaded.retention
+    assert not policies[1].planners[0].retention and policies[8].training_model == "Mix"
+
+
+# --- the mixture citizen (P7) ------------------------------------------------------------------------------
+
+
+class ConstantFraction(eqx.Module):
+    """A pmf citizen returning floor(f floor(e)) with probability 1 (0 when e < 1)."""
+
+    fraction: float = eqx.field(static=True)
+    name: str = eqx.field(static=True, default="constant-fraction")
+
+    def init(self, key: Array, n_streams: int) -> None:
+        del key, n_streams
+
+    def step(self, state: None, obs: rc.Obs) -> tuple[Array, None]:
+        c = jnp.floor(self.fraction * twin.max_reciprocation(obs.offers[:, 0]))
+        return jax.nn.one_hot(c.astype(jnp.int32), K_MAX, dtype=jnp.float64), state
+
+
+def _toy_ports() -> dict[str, Any]:
+    return {
+        "A": UniformReturn(),
+        "B": ConstantFraction(0.0),
+        "C": ConstantFraction(0.5),
+        "D": ConstantFraction(1.0),
+    }
+
+
+def test_mixture_games_are_played_exactly_as_under_their_drawn_model() -> None:
+    """Independent reference: each model alone, on the same citizen key (same uniforms;
+    the toy components have no latent draw), equals the mixture's games of that model."""
+    ports = _toy_ports()
+    names = ("A", "B", "C", "D")
+    mix = rc.MixtureCitizen.of(ports, names)
+    key, g = jax.random.key(21), 64
+    mech = rc.weight_rule_step(rc.interpolating(22.0))
+    traj, _ = rc.rollout(mix, mech, None, key, jax.random.key(0), g)
+    k_init, _ = rc.citizen_draws(key, g, ROUNDS)
+    drawn = np.asarray(mix.draw_models(k_init, g))
+    assert set(drawn.tolist()) == {0, 1, 2, 3}
+    for m, name in enumerate(names):
+        alone, _ = rc.rollout(ports[name], mech, None, key, jax.random.key(0), g)
+        sel = drawn == m
+        for field_name in ("offers", "actions", "pool"):
+            got = np.asarray(getattr(traj, field_name))[sel]
+            want = np.asarray(getattr(alone, field_name))[sel]
+            assert np.array_equal(got, want), (name, field_name)
+    # the drawn model is the same for the 4 players of a game
+    state = mix.init(k_init, 4 * g)
+    assert np.array_equal(np.asarray(state.model), np.repeat(drawn, 4))
+
+
+def test_mixture_draw_is_uniform_and_a_function_of_the_key() -> None:
+    mix = rc.MixtureCitizen.of(_toy_ports(), ("A", "B", "C", "D"))
+    n = 40_000
+    drawn = np.asarray(mix.draw_models(jax.random.key(3), n))
+    counts = np.bincount(drawn, minlength=4)
+    # binomial SD sqrt(n p (1 - p)) = 86.6; 5 SD
+    assert np.all(np.abs(counts - n / 4) < 5 * math.sqrt(n * 0.25 * 0.75))
+    again = np.asarray(mix.draw_models(jax.random.key(3), n))
+    assert np.array_equal(drawn, again)
+    assert not np.array_equal(drawn, np.asarray(mix.draw_models(jax.random.key(4), n)))
+    with pytest.raises(TypeError):
+        rc.MixtureCitizen.of({"F": rc.FixedFraction(0.5)}, ("F",))
+
+
+def test_mixture_planner_trains_and_evaluates_against_the_mixture() -> None:
+    toy = _toy_ports()
+    ports: dict[str, Any] = dict(
+        zip(rc.TRAINABLE_MODELS, (toy["A"], toy["B"], toy["C"], toy["D"]), strict=True)
+    )
+    mixture = stage.training_citizen(ports, "Mix")
+    assert isinstance(mixture, rc.MixtureCitizen) and mixture.names == rc.TRAINABLE_MODELS
+    assert stage.training_citizen(ports, "B2") is ports["B2"]
+    cfg = ppo.PPOConfig(n_games=16, minibatches=2, hidden=8)
+    planner, curve = ppo.train(mixture, cfg, seed=4, n_iterations=2, chunk=1)
+    assert len(curve) == 2 and np.isfinite(curve[-1].episode_surplus)
+    traj, _ = ppo.evaluate_planner(planner, mixture, jax.random.key(8), 8, ROUNDS)
+    assert np.all(np.isfinite(np.asarray(traj.pool)))
+    assert stage.scored_models("Mix") == rc.TRAINABLE_MODELS
+    assert stage.scored_models("B2") == ("B2",)
+
+
+# --- coin-weighted kept share (P2) ----------------------------------------------------------------------------
+
+
+def _traj(offers: np.ndarray, pool: np.ndarray) -> rc.Trajectory:
+    return rc.Trajectory(
+        offers=twin.f64(offers), actions=twin.f64(np.zeros_like(offers)), pool=twin.f64(pool)
+    )
+
+
+def test_coin_weighted_kept_share_by_hand() -> None:
+    """Round 0: games R = 100 keeping 10 and R = 50 keeping 0 -> 10 / 150 (the mean of
+    ratios would be 0.05). Round 1: R = 0.01 keeping 0.001 (excluded, R < 1) and R = 80
+    keeping 0 -> 0 (the mean of ratios would read 5 %). Round 2: both games below 1 coin
+    -> null, with the reason."""
+    pool = np.array([[100.0, 0.01, 0.5], [50.0, 80.0, 0.2]])
+    kept = np.array([[10.0, 0.001, 0.1], [0.0, 0.0, 0.0]])
+    offers = np.repeat(((pool - kept) / 4.0)[..., None], 4, axis=-1)
+    k, r = stage.kept_coins(_traj(offers, pool))
+    assert np.allclose(k, [10.0, 0.0, 0.0]) and np.allclose(r, [150.0, 80.0, 0.0])
+    out = stage.coin_weighted_kept_share(k, r, rounds=(0, 1))
+    assert out["per_round"][0] == pytest.approx(10.0 / 150.0)
+    assert out["per_round"][1] == pytest.approx(0.0, abs=1e-12)
+    assert out["per_round"][2] is None and "rounds (0-based) [2]" in out["null_reason"]
+    assert out["pooled"] == pytest.approx(10.0 / 230.0)
+    assert out["endgame"] == pytest.approx(10.0 / 230.0)
+    legacy = stage.kept_share_mean_of_ratios(_traj(offers, pool))
+    assert legacy[0] == pytest.approx(0.05) and legacy[1] == pytest.approx(0.05)
+
+
+# --- input support labels and null diagnostics (P5, NaN) -------------------------------------------------------
+
+
+def test_input_support_is_labelled_per_model() -> None:
+    rng = np.random.default_rng(0)
+    train = _games(rng.uniform(1.0, 10.0, (20, 5, 4)))
+    b2_out = crossplay.ood_fractions(crossplay.training_support(train, "B2"), train)
+    b3_out = crossplay.ood_fractions(crossplay.training_support(train, "B3"), train)
+    assert b2_out["kind"] == "input_out_of_range" and "model extrapolation" in b2_out["label"]
+    assert b3_out["kind"] == "state_novelty" and "not model extrapolation" in b3_out["label"]
+    b23 = crossplay.training_support(train, "B23")
+    assert crossplay.ood_fractions(b23, train)["kind"] == "state_novelty"
+    forced = _games(np.full((2, 3, 4), 0.5))
+    empty = crossplay.ood_fractions(crossplay.training_support(train, "B3"), forced)
+    assert empty["decisions"] == 0 and empty["off_grid"] is None and "null_reason" in empty
+
+
+def test_b1_disagreement_without_decisions_is_null() -> None:
+    offers = np.full((2, ROUNDS, 4), 0.5)
+    traj = rc.Trajectory(
+        offers=twin.f64(offers), actions=twin.f64(np.zeros_like(offers)),
+        pool=twin.f64(np.full((2, ROUNDS), 2.0)),
+    )  # fmt: skip
+    out = crossplay.b1_disagreement(_random_b1(2, identical=False), traj)
+    assert out["mean_tv"] is None and out["decisions"] == 0 and "null_reason" in out
 
 
 # --- cross-play on toy citizens -----------------------------------------------------------------------------
@@ -355,10 +666,25 @@ def test_crossplay_matrix_on_toy_citizens() -> None:
     pools = np.asarray(
         ppo.evaluate_planner(_planner(1, False), columns["U"], key, 8, ROUNDS)[0].pool
     )
-    assert np.allclose(noret.kept_share, (RECORDED_WITHHELD / pools).mean(axis=0), rtol=1e-9)
+    # coin-weighted: sum of the 0.001 withheld over games with R >= 1 / sum of those R
+    use = pools >= 1.0
+    n_use = use.sum(axis=0)
+    want = np.where(n_use > 0, RECORDED_WITHHELD * n_use, np.nan) / np.where(
+        n_use > 0, np.where(use, pools, 0.0).sum(axis=0), 1.0
+    )
+    got = noret.kept_share()["per_round"]
+    assert [v is None for v in got] == (n_use == 0).tolist()
+    assert np.allclose(np.asarray(got, dtype=np.float64), want, rtol=1e-9, equal_nan=True)
     summary = crossplay.summarise(policies, list(columns), series)
     cell = summary["cells"]["Planner[T1]"]["U"]["deterministic"]
-    assert cell["seeds"] == [1, 2] and len(cell["kept_share_per_round"]) == ROUNDS
+    kept = cell["kept_share_coin_weighted"]
+    assert cell["seeds"] == [1, 2] and len(kept["per_round"]) == ROUNDS
+    seeds = [s for s in series if s.policy == "Planner[T1]" and s.column == "U"]
+    seeds = [s for s in seeds if s.mode == "deterministic"]
+    pooled = sum(float(s.kept_coins.sum()) for s in seeds) / sum(
+        float(s.pool_coins.sum()) for s in seeds
+    )
+    assert kept["pooled"] == pytest.approx(pooled)
     assert summary["cells"]["Equal"]["F"]["sampled"] is None
     diffs = crossplay.paired_differences(policies, list(columns), series, n_resamples=50, seed=1)
     self_vs_rule = [

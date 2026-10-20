@@ -411,6 +411,59 @@ class EWAPort(eqx.Module):
         return pmf, EWAState(attractions=a, experience=n, prev_offers=obs.offers)
 
 
+# --- the mixture citizen (C4 robust planner, S2) -----------------------------------------------
+
+
+class MixtureState(NamedTuple):
+    model: Array  # (B,) int: the game's model index, the same for its 4 player streams
+    states: tuple[Any, ...]  # each component's state, all run on every stream
+
+
+class MixtureCitizen(eqx.Module):
+    """A population of games, each played by one of several citizen models.
+
+    At `init` every game draws its model uniformly and independently (one integer per
+    game from the init key, which `rollout` splits from the citizen key, so the draw is a
+    pure function of that key); all 4 player streams of the game use that model. Every
+    component runs on every stream (fixed shapes under jit) and the pmf of the game's
+    model is selected, so a game of model m is played exactly as under that model alone,
+    given the same uniforms and the same component state. Components' own latent draws
+    (B1's member per stream) use keys split from the init key, so they differ from a
+    single-model rollout with the same citizen key. Deterministic citizens (`act` through
+    `react`) are not allowed.
+    """
+
+    ports: tuple[Any, ...]  # JaxCitizen components (pmf citizens)
+    names: tuple[str, ...] = eqx.field(static=True)
+    name: str = eqx.field(static=True, default="Mix")
+
+    @classmethod
+    def of(cls, ports: Mapping[str, JaxCitizen], names: tuple[str, ...]) -> MixtureCitizen:
+        chosen = tuple(ports[n] for n in names)
+        if not chosen or any(isinstance(p, DeterministicCitizen) for p in chosen):
+            raise TypeError("a mixture needs at least one pmf citizen and no deterministic ones")
+        return cls(ports=chosen, names=names)
+
+    def draw_models(self, key: Array, n_games: int) -> Array:
+        """(G,) model index of every game (uniform over the components)."""
+        return jax.random.randint(jax.random.split(key)[0], (n_games,), 0, len(self.ports))
+
+    def init(self, key: Array, n_streams: int) -> MixtureState:
+        if n_streams % N_PLAYERS:
+            raise ValueError("streams come in games of 4 players")
+        _, k_ports = jax.random.split(key)
+        game_model = self.draw_models(key, n_streams // N_PLAYERS)
+        keys = jax.random.split(k_ports, len(self.ports))
+        states = tuple(port.init(keys[i], n_streams) for i, port in enumerate(self.ports))
+        return MixtureState(model=jnp.repeat(game_model, N_PLAYERS), states=states)
+
+    def step(self, state: MixtureState, obs: Obs) -> tuple[Array, MixtureState]:
+        outs = [port.step(st, obs) for port, st in zip(self.ports, state.states, strict=True)]
+        pmfs = jnp.stack([pmf for pmf, _ in outs])  # (M, B, 201)
+        rows = twin.arange(pmfs.shape[1])
+        return pmfs[state.model, rows], MixtureState(state.model, tuple(st for _, st in outs))
+
+
 # --- analytic citizens (the C3 correctness checks; not fitted models) ---------------------------
 
 

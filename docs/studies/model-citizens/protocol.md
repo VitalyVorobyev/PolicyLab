@@ -474,15 +474,15 @@ plateau: smooth 5 points, final 10 points, tolerance 0.02 | pilots (excluded): B
 B4 planner games=40 | per-run training limit 24 h
 ```
 
-## Appendix B. Protocol constants (to be transcribed into `c4_config` before the freeze; P8)
+## Appendix B. Protocol constants (in `c4_config`; checked by `tests/citizens/test_citizens_c4_protocol.py`; P8)
 
 ```text
-training: iterations=1000 | main seeds 1001..1005 (B1,B2,B3,B23) | no-retention seeds 2001..2003 | mixture seeds 3001..3003 (if O1)
+training: iterations=1000 | main seeds 1001..1005 (B1,B2,B3,B23) | no-retention seeds 2001..2003 | mixture (Mix) seeds 3001..3003 | secondary rows reducible to 2 seeds
 delta=16 coins total surplus per game (0.1 coin per player-round) | alpha=0.05 family-wise, Holm per family | confirmed = bootstrap and seed-level t both reject
-families: H1-reversal 12, H1-transfer 12, H2a-loss 3, H2a-noninferior 3, H2b-loss 3, own-model 4, H2-B4 3 per family and validated variant; S1 12+12; S2 4+4
+families: H1-reversal 12, H1-transfer 12, H2a-loss 3, H2a-noninferior 3, H2b-loss 3, own-model-limited 4, own-model-gain 4, H2-B4 3, S1-reversal 12, S1-transfer 12, S2-reversal 4, S2-transfer 4 (H2-B4 per family and validated variant)
 convergence: plateau iteration <= 900 and tail slope <= 16 coins per 100 iterations
 exploitation: B1 mean TV > 1.5 x k=22 (same column), or (B2 only) range/grid fraction > k=22 + 0.05
-w(R) agreement: bins with >= 200 informative rows for every seed of both models; same if L1 <= max(0.10, 2 x within-model L1) | fidelity: w-rule R^2 >= 0.5
-B4: planner seed 1001; comparator k*[B1] (k=9.03); 40 games per row; unpaired game bootstrap
-ceilings: non-LLM 40 h wall-clock; LLM option (i) 33000 calls, (ii) 66000 calls
+w(R) agreement: bins with >= 200 informative rows for every seed of both models; same if L1 <= max(0.1, 2 x within-model L1) | fidelity: w-rule R^2 >= 0.5 | S1 retention: no-retention L1 < 0.5 x main L1
+B4: variants plain,calibrated | planner seed 1001; comparator k*[B1] (k=9.03); 40 games per row (reduction 30; exploratory below 20); unpaired game bootstrap | validating regimes R-I,R-M2
+ceilings: non-LLM 40 h wall-clock; LLM 66000 calls (O2 option ii, both variants)
 ```

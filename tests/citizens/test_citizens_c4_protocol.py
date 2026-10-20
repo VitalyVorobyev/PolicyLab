@@ -3,8 +3,8 @@
 Freeze checklist item 3 of `docs/studies/model-citizens/protocol.md`: every constant of
 Appendix A is rendered from `phasespace.citizens.rl.config` (C3) and
 `phasespace.citizens.rl.c4_config` and compared line by line with the protocol text, so a
-change on either side fails this test. Appendix B (protocol constants not yet in code)
-is added here when it is transcribed into `c4_config` before the freeze.
+change on either side fails this test. Appendix B (the protocol constants: seeds,
+iterations, delta, families, thresholds, B4 rows and ceilings; P8) is rendered the same way.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from pathlib import Path
 
 from phasespace.citizens.rl import c4_config
 from phasespace.citizens.rl import config as c3
+from phasespace.citizens.rl.citizens import TRAINABLE_MODELS
 
 PROTOCOL = Path(__file__).resolve().parents[2] / c4_config.C4_PROTOCOL_PATH
 
@@ -74,7 +75,56 @@ def test_appendix_a_matches_the_configuration_modules() -> None:
     assert _render() == _appendix("A")
 
 
-def test_appendix_b_lists_protocol_constants() -> None:
-    # Appendix B holds the constants still to be transcribed into c4_config (P8); once
-    # they are, this test renders them like Appendix A.
-    assert _appendix("B")
+def _seeds(seeds: tuple[int, ...]) -> str:
+    assert list(seeds) == list(range(seeds[0], seeds[-1] + 1))  # contiguous, as rendered
+    return f"{seeds[0]}..{seeds[-1]}"
+
+
+def _render_b() -> list[str]:
+    c4 = c4_config
+    families = ", ".join(f"{name} {m}" for name, m in c4.FAMILY_SIZES.items())
+    return [
+        f"training: iterations={c4.TRAIN_ITERATIONS} | main seeds {_seeds(c4.MAIN_SEEDS)} "
+        f"({','.join(TRAINABLE_MODELS)}) | no-retention seeds {_seeds(c4.NO_RETENTION_SEEDS)} | "
+        f"mixture ({c4.MIXTURE_MODEL}) seeds {_seeds(c4.MIXTURE_SEEDS)} | secondary rows "
+        f"reducible to {c4.SECONDARY_REDUCED_SEEDS} seeds",
+        f"delta={_g(c4.DELTA)} coins total surplus per game "
+        f"({_g(c4.DELTA / (4 * c3.ROUNDS))} coin per player-round) | alpha={_g(c4.ALPHA)} "
+        "family-wise, Holm per family | confirmed = bootstrap and seed-level t both reject",
+        f"families: {families} (H2-B4 per family and validated variant)",
+        f"convergence: plateau iteration <= {c4.CONVERGENCE_MAX_PLATEAU_ITERATION} and tail "
+        f"slope <= {_g(c4.CONVERGENCE_MAX_TAIL_SLOPE)} coins per 100 iterations",
+        f"exploitation: B1 mean TV > {_g(c4.EXPLOIT_TV_RATIO)} x k=22 (same column), or "
+        f"({','.join(c4.EXPLOIT_SUPPORT_MODELS)} only) range/grid fraction > k=22 + "
+        f"{_g(c4.EXPLOIT_SUPPORT_MARGIN)}",
+        f"w(R) agreement: bins with >= {c4.AGREEMENT_MIN_ROWS} informative rows for every seed "
+        f"of both models; same if L1 <= max({_g(c4.AGREEMENT_L1_FLOOR)}, "
+        f"{_g(c4.AGREEMENT_WITHIN_FACTOR)} x within-model L1) | fidelity: w-rule R^2 >= "
+        f"{_g(c4.FIDELITY_MIN_R2)} | S1 retention: no-retention L1 < "
+        f"{_g(c4.RETENTION_L1_RATIO)} x main L1",
+        f"B4: variants {','.join(c4.B4_VARIANTS)} | planner seed {c4.B4_PLANNER_SEED}; "
+        f"comparator k*[{c4.B4_COMPARATOR_MODEL}] (k={c4.B4_COMPARATOR_K:.2f}); "
+        f"{c4.B4_GAMES_ALLOWED[0]} games per row (reduction {c4.B4_GAMES_ALLOWED[1]}; "
+        f"exploratory below {c4.B4_MIN_COMPLETE_GAMES}); unpaired game bootstrap | "
+        f"validating regimes {','.join(c4.B4_GATING_REGIMES)}",
+        f"ceilings: non-LLM {_g(c4.CEILING_NON_LLM_HOURS)} h wall-clock; LLM "
+        f"{c4.CEILING_LLM_CALLS} calls (O2 option ii, both variants)",
+    ]
+
+
+def test_appendix_b_matches_the_c4_configuration() -> None:
+    assert _render_b() == _appendix("B")
+
+
+def test_protocol_seeds_are_disjoint_from_every_reserved_seed_and_key() -> None:
+    from phasespace.citizens.rl import c4
+
+    declared = [*c4_config.MAIN_SEEDS, *c4_config.NO_RETENTION_SEEDS, *c4_config.MIXTURE_SEEDS]
+    assert len(set(declared)) == len(declared)
+    assert not set(declared) & c4.reserved_seeds()
+    assert c4.reserved_seeds() >= set(c3.PILOT_TRAIN_SEEDS)
+    assert c4_config.B4_PLANNER_SEED in c4_config.MAIN_SEEDS
+    assert c4_config.MIXTURE_MODEL not in TRAINABLE_MODELS
+    assert c4_config.FAMILY_SIZES["H1-reversal"] == len(TRAINABLE_MODELS) * (
+        len(TRAINABLE_MODELS) - 1
+    )

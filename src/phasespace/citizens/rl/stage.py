@@ -15,7 +15,14 @@ Commands::
   port checks against the NumPy reference (pmf agreement, closed-loop z).
 - **train**: one PPO planner against one citizen model and seed; its learning curve
   (deterministic monitoring games of the training model) and its evaluation on the
-  evaluation games (deterministic policy, same citizen draws as the baselines).
+  evaluation games (deterministic policy, same citizen draws as the baselines). With
+  `--milestone c4` the run is a C4 planner row: it refuses unless the C4 protocol is
+  frozen (`--confirm-frozen`, clean tree), the seed is declared for the row
+  (`c4_config.MAIN_SEEDS`, `NO_RETENTION_SEEDS`, `MIXTURE_SEEDS`), the iterations are
+  `c4_config.TRAIN_ITERATIONS`, there are no `--set` overrides and the run id follows the
+  protocol (§6.1). `--model Mix` (C4 only) trains the robust mixture planner against
+  `citizens.MixtureCitizen` (each game draws one of B1, B2, B3, B23); its learning curve
+  and evaluation are the means over the four models of the same games.
 - **g3**: planner versus Interpolating k = 22 and k* against B1, paired by evaluation
   game, with a bootstrap over training seeds and evaluation games; the 24 h budget.
 
@@ -32,6 +39,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -46,6 +54,7 @@ import numpy as np
 from jax import Array
 
 from phasespace.citizens import config as c2config
+from phasespace.citizens import data
 from phasespace.citizens.fit import load_fitted, model_block
 from phasespace.citizens.rl import c4_config, checks, ppo, twin
 from phasespace.citizens.rl import citizens as rc
@@ -426,7 +435,28 @@ SHARES_COLUMNS: Final = [
     ("kept_share_mean", "dimensionless", "mean share kept in the pool"),
     ("offer_gini_mean", "dimensionless", "mean notebook Gini of the round's offers"),
     ("excluded_mean", "count", "mean number of players offered < 1"),
+    (
+        "kept_share_coin_weighted",
+        "dimensionless",
+        "sum over games (R - sum e) / sum over games R, games with R >= 1 (null if none)",
+    ),
 ]
+MIX_SHARES_COLUMNS: Final = [
+    ("model", None, "citizen model of the evaluation games"),
+    *SHARES_COLUMNS,
+]
+
+
+def training_citizen(ports: Mapping[str, rc.JaxCitizen], model: str) -> rc.JaxCitizen:
+    """The training environment: one model's port, or the mixture of the four (`Mix`)."""
+    if model == c4_config.MIXTURE_MODEL:
+        return rc.MixtureCitizen.of(ports, rc.TRAINABLE_MODELS)
+    return ports[model]
+
+
+def scored_models(model: str) -> tuple[str, ...]:
+    """The models a run's learning curve and evaluation are scored on (their mean)."""
+    return rc.TRAINABLE_MODELS if model == c4_config.MIXTURE_MODEL else (model,)
 
 
 def train_command(args: argparse.Namespace) -> int:
@@ -449,20 +479,39 @@ def train_command(args: argparse.Namespace) -> int:
         overrides[key] = type(default)(value)
     if args.no_retention:
         overrides["retention"] = False
+    if args.milestone == "c4":
+        retention = not bool(args.no_retention)
+        check_c4_training_request(run_id, model, seed, retention, iterations, overrides)
+        require_c4_freeze(bool(args.confirm_frozen))
+    elif model == c4_config.MIXTURE_MODEL:
+        raise SystemExit("the mixture planner is a C4 row (--milestone c4)")
     cfg = ppo_config(**overrides)
     manifest = base_manifest(run_id, "train", fit_run, seed, milestone=args.milestone)
+    models = scored_models(model)
     with twin.x64():
-        port = rc.load_citizens(fit_run)[model]
+        ports = rc.load_citizens(fit_run)
+        port = training_citizen(ports, model)
         monitor_key = jax.random.key(c3config.MONITOR_KEY_SEED)
 
-        @eqx.filter_jit
-        def monitor_fn(p: Planner) -> Array:
-            traj, _ = planner_trajectory(p, port, monitor_key, c3config.MONITOR_GAMES)
-            return checks_total(traj)
+        def monitor_of(p_port: rc.JaxCitizen) -> Callable[[Planner], Array]:
+            @eqx.filter_jit
+            def monitor_fn(p: Planner) -> Array:
+                traj, _ = planner_trajectory(p, p_port, monitor_key, c3config.MONITOR_GAMES)
+                return checks_total(traj)
 
-        @eqx.filter_jit
-        def evaluate(p: Planner) -> tuple[rc.Trajectory, Array]:
-            return planner_trajectory(p, port, eval_key(), c3config.EVAL_GAMES)
+            return monitor_fn
+
+        def evaluate_of(p_port: rc.JaxCitizen) -> Callable[[Planner], tuple[rc.Trajectory, Array]]:
+            @eqx.filter_jit
+            def evaluate(p: Planner) -> tuple[rc.Trajectory, Array]:
+                return planner_trajectory(p, p_port, eval_key(), c3config.EVAL_GAMES)
+
+            return evaluate
+
+        monitors = [monitor_of(ports[m]) for m in models]
+
+        def monitor(p: Planner) -> float:
+            return float(np.mean([float(fn(p)) for fn in monitors]))
 
         start = time.perf_counter()
         planner, curve = ppo.train(
@@ -471,13 +520,17 @@ def train_command(args: argparse.Namespace) -> int:
             seed,
             iterations,
             chunk=c3config.PPO_CHUNK,
-            monitor=lambda p: float(monitor_fn(p)),
+            monitor=monitor,
             log=log,
         )
         seconds = time.perf_counter() - start
-        traj, shares = evaluate(planner)
-        m = checks.trajectory_metrics(traj)
-        share_rows = _share_rows(traj, np.asarray(shares))
+        per_model: dict[str, dict[str, FloatArray]] = {}
+        share_rows: list[list[Any]] = []
+        for m_name in models:
+            traj, shares = evaluate_of(ports[m_name])(planner)
+            per_model[m_name] = checks.trajectory_metrics(traj)
+            rows = _share_rows(traj, np.asarray(shares))
+            share_rows += [[m_name, *r] for r in rows] if len(models) > 1 else rows
     steps = iterations * cfg.steps_per_iteration
     curve_rows = [
         [
@@ -494,9 +547,12 @@ def train_command(args: argparse.Namespace) -> int:
         for p in curve
     ]
     game_rows = [
-        [model, "Planner", j, *(float(m[metric][j]) for metric in GAME_METRICS)]
+        [m_name, "Planner", j, *(float(m[metric][j]) for metric in GAME_METRICS)]
+        for m_name, m in per_model.items()
         for j in range(c3config.EVAL_GAMES)
     ]
+    eval_mean = float(np.mean([m["total_surplus"].mean() for m in per_model.values()]))
+    gini_mean = float(np.mean([m["gini"].mean() for m in per_model.values()]))
     manifest["citizens"]["training"] = {
         "model": model,
         "seed": seed,
@@ -507,17 +563,30 @@ def train_command(args: argparse.Namespace) -> int:
         "seconds": seconds,
         "seconds_per_million_steps": seconds / steps * 1e6,
     }
+    if model == c4_config.MIXTURE_MODEL:
+        manifest["citizens"]["training"]["mixture"] = {
+            "models": list(rc.TRAINABLE_MODELS),
+            "draw": "each training game draws its citizen model uniformly and independently; "
+            "all four citizens of a game come from it (`citizens.MixtureCitizen`); the "
+            "draw uses the game's citizen key, split from the iteration key of the "
+            "training seed",
+            "monitoring_and_evaluation": "the same games under each model; the learning "
+            "curve and eval_total_surplus_mean are the means over the four models",
+        }
     manifest["citizens"]["seeds"] = {
         "train": seed,
         "eval_key": c3config.EVAL_KEY_SEED,
         "monitor_key": c3config.MONITOR_KEY_SEED,
     }
+    surplus_definition = (
+        "deterministic planner, evaluation games"
+        if len(models) == 1
+        else "deterministic planner, evaluation games, mean over the four models"
+    )
     manifest["metrics"] = {
-        "eval_total_surplus_mean": metric_entry(
-            float(m["total_surplus"].mean()), "coin", "deterministic planner, evaluation games"
-        ),
+        "eval_total_surplus_mean": metric_entry(eval_mean, "coin", surplus_definition),
         "eval_gini_mean": metric_entry(
-            float(m["gini"].mean()), "dimensionless", "notebook Gini, evaluation games"
+            gini_mean, "dimensionless", "notebook Gini, evaluation games"
         ),
         "training_seconds": metric_entry(
             seconds, "s", "wall time of training (including compilation)"
@@ -526,6 +595,11 @@ def train_command(args: argparse.Namespace) -> int:
             seconds / steps * 1e6, "s", "training wall time per 1e6 planner decisions"
         ),
     }
+    if len(models) > 1:
+        for m_name, m in per_model.items():
+            manifest["metrics"][f"eval_total_surplus_mean_{m_name.lower()}"] = metric_entry(
+                float(m["total_surplus"].mean()), "coin", f"deterministic planner, {m_name}"
+            )
     manifest["validation"]["checks"] = [
         Check(
             "training_hours",
@@ -534,14 +608,15 @@ def train_command(args: argparse.Namespace) -> int:
             "wall time of the training run (G3 budget)",
         ).to_json()
     ]
+    shares_columns = SHARES_COLUMNS if len(models) == 1 else MIX_SHARES_COLUMNS
     files = [
         ("model_parameters", PLANNER_FILE, serialise(planner)),
         ("sample_table", CURVE_FILE, table_bytes(run_id, CURVE_COLUMNS, curve_rows)),
         ("sample_table", EVAL_GAMES_FILE, table_bytes(run_id, GAME_COLUMNS, game_rows)),
-        ("sample_table", EVAL_SHARES_FILE, table_bytes(run_id, SHARES_COLUMNS, share_rows)),
+        ("sample_table", EVAL_SHARES_FILE, table_bytes(run_id, shares_columns, share_rows)),
     ]
     write_run_directory(out_dir, manifest, files)
-    log(f"{out_dir}: eval total surplus {m['total_surplus'].mean():.2f}, {seconds:.0f} s")
+    log(f"{out_dir}: eval total surplus {eval_mean:.2f}, {seconds:.0f} s")
     return 0
 
 
@@ -555,6 +630,7 @@ def _share_rows(traj: rc.Trajectory, shares: FloatArray) -> list[list[Any]]:
     offers = np.asarray(traj.offers)
     pool = np.asarray(traj.pool)
     s = np.swapaxes(shares, 0, 1)  # (G, T, 5)
+    kept, total = kept_coins(traj)
     rows: list[list[Any]] = []
     for t in range(offers.shape[1]):
         rows.append(
@@ -564,6 +640,7 @@ def _share_rows(traj: rc.Trajectory, shares: FloatArray) -> list[list[Any]]:
                 float(s[:, t, 4].mean()),
                 float(gini(offers[:, t]).mean()),
                 float((offers[:, t] < 1.0).sum(axis=1).mean()),
+                float(kept[t] / total[t]) if total[t] > 0.0 else None,
             ]
         )
     return rows
@@ -658,10 +735,112 @@ def _per_game(rows: list[list[Any]], model: str, mechanism: str) -> FloatArray:
     return out
 
 
-def kept_share(traj: rc.Trajectory) -> FloatArray:
-    """(T,) mean over games of the share kept in the pool, 1 - sum(e) / R, every round."""
+def kept_share_mean_of_ratios(traj: rc.Trajectory) -> FloatArray:
+    """(T,) mean over games of the share kept in the pool, 1 - sum(e) / R, every round.
+
+    The C3 G3 definition (`g3.json` field `kept_share_per_round`), kept so that the
+    recorded C3 artifacts keep their meaning. It is biased at depleted pools (R = 0.01
+    with 0.001 withheld reads as a 10 % kept share); C4 uses `kept_coins` and
+    `coin_weighted_kept_share` instead.
+    """
     offers, pool = np.asarray(traj.offers), np.asarray(traj.pool)
     return (1.0 - offers.sum(axis=-1) / pool).mean(axis=0)
+
+
+KEPT_SHARE_MIN_POOL: Final = 1.0
+"""Rounds of games with R >= 1 coin enter the coin-weighted kept share (protocol §6.3)."""
+
+
+def kept_coins(traj: rc.Trajectory) -> tuple[FloatArray, FloatArray]:
+    """(T,) coins kept, sum over games of R - sum e, and (T,) pool coins, sum over games
+    of R, both over the games with R >= 1 in that round (sums, so they pool exactly
+    across seeds and rounds)."""
+    offers, pool = np.asarray(traj.offers), np.asarray(traj.pool)
+    use = pool >= KEPT_SHARE_MIN_POOL
+    kept = np.where(use, pool - offers.sum(axis=-1), 0.0).sum(axis=0)
+    total = np.where(use, pool, 0.0).sum(axis=0)
+    return kept, total
+
+
+def coin_weighted_kept_share(
+    kept: FloatArray, pool: FloatArray, rounds: Sequence[int] | None = None
+) -> dict[str, Any]:
+    """Coin-weighted kept share sum kept / sum R (protocol §6.3) from `kept_coins` sums:
+    per round, pooled over all rounds, and pooled over `rounds` (the endgame,
+    `c4_config.LAST_ROUNDS`, when None). A round without any game at R >= 1 is null,
+    with the reason."""
+    endgame = list(c4_config.LAST_ROUNDS if rounds is None else rounds)
+
+    def ratio(k: float, r: float) -> float | None:
+        return k / r if r > 0.0 else None
+
+    per_round = [ratio(float(k), float(r)) for k, r in zip(kept, pool, strict=True)]
+    out: dict[str, Any] = {
+        "definition": "sum over games (R - sum e) / sum over games R, games with R >= 1",
+        "per_round": per_round,
+        "pooled": ratio(float(kept.sum()), float(pool.sum())),
+        "endgame_rounds_0_based": endgame,
+        "endgame": ratio(float(kept[endgame].sum()), float(pool[endgame].sum())),
+    }
+    empty = [t for t, v in enumerate(per_round) if v is None]
+    if empty:
+        out["null_reason"] = f"no game with R >= 1 in rounds (0-based) {empty}"
+    return out
+
+
+def require_c4_freeze(confirm_frozen: bool) -> tuple[data.FrozenProtocol, str]:
+    """The C4 protocol must be frozen and committed, and the tree clean."""
+    protocol = data.require_frozen_protocol(
+        data._repo_root(),  # pyright: ignore[reportPrivateUsage]
+        Path(c4_config.C4_PROTOCOL_PATH),
+        confirm_frozen,
+    )
+    commit, dirty = git_source()
+    if dirty:
+        raise SystemExit("C4 runs need a clean tree")
+    return protocol, commit
+
+
+def c4_declared_seeds(model: str, retention: bool) -> tuple[int, ...] | None:
+    """The protocol's training seeds of the C4 row (model, retention); None if the row is
+    not declared (e.g. a no-retention mixture planner)."""
+    if model in rc.TRAINABLE_MODELS:
+        return c4_config.MAIN_SEEDS if retention else c4_config.NO_RETENTION_SEEDS
+    if model == c4_config.MIXTURE_MODEL and retention:
+        return c4_config.MIXTURE_SEEDS
+    return None
+
+
+def c4_train_run_id(model: str, seed: int, retention: bool, version: int = 1) -> str:
+    """Protocol §6.1 run id of a C4 planner run."""
+    noret = "" if retention else "-noret"
+    return f"citizens-c4-train-{model.lower()}{noret}-s{seed}-v{version}"
+
+
+def check_c4_training_request(
+    run_id: str,
+    model: str,
+    seed: int,
+    retention: bool,
+    iterations: int,
+    overrides: Mapping[str, Any],
+) -> None:
+    """Refuse a C4 training run the protocol does not declare (raises SystemExit):
+    undeclared row or seed, iterations other than `c4_config.TRAIN_ITERATIONS`, PPO
+    overrides other than the ablation's retention flag, or a run id off the convention."""
+    seeds = c4_declared_seeds(model, retention)
+    if seeds is None:
+        raise SystemExit(f"C4 declares no planner row for model {model!r}, retention {retention}")
+    if seed not in seeds:
+        raise SystemExit(f"seed {seed} is not declared for this C4 row (declared: {seeds})")
+    if iterations != c4_config.TRAIN_ITERATIONS:
+        raise SystemExit(f"C4 planners train for {c4_config.TRAIN_ITERATIONS} iterations")
+    extra = {k: v for k, v in overrides.items() if k != "retention"}
+    if extra:
+        raise SystemExit(f"C4 planners take no PPO overrides (got {sorted(extra)})")
+    match = re.fullmatch(r"(.*)-v(\d+)", run_id)
+    if match is None or run_id != c4_train_run_id(model, seed, retention, int(match.group(2))):
+        raise SystemExit(f"C4 run ids are {c4_train_run_id(model, seed, retention)!r} (or -vN)")
 
 
 def frac_histogram(offers: FloatArray) -> dict[str, Any]:
@@ -781,9 +960,25 @@ def g3_command(args: argparse.Namespace) -> int:
             **{mech: disagreement(port, t) for mech, t in base_trajs.items()},
         }
         kept = {
-            "planner_deterministic": np.mean([kept_share(t) for t in det_trajs], axis=0).tolist(),
-            "planner_sampled": np.mean([kept_share(t) for t in smp_trajs], axis=0).tolist(),
-            **{mech: kept_share(t).tolist() for mech, t in base_trajs.items()},
+            "planner_deterministic": np.mean(
+                [kept_share_mean_of_ratios(t) for t in det_trajs], axis=0
+            ).tolist(),
+            "planner_sampled": np.mean(
+                [kept_share_mean_of_ratios(t) for t in smp_trajs], axis=0
+            ).tolist(),
+            **{mech: kept_share_mean_of_ratios(t).tolist() for mech, t in base_trajs.items()},
+        }
+
+        def pooled_kept(trajs: Sequence[rc.Trajectory]) -> dict[str, Any]:
+            sums = [kept_coins(t) for t in trajs]
+            return coin_weighted_kept_share(
+                np.sum([k for k, _ in sums], axis=0), np.sum([r for _, r in sums], axis=0)
+            )
+
+        kept_coin_weighted = {
+            "planner_deterministic": pooled_kept(det_trajs),
+            "planner_sampled": pooled_kept(smp_trajs),
+            **{mech: pooled_kept([t]) for mech, t in base_trajs.items()},
         }
         planner_offers = np.concatenate([np.asarray(t.offers).ravel() for t in det_trajs])
         frac = {
@@ -829,6 +1024,9 @@ def g3_command(args: argparse.Namespace) -> int:
         "diagnostics": {
             "note": "reported only, not gating",
             "kept_share_per_round": kept,
+            "kept_share_per_round_definition": "C3: mean over games of 1 - sum e / R (biased "
+            "at depleted pools; see kept_share_coin_weighted)",
+            "kept_share_coin_weighted": kept_coin_weighted,
             "frac_offer_histogram": frac,
             "b1_member_disagreement": diag_disagreement,
         },
@@ -914,7 +1112,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     t = sub.add_parser("train")
     t.add_argument("--fit-run", type=Path, default=DEFAULT_FIT_RUN)
     t.add_argument("--run-id", required=True)
-    t.add_argument("--model", required=True, choices=rc.TRAINABLE_MODELS)
+    t.add_argument(
+        "--model", required=True, choices=(*rc.TRAINABLE_MODELS, c4_config.MIXTURE_MODEL)
+    )
     t.add_argument("--seed", type=int, required=True)
     t.add_argument("--iterations", type=int, required=True)
     t.add_argument("--set", nargs="*", help="PPO overrides key=value (recorded in the manifest)")
@@ -925,6 +1125,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--no-retention",
         action="store_true",
         help="C4 ablation planner: 4-way softmax over the players, sum e = R - 0.001",
+    )
+    t.add_argument(
+        "--confirm-frozen",
+        action="store_true",
+        help="C4 runs: confirm the C4 protocol is frozen (refused otherwise)",
     )
     g = sub.add_parser("g3")
     g.add_argument("--baselines-run", type=Path, required=True)

@@ -15,8 +15,9 @@ Commands::
   monitoring return, and the baselines (Equal, Mixed, Proportional, Interpolating k = 22
   and that model's k* from the C3 baselines run) re-scored on the same monitoring games.
 
-- **crossplay** (C4b): every planner (pooled per training model and action head with
-  `check_poolable`) and every deployed rule (Equal, Mixed, Proportional, Interpolating
+- **crossplay** (C4b): every planner (pooled per row, model and action head, after
+  `group_training_runs` checks one shared training signature and the declared seeds)
+  and every deployed rule (Equal, Mixed, Proportional, Interpolating
   k = 22, each model's k*) against every citizen model on the C4 evaluation games
   (`c4_config.EVAL_KEY_SEED`, common random numbers), deterministic and sampled, with
   per-seed values, paired differences and the extrapolation diagnostics
@@ -59,7 +60,6 @@ from phasespace.citizens.rl.planner import Planner, sampling_step, serialise
 from phasespace.gravity.export import (
     Check,
     dumps_json,
-    git_source,
     validate_run_id,
     write_run_directory,
 )
@@ -209,8 +209,8 @@ def pilot_command(args: argparse.Namespace) -> int:
                 "gini_mean": float(m["gini"].mean()),
                 "decisions_per_game_mean": float(decisions_per_game(traj).mean()),
             }
-        kept_det = stage.kept_share(det_traj)
-        kept_smp = stage.kept_share(smp_traj)
+        kept_det = stage.coin_weighted_kept_share(*stage.kept_coins(det_traj))
+        kept_smp = stage.coin_weighted_kept_share(*stage.kept_coins(smp_traj))
     det_totals = det["total_surplus"]
     paired = {
         rule: float(baselines[rule]["total_surplus_mean"])
@@ -256,8 +256,8 @@ def pilot_command(args: argparse.Namespace) -> int:
             "decisions_per_game_mean": float(decisions_per_game(det_traj).mean()),
             "final_log_std": log_std,
             "final_log_std_mean": float(np.mean(log_std)),
-            "kept_share_per_round_deterministic": kept_det.tolist(),
-            "kept_share_per_round_sampled": kept_smp.tolist(),
+            "kept_share_coin_weighted_deterministic": kept_det,
+            "kept_share_coin_weighted_sampled": kept_smp,
         },
         "baselines": baselines,
         "planner_minus_baseline": {
@@ -337,7 +337,7 @@ def pilot_command(args: argparse.Namespace) -> int:
 
 # --- the C4 evidence stages (refused before the C4 protocol freeze) ----------------------------
 
-TRAIN_STAGES: Final = ("c3_train", "c4_train")
+C4_TRAIN_STAGE: Final = "c4_train"
 CROSSPLAY_FILE: Final = "crossplay.json"
 SERIES_FILE: Final = "crossplay_series.json"
 DISTILL_FILE: Final = "distill.json"
@@ -345,25 +345,20 @@ DISTILL_FILE: Final = "distill.json"
 
 def require_c4_freeze(confirm_frozen: bool) -> tuple[data.FrozenProtocol, str]:
     """The C4 protocol must be frozen and committed, and the tree clean."""
-    protocol = data.require_frozen_protocol(
-        data._repo_root(),  # pyright: ignore[reportPrivateUsage]
-        Path(c4_config.C4_PROTOCOL_PATH),
-        confirm_frozen,
-    )
-    commit, dirty = git_source()
-    if dirty:
-        raise SystemExit("C4 evidence runs need a clean tree")
-    return protocol, commit
+    return stage.require_c4_freeze(confirm_frozen)
 
 
 def reserved_seeds() -> set[int]:
-    """Seeds no C4 training run may use: the pilots' and every C3/C4 game key."""
+    """Seeds no C4 training run may use: the C3 training seeds, the pilots' and every
+    C3/C4 game key."""
     return {
+        *c3config.PILOT_TRAIN_SEEDS,
         *c4_config.PILOT_SEEDS.values(),
         c3config.EVAL_KEY_SEED,
         c3config.TUNE_KEY_SEED,
         c3config.MONITOR_KEY_SEED,
         c3config.SAMPLED_EVAL_KEY_SEED,
+        *(c3config.CHECK_SIM_SEED + i for i in range(len(c3config.CHECK_MECHANISMS))),
         c4_config.EVAL_KEY_SEED,
         c4_config.SAMPLED_NOISE_KEY_SEED,
         c4_config.DISTILL_KEY_SEED,
@@ -375,27 +370,141 @@ def retention_of(manifest: Mapping[str, Any]) -> bool:
     return bool(manifest["citizens"]["training"]["ppo"].get("retention", True))
 
 
+def shared_signature(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """What every C4 planner run must share (protocol §4, K6): iterations, PPO
+    configuration and overrides (the retention flag excepted), code commit, fit run,
+    C3/C4 configuration hashes and evaluation games. Rows differ only in training model
+    (or mixture), seed and retention."""
+    t = manifest["citizens"]["training"]
+    return {
+        "iterations": t["iterations"],
+        "ppo": {k: v for k, v in t["ppo"].items() if k != "retention"},
+        "overrides": {k: v for k, v in t["overrides"].items() if k != "retention"},
+        "git_commit": manifest["source"]["git_commit"],
+        "fit_run_manifest_sha256": manifest["citizens"]["fit_run"]["manifest_sha256"],
+        "c3_config_sha256": manifest["citizens"].get("c3_config_sha256"),
+        "c4_config_sha256": manifest["citizens"].get("c4_config_sha256"),
+        "eval_key": manifest["citizens"]["seeds"]["eval_key"],
+    }
+
+
+ROW_ORDER: Final = (*rc.TRAINABLE_MODELS, c4_config.MIXTURE_MODEL)
+
+
+def expected_rows() -> dict[tuple[str, bool], tuple[int, ...]]:
+    """Every declared C4 planner row (model, retention) and its seeds (protocol §4)."""
+    rows: dict[tuple[str, bool], tuple[int, ...]] = {}
+    for model in ROW_ORDER:
+        for retention in (True, False):
+            seeds = stage.c4_declared_seeds(model, retention)
+            if seeds is not None:
+                rows[(model, retention)] = seeds
+    return rows
+
+
+def is_main_row(row: tuple[str, bool]) -> bool:
+    return row[0] in rc.TRAINABLE_MODELS and row[1]
+
+
+def _allowed_seed_sets(row: tuple[str, bool], seeds: tuple[int, ...]) -> list[tuple[int, ...]]:
+    """The full declared set; a secondary row (no-retention or mixture) may also be its
+    first `SECONDARY_REDUCED_SEEDS` seeds (the pre-declared reduction of §7)."""
+    if is_main_row(row):
+        return [seeds]
+    return [seeds, seeds[: c4_config.SECONDARY_REDUCED_SEEDS]]
+
+
+def check_c4_train_run(
+    tm: Mapping[str, Any], reserved: set[int], declared: Mapping[tuple[str, bool], Any]
+) -> tuple[str, bool]:
+    """One run's own checks (C4 training stage, clean tree, unreserved seed declared for
+    a declared row); returns its row."""
+    name = tm["run_id"]
+    if tm["citizens"]["stage"] != C4_TRAIN_STAGE:
+        raise stage.RunMismatchError(
+            f"{name}: stage {tm['citizens']['stage']} is not a C4 training run (C3 runs "
+            "and pilot runs are never C4 inputs)"
+        )
+    if tm["source"]["git_dirty"]:
+        raise stage.RunMismatchError(f"{name}: made from a dirty tree")
+    seed = int(tm["citizens"]["training"]["seed"])
+    if seed in reserved:
+        raise stage.RunMismatchError(f"{name}: seed {seed} is reserved")
+    row = (str(tm["citizens"]["training"]["model"]), retention_of(tm))
+    if row not in declared:
+        raise stage.RunMismatchError(f"{name}: row {row} is not declared by the protocol")
+    if seed not in declared[row]:
+        raise stage.RunMismatchError(
+            f"{name}: seed {seed} is not declared for row {row} ({declared[row]})"
+        )
+    return row
+
+
+def check_base_matches(base: Mapping[str, Any], signature: Mapping[str, Any]) -> None:
+    """The baselines run is clean and shares the training runs' fit run and games."""
+    if base["source"]["git_dirty"]:
+        raise stage.RunMismatchError(f"{base['run_id']}: made from a dirty tree")
+    if signature["fit_run_manifest_sha256"] != base["citizens"]["fit_run"]["manifest_sha256"]:
+        raise stage.RunMismatchError("training runs and baselines run use different fit runs")
+    if signature["eval_key"] != base["citizens"]["seeds"]["eval_key"]:
+        raise stage.RunMismatchError(
+            "training runs and baselines run use different evaluation games"
+        )
+    if signature["iterations"] != c4_config.TRAIN_ITERATIONS:
+        raise stage.RunMismatchError(
+            f"training runs have {signature['iterations']} iterations, the protocol "
+            f"{c4_config.TRAIN_ITERATIONS}"
+        )
+
+
 def group_training_runs(
     base: Mapping[str, Any], trains: Sequence[Mapping[str, Any]]
 ) -> dict[tuple[str, bool], list[int]]:
-    """Indices of the training runs per (model, retention), each group checked poolable
-    (`stage.check_poolable`); pilots and reserved seeds are refused."""
-    groups: dict[tuple[str, bool], list[int]] = {}
+    """Indices of the training runs per row (model, retention), after refusing anything
+    the protocol does not allow (`stage.RunMismatchError`):
+
+    - a run that is not a C4 training run (C3 runs, pilots), made from a dirty tree, or
+      with a reserved seed;
+    - a row the protocol does not declare, or a seed not declared for its row;
+    - a run whose shared signature (`shared_signature`) differs from the first run's:
+      one signature across all rows (K6), with the protocol's iterations;
+    - a duplicated seed in a row, a row whose seeds are not its declared set (a
+      secondary row may be reduced to its first 2 seeds, the same count for every
+      no-retention row), or a missing declared row;
+    - a baselines run that is dirty or uses another fit run or other evaluation games.
+    """
+    if not trains:
+        raise stage.RunMismatchError("no training runs")
     reserved = reserved_seeds()
+    declared = expected_rows()
+    first = shared_signature(trains[0])
+    groups: dict[tuple[str, bool], list[int]] = {}
     for i, tm in enumerate(trains):
-        if tm["citizens"]["stage"] not in TRAIN_STAGES:
+        row = check_c4_train_run(tm, reserved, declared)
+        sig = shared_signature(tm)
+        differing = sorted(k for k in sig if sig[k] != first[k])
+        if differing:
             raise stage.RunMismatchError(
-                f"{tm['run_id']}: stage {tm['citizens']['stage']} is not a training run "
-                "(pilot runs are never C4 inputs)"
+                f"{tm['run_id']}: training signature differs from {trains[0]['run_id']} in "
+                f"{differing}"
             )
-        seed = int(tm["citizens"]["training"]["seed"])
-        if seed in reserved:
-            raise stage.RunMismatchError(f"{tm['run_id']}: seed {seed} is reserved")
-        key = (str(tm["citizens"]["training"]["model"]), retention_of(tm))
-        groups.setdefault(key, []).append(i)
-    for (model, _), idx in groups.items():
-        stage.check_poolable(base, [trains[i] for i in idx], model=model)
-    order = {m: j for j, m in enumerate(rc.TRAINABLE_MODELS)}
+        groups.setdefault(row, []).append(i)
+    check_base_matches(base, first)
+    noret_counts: set[int] = set()
+    for row, seeds in declared.items():
+        idx = groups.get(row)
+        if idx is None:
+            raise stage.RunMismatchError(f"row {row} is missing (seeds {seeds})")
+        got = [int(trains[i]["citizens"]["training"]["seed"]) for i in idx]
+        if len(set(got)) != len(got):
+            raise stage.RunMismatchError(f"row {row}: a seed appears twice ({got})")
+        if tuple(sorted(got)) not in _allowed_seed_sets(row, seeds):
+            raise stage.RunMismatchError(f"row {row}: seeds {sorted(got)}, declared {seeds}")
+        if not row[1]:
+            noret_counts.add(len(got))
+    if len(noret_counts) > 1:
+        raise stage.RunMismatchError("the no-retention rows have different seed counts")
+    order = {m: j for j, m in enumerate(ROW_ORDER)}
     return dict(sorted(groups.items(), key=lambda kv: (order[kv[0][0]], not kv[0][1])))
 
 
@@ -423,6 +532,7 @@ def _inputs_record(
             "run_id": base["run_id"],
             "manifest_sha256": stage.manifest_sha256(base_dir),
         },
+        "shared_training_signature": shared_signature(trains[0]),
         "train_runs": [
             {
                 "run_id": tm["run_id"],
@@ -592,7 +702,7 @@ def b4_command(args: argparse.Namespace) -> int:
         raise SystemExit(f"{args.runs_dir / args.run_id} already exists")
     train_dir: Path = args.train_run
     tm = json.loads((train_dir / "manifest.json").read_text("utf-8"))
-    if tm["citizens"]["stage"] not in TRAIN_STAGES:
+    if tm["citizens"]["stage"] != C4_TRAIN_STAGE:
         raise SystemExit(f"{tm['run_id']} is not a training run")
     backend = ClaudeCLI()
     heldout.require_cli_version(backend.describe())

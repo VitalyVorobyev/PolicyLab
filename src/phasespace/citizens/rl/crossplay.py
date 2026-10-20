@@ -8,17 +8,23 @@ random numbers), so differences are paired by game. Planners are evaluated
 deterministically (shares = softmax(mu)) and with their sampling policy (one planner
 noise key); the rules are deterministic.
 
-**Diagnostics** (review item 1; reported, not gating):
+**Diagnostics** (protocol §6.3; reported, not gating):
 
-- the per-round kept share 1 - sum e / R (mean over games and seeds), including the
-  last two rounds (the endgame, review item 4);
+- the coin-weighted kept share, sum over games (R - sum e) / sum over games R over the
+  games with R >= 1, per round, pooled over all rounds and over the endgame (the last
+  two rounds); the sums pool exactly over seeds (`stage.kept_coins`). A mean of per-game
+  ratios is not used: at R = 0.01 the 0.001 withheld would read as a 10 % kept share;
 - the B1 ensemble's teacher-forced member disagreement (mean pairwise total variation,
-  `citizens.b1_member_disagreement`) on every trajectory;
-- for B2, B3 and B23, the fraction of non-forced decisions whose inputs fall outside the
-  support of the model's training data: outside the [min, max] range of any input the
-  model reads (`c4_config.OOD_FEATURES`), and outside the occupied cells of a joint
-  (x1 / 4, x4) grid. The support comes from the scored fit-split decisions the C2 fit
-  used (`training_support`); held-out rows are never read.
+  `citizens.b1_member_disagreement`) on every trajectory (null, with the reason, when a
+  trajectory has no non-forced decision);
+- for B2, B3 and B23, the input support (`input_support`): the fraction of non-forced
+  decisions whose inputs fall outside the support of the model's training data, outside
+  the [min, max] range of any input the model reads (`c4_config.OOD_FEATURES`), and
+  outside the occupied cells of a joint (x1 / 4, x4) grid. The support comes from the
+  scored fit-split decisions the C2 fit used (`training_support`); held-out rows are
+  never read. For B2 every input is one the model reads ("input out-of-range": model
+  extrapolation); B3 and B23 do not read the grid's inputs, so their numbers are
+  labelled "state novelty", not model extrapolation (`SUPPORT_LABELS`).
 """
 
 from __future__ import annotations
@@ -194,26 +200,52 @@ def trajectory_streams(traj: rc.Trajectory) -> Streams:
     )
 
 
+SUPPORT_LABELS: Final = {
+    "B2": (
+        "input_out_of_range",
+        "input out-of-range: inputs B2 reads (model extrapolation)",
+    ),
+    "B3": (
+        "state_novelty",
+        "state novelty: the grid's inputs are not read by B3 (not model extrapolation)",
+    ),
+    "B23": (
+        "state_novelty",
+        "state novelty: the grid's inputs are not read by B23 (not model extrapolation)",
+    ),
+}
+"""(kind, label) of each model's input-support numbers (protocol §6.3, P5)."""
+
+
 def ood_fractions(support: TrainingSupport, streams: Streams) -> dict[str, Any]:
-    """Fractions of the non-forced decisions (e >= 1) outside the training support."""
+    """Fractions of the non-forced decisions (e >= 1) outside the training support,
+    labelled by `SUPPORT_LABELS` (null fractions, with the reason, when there are no
+    non-forced decisions)."""
     inputs = decision_inputs(streams)
     scored = streams.scored
     n = int(scored.sum())
     per_feature: dict[str, float] = {}
-    outside_any = np.zeros_like(scored)
+    outside_any: BoolArray = np.zeros_like(scored)
     for f in support.features:
         v = inputs[f]
-        out = np.isfinite(v) & ((v < support.lo[f]) | (v > support.hi[f])) & scored
-        per_feature[f] = float(out.sum() / n) if n else 0.0
-        outside_any |= out
+        outside = np.isfinite(v) & ((v < support.lo[f]) | (v > support.hi[f])) & scored
+        per_feature[f] = float(outside.sum() / n) if n else 0.0
+        outside_any |= outside
     i, j = _grid_cells(inputs["x1"], inputs["x4"])
     off_grid = (support.grid[i.astype(np.int64), j.astype(np.int64)] == 0.0) & scored
-    return {
+    kind, label = SUPPORT_LABELS[support.model]
+    out: dict[str, Any] = {
+        "model": support.model,
+        "kind": kind,
+        "label": label,
         "decisions": n,
-        "outside_range_any": float(outside_any.sum() / n) if n else 0.0,
-        "outside_range_per_feature": per_feature,
-        "off_grid": float(off_grid.sum() / n) if n else 0.0,
+        "outside_range_any": float(outside_any.sum() / n) if n else None,
+        "outside_range_per_feature": per_feature if n else dict.fromkeys(per_feature),
+        "off_grid": float(off_grid.sum() / n) if n else None,
     }
+    if not n:
+        out["null_reason"] = "no non-forced decision (every offer < 1)"
+    return out
 
 
 # --- evaluation ----------------------------------------------------------------------------------
@@ -237,22 +269,32 @@ class Series:
     seed: int | None
     total_surplus: FloatArray
     gini: FloatArray
-    kept_share: FloatArray  # (T,)
+    kept_coins: FloatArray  # (T,) sum over games with R >= 1 of R - sum e
+    pool_coins: FloatArray  # (T,) sum over the same games of R
     decisions_per_game: float
-    b1_disagreement: dict[str, float] | None
-    ood: dict[str, Any] | None
+    b1_disagreement: dict[str, Any] | None
+    input_support: dict[str, Any] | None
+
+    def kept_share(self) -> dict[str, Any]:
+        """The coin-weighted kept share of this series (`stage.coin_weighted_kept_share`)."""
+        return stage.coin_weighted_kept_share(self.kept_coins, self.pool_coins)
 
 
 _member_tv = eqx.filter_jit(rc.b1_member_disagreement)
 
 
-def b1_disagreement(port: rc.B1Port, traj: rc.Trajectory) -> dict[str, float]:
+def b1_disagreement(port: rc.B1Port, traj: rc.Trajectory) -> dict[str, Any]:
     """Mean and 90th percentile of the B1 members' mean pairwise TV over the trajectory's
     non-forced decisions (as `stage.disagreement`, one compiled function for all calls)."""
     tv = np.asarray(_member_tv(port, traj))
     values = tv[np.isfinite(tv)]
     if values.size == 0:
-        return {"mean_tv": float("nan"), "p90_tv": float("nan"), "decisions": 0}
+        return {
+            "mean_tv": None,
+            "p90_tv": None,
+            "decisions": 0,
+            "null_reason": "no non-forced decision (every offer < 1)",
+        }
     return {
         "mean_tv": float(values.mean()),
         "p90_tv": float(np.quantile(values, 0.9)),
@@ -270,6 +312,7 @@ def _series(
 ) -> Series:
     m = checks.trajectory_metrics(traj)
     support = diagnostics.supports.get(column)
+    kept, pool = stage.kept_coins(traj)
     return Series(
         policy=policy,
         column=column,
@@ -277,10 +320,11 @@ def _series(
         seed=seed,
         total_surplus=m["total_surplus"],
         gini=m["gini"],
-        kept_share=stage.kept_share(traj),
+        kept_coins=kept,
+        pool_coins=pool,
         decisions_per_game=float((np.asarray(traj.offers) >= 1.0).sum(axis=(1, 2)).mean()),
         b1_disagreement=None if diagnostics.b1 is None else b1_disagreement(diagnostics.b1, traj),
-        ood=None if support is None else ood_fractions(support, trajectory_streams(traj)),
+        input_support=None if support is None else ood_fractions(support, trajectory_streams(traj)),
     )
 
 
@@ -342,12 +386,12 @@ def evaluate_column(
 # --- statistics -----------------------------------------------------------------------------------
 
 
-def group_bootstrap(
-    a: FloatArray, b: FloatArray, n_resamples: int, seed: int, level: float = c4_config.CI_LEVEL
-) -> tuple[float, float, float]:
-    """Mean of a (Sa seeds x J games) minus b (Sb x J), paired by game, with a percentile
-    CI: each resample draws Sa seeds of a, Sb seeds of b and J games with replacement
-    (the same games for both)."""
+def crossed_bootstrap_stats(
+    a: FloatArray, b: FloatArray, n_resamples: int, seed: int
+) -> FloatArray:
+    """(B,) resampled differences mean(a) - mean(b) of a (Sa seeds x J games) and b
+    (Sb x J), paired by game (protocol §9.2): each resample draws Sa seeds of a, Sb seeds
+    of b and J games with replacement, the same games for both."""
     rng = np.random.default_rng(seed)
     sa, j = a.shape
     sb, jb = b.shape
@@ -359,6 +403,15 @@ def group_bootstrap(
         ib = rng.integers(0, sb, sb)
         g = rng.integers(0, j, j)
         stats[r] = a[np.ix_(ia, g)].mean() - b[np.ix_(ib, g)].mean()
+    return stats
+
+
+def group_bootstrap(
+    a: FloatArray, b: FloatArray, n_resamples: int, seed: int, level: float = c4_config.CI_LEVEL
+) -> tuple[float, float, float]:
+    """Mean of a (Sa seeds x J games) minus b (Sb x J), paired by game, with the
+    percentile CI of `crossed_bootstrap_stats`."""
+    stats = crossed_bootstrap_stats(a, b, n_resamples, seed)
     alpha = (1.0 - level) / 2.0
     lo, hi = np.quantile(stats, [alpha, 1.0 - alpha])
     return float(a.mean() - b.mean()), float(lo), float(hi)
@@ -422,8 +475,8 @@ def summarise(
     policies: Sequence[Policy], columns: Sequence[str], series: Sequence[Series]
 ) -> dict[str, Any]:
     """The matrix: per policy and column, per mode, the mean, per-seed means and the
-    diagnostics (kept share per round and in the last rounds, B1 disagreement, OOD)."""
-    last = list(c4_config.LAST_ROUNDS)
+    diagnostics (coin-weighted kept share pooled over seeds and per seed, B1
+    disagreement, input support)."""
     cells: dict[str, dict[str, Any]] = {}
     for p in policies:
         row: dict[str, Any] = {}
@@ -439,7 +492,10 @@ def summarise(
                     cell[mode] = None
                     continue
                 totals = np.stack([s.total_surplus for s in chosen])
-                kept = np.mean([s.kept_share for s in chosen], axis=0)
+                kept = stage.coin_weighted_kept_share(
+                    np.sum([s.kept_coins for s in chosen], axis=0),
+                    np.sum([s.pool_coins for s in chosen], axis=0),
+                )
                 cell[mode] = {
                     "total_surplus_mean": float(totals.mean()),
                     "total_surplus_per_seed": [float(x) for x in totals.mean(axis=1)],
@@ -448,10 +504,10 @@ def summarise(
                     "decisions_per_game_mean": float(
                         np.mean([s.decisions_per_game for s in chosen])
                     ),
-                    "kept_share_per_round": kept.tolist(),
-                    "kept_share_last_rounds": [float(kept[t]) for t in last],
+                    "kept_share_coin_weighted": kept,
+                    "kept_share_coin_weighted_per_seed": [s.kept_share() for s in chosen],
                     "b1_disagreement": [s.b1_disagreement for s in chosen],
-                    "ood": [s.ood for s in chosen],
+                    "input_support": [s.input_support for s in chosen],
                 }
             row[column] = cell
         cells[p.name] = row
