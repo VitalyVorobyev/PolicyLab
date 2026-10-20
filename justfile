@@ -214,3 +214,24 @@ citizens-c3-train run_id model seed iterations *args:
 # G3 (planner vs Interpolating k = 22 and k* against B1): just citizens-c3-g3 <run_id> runs/<baselines> runs/<train-1> runs/<train-2> ...
 citizens-c3-g3 run_id baselines_run +train_runs:
     uv run python -m phasespace.citizens.rl.stage --runs-dir runs g3 --run-id {{run_id}} --baselines-run {{baselines_run}} --train-run {{train_runs}}
+
+# C4 PPO feasibility pilot (own model, monitoring games only): just citizens-c4-pilot B2 901
+citizens-c4-pilot model seed *args:
+    uv run python -m phasespace.citizens.rl.c4 --runs-dir runs pilot --model {{model}} --seed {{seed}} --run-id citizens-c4-pilot-$(echo {{model}} | tr A-Z a-z)-s{{seed}} {{args}}
+
+# One C4 planner (C3 hyperparameters, labelled c4): just citizens-c4-train <run_id> B2 11 <iterations> [--no-retention]
+citizens-c4-train run_id model seed iterations *args:
+    uv run python -m phasespace.citizens.rl.stage --runs-dir runs train --milestone c4 --run-id {{run_id}} --model {{model}} --seed {{seed}} --iterations {{iterations}} {{args}}
+
+# C4 evidence stages; each refuses to run before the C4 protocol is frozen (--confirm-frozen).
+# Cross-play matrix: just citizens-c4-crossplay <run_id> --confirm-frozen --train-run runs/<a> runs/<b> ...
+citizens-c4-crossplay run_id *args:
+    uv run python -m phasespace.citizens.rl.c4 --runs-dir runs crossplay --run-id {{run_id}} {{args}}
+
+# Distillation of each planner on its own model: just citizens-c4-distill <run_id> --confirm-frozen --train-run ...
+citizens-c4-distill run_id *args:
+    uv run python -m phasespace.citizens.rl.c4 --runs-dir runs distill --run-id {{run_id}} {{args}}
+
+# Planner versus B4 (LLM calls; resumable): just citizens-c4-b4 <run_id> --confirm-frozen --train-run runs/<a> --variant calibrated --calibration-run runs/citizens-c2-b4-calibration-v2
+citizens-c4-b4 run_id *args:
+    uv run python -m phasespace.citizens.rl.c4 --runs-dir runs b4 --run-id {{run_id}} {{args}}

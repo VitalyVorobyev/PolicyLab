@@ -62,6 +62,8 @@ class PPOConfig:
     reward_scale: float = c3config.PPO_REWARD_SCALE
     hidden: int = c3config.PPO_HIDDEN
     init_log_std: float = c3config.PPO_INIT_LOG_STD
+    retention: bool = True
+    """False: the no-retention ablation planner (C4; `planner.Planner`)."""
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -287,7 +289,7 @@ def train(
     if n_iterations % chunk:
         raise ValueError("n_iterations must be a multiple of chunk")
     k_init, k_train = jax.random.split(jax.random.key(seed))
-    planner = Planner(cfg.hidden, cfg.init_log_std, k_init)
+    planner = Planner(cfg.hidden, cfg.init_log_std, k_init, retention=cfg.retention)
     state = init_train_state(planner, cfg)
     run_chunk = make_chunk(planner, citizen, cfg, chunk)
     frozen = static_part(planner)

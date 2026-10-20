@@ -721,6 +721,43 @@ interface CitizensC3Simulator {   // `simulator` of every C3 run
 - **Common fields.** `experiment_id` is `citizens-c3-<stage>-v1`; `citizens` holds `stage`, `pilot_version`, `c3_config_sha256` and `c3_config` (`phasespace.citizens.rl.config`), `c2_config_sha256`, `fit_run` (path, run id, manifest sha256, git commit, C2 config sha256; null for `c3_g3`) and `held_out_access` ("none"). Status is always `computed_unvalidated`: these are pre-protocol pilot runs, and their checks are recorded for inspection.
 - **`c3_baselines`.** `random_seed` is the evaluation key seed. Artifacts (`sample_table`): `baselines.json` (per model and mechanism: k, ln k, games, mean and SD of total surplus and the four protocol-8 metrics), `baseline_games.json` (every evaluation game), `k_grid.json` (mean total surplus of every grid point ln k on the tuning games). `citizens.k_star` holds the re-tuned k* per model. Checks per model: pmf agreement with the NumPy reference (max absolute difference ≤ 1e-6, mass error ≤ 1e-9) and closed-loop agreement (max |z| ≤ 4.5 per mechanism).
 - **`c3_train`.** `random_seed` is the training seed. Artifacts: `planner.eqx` (`model_parameters`), `learning_curve.json`, `eval_games.json` and `eval_shares.json` (`sample_table`). `citizens.training` holds the model, seed, iterations, environment steps, every PPO hyperparameter, explicit overrides and wall times. Check: training hours ≤ 24 (G3 budget).
-- **`c3_g3`.** `random_seed` is the bootstrap seed (9001). `citizens.inputs` lists the baselines run and the training runs with their manifest sha256; each training run must share the baselines run's fit run and evaluation games. Artifact `g3.json` (`summary`): planner mean, per-seed means, paired differences to Interpolating k = 22 and k* with percentile CIs, and the G3 decision.
+- **`c3_g3`.** `random_seed` is the bootstrap seed (9001). `citizens.inputs` lists the baselines run, the training runs (run id, manifest sha256, seed, environment steps, hours), the fit run's manifest sha256 and the common training signature; `check_poolable` refuses runs from a dirty tree, repeated seeds, runs that differ in anything but the seed (model, PPO settings, overrides, iterations, commit, fit run, evaluation key), a model other than B1, or a fit run or evaluation key other than the baselines run's. `citizens.seeds` holds the evaluation key (31000), the sampled-policy noise key (31003) and the bootstrap seed. Artifact `g3.json` (`summary`):
+  - `model`, `g3_pass` and `g3_rule` (the deterministic planner's paired 95 % CI against Interpolating k = 22 lies above 0, and every training run took ≤ 24 h);
+  - `comparisons`, keyed `"<policy> - <baseline>"` for the policies `deterministic` (shares = softmax(μ)) and `sampled` (z drawn from the logistic-normal head with the noise key) and the baselines Interpolating k = 22 and k*. Each entry holds the planner mean and per-seed means, the baseline mean and k, the paired mean difference, its percentile CI (seeds and games resampled, 10,000 resamples) and `planner_above`;
+  - `final_log_std` (per seed, the five log σ values) and `training_hours`;
+  - `diagnostics` (reported, not gating): `kept_share_per_round` (40 values, mean over games of 1 − Σe/R, for the deterministic and sampled planner and for Interpolating k = 22, k* and Proportional), `frac_offer_histogram` (10-bin histogram of frac(e) over offers e ≥ 1 with a χ² test against uniform, for the deterministic planner and k = 22) and `b1_member_disagreement` (mean and 90th percentile of the B1 members' mean pairwise total-variation distance, teacher-forced, over non-forced decisions, per seed for the planner and per baseline).
+
+  Checks: longest training run ≤ 24 h; the negated lower CI bound of deterministic planner − k = 22 ≤ 0; re-simulated planner and baseline totals reproduce the recorded per-game values within 1e-9 coins.
+
+## Model Citizens addendum (C4 main comparison)
+
+**Scope (additive; `python -m phasespace.citizens.rl.c4`, `just citizens-c4-pilot`, `just citizens-c4-train`, `just citizens-c4-crossplay`, `just citizens-c4-distill`, `just citizens-c4-b4`).** C4 runs follow the C3 addendum with these differences.
+
+```ts
+type CitizensStage = /* ... */ | "c4_pilot" | "c4_train" | "c4_crossplay" | "c4_distill";
+```
+
+- **Common fields.** `experiment_id` is `citizens-c4-<stage>-v1`; `citizens` also holds `c4_version`, `c4_config_sha256` and `c4_config` (`phasespace.citizens.rl.c4_config`). The crossplay, distill and B4 stages also record `c4_protocol` (path and SHA-256 of the frozen `docs/studies/model-citizens/protocol.md`). They refuse to run unless that protocol is frozen and committed and the tree is clean (`--confirm-frozen`).
+- **`ppo.retention`** (every training run made after C3; absent means `true`). `false` marks the no-retention ablation planner: a 4-way softmax over the players with Σe = R − 0.001, as under the deployed rules. It is set with `--no-retention` and recorded in `overrides`. Runs with different values are never pooled.
+- **`c4_pilot`.** These are PPO feasibility pilots, never C4 evidence (the C4 stages refuse them as inputs). The run id is `citizens-c4-pilot-<model>-s<seed>`, with the seeds 901 (B2), 902 (B3) and 903 (B23), which are never reused. `random_seed` is the training seed. `citizens.inputs` holds the C3 baselines run and the k* it supplies. Artifacts:
+  - `planner.eqx` and `learning_curve.json` (as `c3_train`);
+  - `pilot.json` (`summary`), scored only on the training model's C3 monitoring games (512 games, key 31002). It holds the final planner's deterministic and sampled mean total surplus (noise key 41010), Gini, depletion round, decisions per game (offers ≥ 1), the final log σ and the per-round kept share. It also holds the five baselines on the same games (Equal, Mixed, Proportional, Interpolating k = 22 and k*), the planner minus k = 22 and minus k*, and `plateau_monitor` / `plateau_sampled` (`c4.plateau_iteration`).
+
+  Check: training hours ≤ 24.
+- **`c4_train`.** Same as `c3_train` (`stage train --milestone c4`).
+- **`c4_crossplay`.** `random_seed` is the C4 evaluation key (41000; sampled-policy noise key 41001; bootstrap seed 9101). `citizens.inputs` lists the baselines run and every training run (model, retention, seed, manifest sha256). Training runs are grouped per (model, retention) and each group must pass `check_poolable`. Pilot runs and reserved seeds are refused. Artifacts (`summary`):
+  - `crossplay.json`, which holds:
+    - `columns` (B1, B2, B3, B23);
+    - `policies` (planner rows `Planner[<model>]` and `Planner-noret[<model>]` with their seeds, then Equal, Mixed, Proportional, Interpolating k=22 and `Interpolating k*[<model>]`);
+    - `cells[policy][column][mode]` for the modes `deterministic` and `sampled` (sampled is null for rules). Each cell holds the mean and per-seed mean total surplus, the Gini, decisions per game, `kept_share_per_round` (40 values), `kept_share_last_rounds` (rounds 39 and 40), `b1_disagreement` per seed (mean and p90 TV, teacher-forced) and `ood` per seed. `ood` is set for the B2, B3 and B23 columns only. It holds the fraction of non-forced decisions outside the training range of any input the model reads, per input, and off the occupied cells of the (x1/4, x4) grid;
+    - `paired_differences`: every planner row and mode minus every rule (deterministic) and every other planner row (same mode), per column, with the mean, per-seed differences and a percentile CI (seeds of both rows and games resampled);
+    - `training_support` (ranges and grid occupancy from the fit-split human training rows of the C2 fit; held-out rows are never read).
+  - `crossplay_series.json`: per-game total surplus and Gini of every (policy, column, mode, seed).
+- **`c4_distill`.** `random_seed` is the distillation key (41002). Artifact `distill.json` (`summary`) holds, per planner and seed, on 1,000 games of its own training model:
+  - the binned w(R) rule (w and kept share per R/200 bin, row counts, R²);
+  - the grid-fitted Interpolating k (ln k, k, R²);
+  - the regression tree (nodes, depth, minimum leaf, round-1 share, R²);
+  - the mean total surplus of the planner and of each distilled rule on the same games.
+- **Planner versus B4.** The run follows the C2 B4 run layout (`finalize_games_run`, label `c4-planner`), with frozen prompts and flags (`b4-prompt-v2`). The offers come from a planner's deterministic policy. `citizens` adds `c4_protocol`, `c4_config_sha256`, `planner` (run id, manifest sha256, policy, retention) and `type_weights` (calibrated variant).
 
 Prefer schema validation on producer and consumer sides (Python + TypeScript). Avoid generating a complicated cross-language framework before first two consumers exist.

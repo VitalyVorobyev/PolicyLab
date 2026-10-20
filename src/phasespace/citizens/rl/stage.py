@@ -47,7 +47,7 @@ from jax import Array
 
 from phasespace.citizens import config as c2config
 from phasespace.citizens.fit import load_fitted, model_block
-from phasespace.citizens.rl import checks, ppo, twin
+from phasespace.citizens.rl import c4_config, checks, ppo, twin
 from phasespace.citizens.rl import citizens as rc
 from phasespace.citizens.rl import config as c3config
 from phasespace.citizens.rl.planner import Planner, deserialise, sampling_step, serialise
@@ -153,15 +153,17 @@ def simulator_block() -> dict[str, Any]:
 
 
 def base_manifest(
-    run_id: str, stage: str, fit_run: Path | None, seed: int | None
+    run_id: str, stage: str, fit_run: Path | None, seed: int | None, milestone: str = "c3"
 ) -> dict[str, Any]:
+    """The manifest skeleton; `milestone` "c4" labels a C4 run (experiment id, stage, and
+    the C4 configuration hash next to the C3 one)."""
     commit, dirty = git_source()
     timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return {
+    manifest: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id,
         "study_id": STUDY_ID,
-        "experiment_id": f"citizens-c3-{stage}-v1",
+        "experiment_id": f"citizens-{milestone}-{stage}-v1",
         "status": "computed_unvalidated",
         "created_at": timestamp,
         "source": {
@@ -189,7 +191,7 @@ def base_manifest(
             "validated_at": timestamp,
         },
         "citizens": {
-            "stage": f"c3_{stage}",
+            "stage": f"{milestone}_{stage}",
             "pilot_version": c3config.PILOT_VERSION,
             "c3_config_sha256": c3config.config_sha256(),
             "c3_config": c3config.config_dict(),
@@ -198,6 +200,17 @@ def base_manifest(
             "held_out_access": "none (only the fitted-model run is read; no human data)",
         },
     }
+    if milestone == "c4":
+        manifest["citizens"]["c4_version"] = c4_config.C4_VERSION
+        manifest["citizens"]["c4_config_sha256"] = c4_config.config_sha256()
+        manifest["citizens"]["c4_config"] = c4_config.config_dict()
+        manifest["limitations"][0] = (
+            "C4 run: hyperparameters are the C3 ones; seeds, iterations and statistics are "
+            "fixed by the C4 protocol (docs/studies/model-citizens/protocol.md)."
+        )
+    elif milestone != "c3":
+        raise ValueError(f"unknown milestone {milestone!r}")
+    return manifest
 
 
 # --- evaluation ---------------------------------------------------------------------------
@@ -431,9 +444,13 @@ def train_command(args: argparse.Namespace) -> int:
     for item in items:
         key, _, value = item.partition("=")
         default = getattr(ppo_config(), key)
+        if isinstance(default, bool):
+            raise SystemExit(f"--set {key}: use the dedicated flag (bool settings)")
         overrides[key] = type(default)(value)
+    if args.no_retention:
+        overrides["retention"] = False
     cfg = ppo_config(**overrides)
-    manifest = base_manifest(run_id, "train", fit_run, seed)
+    manifest = base_manifest(run_id, "train", fit_run, seed, milestone=args.milestone)
     with twin.x64():
         port = rc.load_citizens(fit_run)[model]
         monitor_key = jax.random.key(c3config.MONITOR_KEY_SEED)
@@ -554,8 +571,9 @@ def _share_rows(traj: rc.Trajectory, shares: FloatArray) -> list[list[Any]]:
 
 def load_planner(run_dir: Path) -> Planner:
     manifest = json.loads((run_dir / "manifest.json").read_text("utf-8"))
-    hidden = int(manifest["citizens"]["training"]["ppo"]["hidden"])
-    return deserialise(read_verified(run_dir, PLANNER_FILE), hidden)
+    ppo_record = manifest["citizens"]["training"]["ppo"]
+    retention = bool(ppo_record.get("retention", True))  # C3 runs predate the flag
+    return deserialise(read_verified(run_dir, PLANNER_FILE), int(ppo_record["hidden"]), retention)
 
 
 # --- G3 -------------------------------------------------------------------------------------
@@ -597,10 +615,14 @@ def _training_signature(manifest: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def check_poolable(base: Mapping[str, Any], trains: Sequence[Mapping[str, Any]]) -> None:
+def check_poolable(
+    base: Mapping[str, Any],
+    trains: Sequence[Mapping[str, Any]],
+    model: str | None = c3config.G3_MODEL,
+) -> None:
     """Refuse unless the training runs are clean, distinct and identical in everything but
-    the seed, were trained against G3_MODEL, and share the baselines run's fit run and
-    evaluation games (the baselines run must be clean too)."""
+    the seed, were trained against `model` (any one model if None), and share the
+    baselines run's fit run and evaluation games (the baselines run must be clean too)."""
     if base["source"]["git_dirty"]:
         raise RunMismatchError(f"{base['run_id']}: made from a dirty tree")
     if not trains:
@@ -620,8 +642,8 @@ def check_poolable(base: Mapping[str, Any], trains: Sequence[Mapping[str, Any]])
         if seed in seeds:
             raise RunMismatchError(f"{tm['run_id']}: seed {seed} appears twice")
         seeds.add(seed)
-    if first["model"] != c3config.G3_MODEL:
-        raise RunMismatchError(f"trained against {first['model']}, not {c3config.G3_MODEL}")
+    if model is not None and first["model"] != model:
+        raise RunMismatchError(f"trained against {first['model']}, not {model}")
     if first["fit_run_manifest_sha256"] != base["citizens"]["fit_run"]["manifest_sha256"]:
         raise RunMismatchError("training runs and baselines run use different fit runs")
     if first["eval_key"] != base["citizens"]["seeds"]["eval_key"]:
@@ -896,6 +918,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     t.add_argument("--seed", type=int, required=True)
     t.add_argument("--iterations", type=int, required=True)
     t.add_argument("--set", nargs="*", help="PPO overrides key=value (recorded in the manifest)")
+    t.add_argument(
+        "--milestone", choices=("c3", "c4"), default="c3", help="label of the run (manifest)"
+    )
+    t.add_argument(
+        "--no-retention",
+        action="store_true",
+        help="C4 ablation planner: 4-way softmax over the players, sum e = R - 0.001",
+    )
     g = sub.add_parser("g3")
     g.add_argument("--baselines-run", type=Path, required=True)
     g.add_argument("--train-run", type=Path, nargs="+", required=True)

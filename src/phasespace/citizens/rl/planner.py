@@ -20,6 +20,11 @@ state-independent log sigma; shares = softmax(z) (4 players, then the amount kep
 the pool); offers = R * shares[:4]. PPO's ratio uses the Gaussian density of z. At
 evaluation the planner is deterministic: shares = softmax(mu).
 
+**No-retention ablation** (`retention=False`; C4 review item 1): z in R^4 (the pooled
+logit is not used), offers = (R - 0.001) * softmax(z), so sum e = R - 0.001 exactly as
+under the deployed rules (D33), and the planner cannot keep coins in the pool. The
+default (`retention=True`) is unchanged, parameter for parameter.
+
 **Critic** (training only): the same architecture with its own weights, given also the
 round index t / ROUNDS (the planner itself is not told the horizon; the critic may use
 privileged information, it is never used to act).
@@ -37,6 +42,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from phasespace.citizens.game import MAX_POOL, N_PLAYERS
+from phasespace.citizens.mechanisms import RECORDED_WITHHELD
 from phasespace.citizens.rl import twin
 from phasespace.citizens.rl.citizens import MechObs
 from phasespace.citizens.rl.config import ROUNDS
@@ -95,13 +101,17 @@ class Planner(eqx.Module):
 
     policy: SetGRU
     value: SetGRU
-    log_std: Array  # (5,)
+    log_std: Array  # (5,), or (4,) without retention
+    retention: bool = eqx.field(static=True)
 
-    def __init__(self, hidden: int, init_log_std: float, key: Array) -> None:
+    def __init__(
+        self, hidden: int, init_log_std: float, key: Array, retention: bool = True
+    ) -> None:
         k1, k2 = jax.random.split(key)
         self.policy = SetGRU(3, hidden, k1)
         self.value = SetGRU(4, hidden, k2)
-        self.log_std = twin.full((N_SHARES,), init_log_std)
+        self.retention = retention
+        self.log_std = twin.full((N_SHARES if retention else N_PLAYERS,), init_log_std)
 
     @property
     def hidden(self) -> int:
@@ -112,9 +122,25 @@ class Planner(eqx.Module):
         return zeros, zeros
 
     def policy_step(self, h: Array, x: Array) -> tuple[Array, Array]:
-        """(G, 4, H), (G, 4, 3) -> new hidden, mean logits mu (G, 5)."""
+        """(G, 4, H), (G, 4, 3) -> new hidden, mean logits mu (G, 5) or, without
+        retention, (G, 4)."""
         h_new, players, pooled = jax.vmap(self.policy)(h, x)
+        if not self.retention:
+            return h_new, players
         return h_new, jnp.concatenate([players, pooled[:, None]], axis=1)
+
+    def offers(self, pool: Array, z: Array) -> Array:
+        """(G, 4) offers from logits z: R softmax(z)[:4], or (R - 0.001) softmax(z)."""
+        if self.retention:
+            return pool[:, None] * shares(z)[:, :N_PLAYERS]
+        return (pool - RECORDED_WITHHELD)[:, None] * shares(z)
+
+    def full_shares(self, pool: Array, z: Array) -> Array:
+        """(G, 5) shares of the pool (4 players, then the amount kept) of logits z."""
+        if self.retention:
+            return shares(z)
+        players = self.offers(pool, z) / pool[:, None]
+        return jnp.concatenate([players, (RECORDED_WITHHELD / pool)[:, None]], axis=1)
 
     def value_step(self, h: Array, x: Array, t: Array) -> tuple[Array, Array]:
         """Critic: (G, 4, H), (G, 4, 3), round index -> new hidden, value (G,)."""
@@ -156,21 +182,20 @@ def sampling_step(planner: Planner) -> Any:
         h_v, v = planner.value_step(h_v, x, obs.t)
         z = mu + jnp.exp(planner.log_std) * jax.random.normal(key, mu.shape, dtype=mu.dtype)
         logp = gaussian_log_prob(z, mu, planner.log_std)
-        offers = obs.pool[:, None] * shares(z)[:, :N_PLAYERS]
-        return offers, (h_pi, h_v), PlannerExtras(x, z, logp, v)
+        return planner.offers(obs.pool, z), (h_pi, h_v), PlannerExtras(x, z, logp, v)
 
     return step
 
 
 def deterministic_step(planner: Planner) -> Any:
-    """MechStep of the evaluated planner: shares = softmax(mu); extras are the shares."""
+    """MechStep of the evaluated planner: shares = softmax(mu); extras are the (G, 5)
+    shares of the pool (4 players, then the amount kept)."""
 
     def step(state: tuple[Array, Array], obs: MechObs, key: Array) -> tuple[Array, Any, Any]:
         del key
         h_pi, h_v = state
         h_pi, mu = planner.policy_step(h_pi, player_features(obs))
-        s = shares(mu)
-        return obs.pool[:, None] * s[:, :N_PLAYERS], (h_pi, h_v), s
+        return planner.offers(obs.pool, mu), (h_pi, h_v), planner.full_shares(obs.pool, mu)
 
     return step
 
@@ -181,7 +206,7 @@ def serialise(planner: Planner) -> bytes:
     return buffer.getvalue()
 
 
-def deserialise(payload: bytes, hidden: int) -> Planner:
-    skeleton = Planner(hidden, 0.0, jax.random.key(0))
+def deserialise(payload: bytes, hidden: int, retention: bool = True) -> Planner:
+    skeleton = Planner(hidden, 0.0, jax.random.key(0), retention=retention)
     loaded = eqx.tree_deserialise_leaves(io.BytesIO(payload), skeleton)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
     return cast(Planner, loaded)

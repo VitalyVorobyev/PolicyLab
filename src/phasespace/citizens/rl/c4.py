@@ -1,8 +1,12 @@
-"""Model Citizens C4 stages (CLI): PPO feasibility pilots.
+"""Model Citizens C4 stages (CLI): pilots, cross-play, distillation, planner versus B4.
 
 Commands::
 
     python -m phasespace.citizens.rl.c4 pilot --model B2 --seed 901 --run-id citizens-c4-pilot-b2-s901
+    python -m phasespace.citizens.rl.c4 crossplay --confirm-frozen --train-run <dir> ... --run-id <id>
+    python -m phasespace.citizens.rl.c4 distill --confirm-frozen --train-run <dir> ... --run-id <id>
+    python -m phasespace.citizens.rl.c4 b4 --confirm-frozen --train-run <dir> --variant plain \
+        --run-id <id>
 
 - **pilot** (review item 2): one PPO run with the frozen C3 hyperparameters against a
   non-B1 model. The planner is scored only on its own training model and only on the C3
@@ -11,8 +15,24 @@ Commands::
   monitoring return, and the baselines (Equal, Mixed, Proportional, Interpolating k = 22
   and that model's k* from the C3 baselines run) re-scored on the same monitoring games.
 
+- **crossplay** (C4b): every planner (pooled per training model and action head with
+  `check_poolable`) and every deployed rule (Equal, Mixed, Proportional, Interpolating
+  k = 22, each model's k*) against every citizen model on the C4 evaluation games
+  (`c4_config.EVAL_KEY_SEED`, common random numbers), deterministic and sampled, with
+  per-seed values, paired differences and the extrapolation diagnostics
+  (`rl.crossplay`). The input-range diagnostic reads the fit-split human training rows
+  of the C2 fit (`data.load_training` and the fit run's split); never held-out rows.
+- **distill** (C4c): closed-form rules fitted to each planner's trajectories on its own
+  training model (`rl.distill`), with the surplus each distilled rule earns there.
+- **b4**: LLM citizens (frozen `b4-prompt-v2`, calibrated or plain) against a planner's
+  deterministic policy (`rl.b4play`).
+
+crossplay, distill and b4 produce C4 evidence: they refuse to run unless the C4 protocol
+(`c4_config.C4_PROTOCOL_PATH`) is frozen, committed and the tree is clean
+(`--confirm-frozen`). Pilots never reach them: pilot runs are refused as inputs.
+
 Runs are new immutable directories (never overwritten), status `computed_unvalidated`.
-Only the frozen C2 fit run and the C3 baselines run are read: no human data.
+Pilots read only the frozen C2 fit run and the C3 baselines run: no human data.
 """
 
 from __future__ import annotations
@@ -29,11 +49,20 @@ import jax
 import numpy as np
 from jax import Array
 
-from phasespace.citizens.rl import c4_config, checks, ppo, stage, twin
+from phasespace.citizens import data, fit
+from phasespace.citizens.fit import load_fitted
+from phasespace.citizens.models.base import streams_from_games
+from phasespace.citizens.rl import b4play, c4_config, checks, crossplay, distill, ppo, stage, twin
 from phasespace.citizens.rl import citizens as rc
 from phasespace.citizens.rl import config as c3config
 from phasespace.citizens.rl.planner import Planner, sampling_step, serialise
-from phasespace.gravity.export import Check, dumps_json, validate_run_id, write_run_directory
+from phasespace.gravity.export import (
+    Check,
+    dumps_json,
+    git_source,
+    validate_run_id,
+    write_run_directory,
+)
 
 type FloatArray = np.ndarray[tuple[int, ...], np.dtype[np.float64]]
 
@@ -46,19 +75,14 @@ def c4_manifest(
     run_id: str, stage_name: str, fit_run: Path | None, seed: int | None
 ) -> dict[str, Any]:
     """The C3 manifest layout with the C4 stage, generator and configuration hash."""
-    manifest = stage.base_manifest(run_id, stage_name, fit_run, seed)
-    manifest["experiment_id"] = f"citizens-c4-{stage_name}-v1"
+    manifest = stage.base_manifest(run_id, stage_name, fit_run, seed, milestone="c4")
     manifest["source"]["generator"] = GENERATOR
     manifest["validation"]["validated_by"] = f"{GENERATOR} automated checks"
-    manifest["citizens"]["stage"] = f"c4_{stage_name}"
-    manifest["citizens"]["c4_version"] = c4_config.C4_VERSION
-    manifest["citizens"]["c4_config_sha256"] = c4_config.config_sha256()
-    manifest["citizens"]["c4_config"] = c4_config.config_dict()
-    manifest["limitations"] = [
-        "Pre-protocol C4 preparation: the C4 protocol (seeds, iterations, statistics) is "
-        "not frozen yet.",
-        *manifest["limitations"][1:],
-    ]
+    if stage_name == "pilot":
+        manifest["limitations"][0] = (
+            "Pre-protocol C4 pilot: scored only on its own model's monitoring games; never "
+            "C4 evidence (the C4 stages refuse pilot runs)."
+        )
     return manifest
 
 
@@ -311,6 +335,319 @@ def pilot_command(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- the C4 evidence stages (refused before the C4 protocol freeze) ----------------------------
+
+TRAIN_STAGES: Final = ("c3_train", "c4_train")
+CROSSPLAY_FILE: Final = "crossplay.json"
+SERIES_FILE: Final = "crossplay_series.json"
+DISTILL_FILE: Final = "distill.json"
+
+
+def require_c4_freeze(confirm_frozen: bool) -> tuple[data.FrozenProtocol, str]:
+    """The C4 protocol must be frozen and committed, and the tree clean."""
+    protocol = data.require_frozen_protocol(
+        data._repo_root(),  # pyright: ignore[reportPrivateUsage]
+        Path(c4_config.C4_PROTOCOL_PATH),
+        confirm_frozen,
+    )
+    commit, dirty = git_source()
+    if dirty:
+        raise SystemExit("C4 evidence runs need a clean tree")
+    return protocol, commit
+
+
+def reserved_seeds() -> set[int]:
+    """Seeds no C4 training run may use: the pilots' and every C3/C4 game key."""
+    return {
+        *c4_config.PILOT_SEEDS.values(),
+        c3config.EVAL_KEY_SEED,
+        c3config.TUNE_KEY_SEED,
+        c3config.MONITOR_KEY_SEED,
+        c3config.SAMPLED_EVAL_KEY_SEED,
+        c4_config.EVAL_KEY_SEED,
+        c4_config.SAMPLED_NOISE_KEY_SEED,
+        c4_config.DISTILL_KEY_SEED,
+        c4_config.PILOT_SAMPLED_NOISE_KEY_SEED,
+    }
+
+
+def retention_of(manifest: Mapping[str, Any]) -> bool:
+    return bool(manifest["citizens"]["training"]["ppo"].get("retention", True))
+
+
+def group_training_runs(
+    base: Mapping[str, Any], trains: Sequence[Mapping[str, Any]]
+) -> dict[tuple[str, bool], list[int]]:
+    """Indices of the training runs per (model, retention), each group checked poolable
+    (`stage.check_poolable`); pilots and reserved seeds are refused."""
+    groups: dict[tuple[str, bool], list[int]] = {}
+    reserved = reserved_seeds()
+    for i, tm in enumerate(trains):
+        if tm["citizens"]["stage"] not in TRAIN_STAGES:
+            raise stage.RunMismatchError(
+                f"{tm['run_id']}: stage {tm['citizens']['stage']} is not a training run "
+                "(pilot runs are never C4 inputs)"
+            )
+        seed = int(tm["citizens"]["training"]["seed"])
+        if seed in reserved:
+            raise stage.RunMismatchError(f"{tm['run_id']}: seed {seed} is reserved")
+        key = (str(tm["citizens"]["training"]["model"]), retention_of(tm))
+        groups.setdefault(key, []).append(i)
+    for (model, _), idx in groups.items():
+        stage.check_poolable(base, [trains[i] for i in idx], model=model)
+    order = {m: j for j, m in enumerate(rc.TRAINABLE_MODELS)}
+    return dict(sorted(groups.items(), key=lambda kv: (order[kv[0][0]], not kv[0][1])))
+
+
+def load_policies(
+    base: Mapping[str, Any], train_dirs: Sequence[Path], trains: Sequence[Mapping[str, Any]]
+) -> list[crossplay.Policy]:
+    """Planner rows (grouped, seeds in input order) then the deployed rules."""
+    policies: list[crossplay.Policy] = []
+    for (model, retention), idx in group_training_runs(base, trains).items():
+        seeds = [int(trains[i]["citizens"]["training"]["seed"]) for i in idx]
+        planners = [stage.load_planner(train_dirs[i]) for i in idx]
+        policies.append(crossplay.planner_policy(model, retention, seeds, planners))
+    k_star = {m: k_star_of(base, m) for m in rc.TRAINABLE_MODELS}
+    return policies + crossplay.rule_policies(k_star)
+
+
+def _inputs_record(
+    base_dir: Path,
+    base: Mapping[str, Any],
+    train_dirs: Sequence[Path],
+    trains: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "baselines_run": {
+            "run_id": base["run_id"],
+            "manifest_sha256": stage.manifest_sha256(base_dir),
+        },
+        "train_runs": [
+            {
+                "run_id": tm["run_id"],
+                "manifest_sha256": stage.manifest_sha256(d),
+                "model": tm["citizens"]["training"]["model"],
+                "retention": retention_of(tm),
+                "seed": tm["citizens"]["training"]["seed"],
+            }
+            for d, tm in zip(train_dirs, trains, strict=True)
+        ],
+    }
+
+
+def _read_inputs(
+    args: argparse.Namespace,
+) -> tuple[Path, dict[str, Any], list[Path], list[dict[str, Any]], Path]:
+    base_dir: Path = args.baselines_run
+    train_dirs: list[Path] = args.train_run
+    base = json.loads((base_dir / "manifest.json").read_text("utf-8"))
+    trains = [json.loads((d / "manifest.json").read_text("utf-8")) for d in train_dirs]
+    fit_run = Path(base["citizens"]["fit_run"]["path"])
+    if stage.manifest_sha256(fit_run) != base["citizens"]["fit_run"]["manifest_sha256"]:
+        raise SystemExit(f"{fit_run}: manifest differs from the one the runs used")
+    return base_dir, base, train_dirs, trains, fit_run
+
+
+def fit_split_supports(fit_run: Path, processed_dir: Path) -> dict[str, crossplay.TrainingSupport]:
+    """Input supports of B2, B3 and B23 from the fit-split human training rows of the C2
+    fit (`data.load_training` refuses held-out games; the split is the fit run's)."""
+    training = data.load_training(processed_dir)
+    fit_games, _ = fit.training_streams(training, load_fitted(fit_run).split)
+    streams = streams_from_games(fit_games)
+    return {m: crossplay.training_support(streams, m) for m in c4_config.OOD_MODELS}
+
+
+def crossplay_command(args: argparse.Namespace) -> int:
+    protocol, _ = require_c4_freeze(bool(args.confirm_frozen))
+    run_id: str = args.run_id
+    validate_run_id(run_id)
+    out_dir: Path = args.runs_dir / run_id
+    if out_dir.exists():
+        raise SystemExit(f"{out_dir} already exists; runs are never overwritten")
+    base_dir, base, train_dirs, trains, fit_run = _read_inputs(args)
+    start = time.perf_counter()
+    with twin.x64():
+        policies = load_policies(base, train_dirs, trains)
+        ports = rc.load_citizens(fit_run)
+        b1 = ports["B1"]
+        if not isinstance(b1, rc.B1Port):
+            raise SystemExit("the B1 port is needed for the disagreement diagnostic")
+        supports = fit_split_supports(fit_run, args.processed_dir)
+        citizen_key, noise_key = crossplay.eval_keys()
+        series: list[crossplay.Series] = []
+        for column in rc.TRAINABLE_MODELS:
+            diag = crossplay.Diagnostics(
+                b1=b1, supports={column: supports[column]} if column in supports else {}
+            )
+            series += crossplay.evaluate_column(
+                policies, column, ports[column], citizen_key, noise_key, c4_config.EVAL_GAMES, diag
+            )
+            stage.log(f"column {column}: {len(series)} series")
+    columns = list(rc.TRAINABLE_MODELS)
+    summary = crossplay.summarise(policies, columns, series)
+    summary["paired_differences"] = crossplay.paired_differences(policies, columns, series)
+    summary["training_support"] = {m: sp.to_json() for m, sp in supports.items()}
+    manifest = c4_manifest(run_id, "crossplay", fit_run, c4_config.EVAL_KEY_SEED)
+    manifest["citizens"]["c4_protocol"] = {"path": protocol.path, "sha256": protocol.sha256}
+    manifest["citizens"]["inputs"] = _inputs_record(base_dir, base, train_dirs, trains)
+    manifest["citizens"]["seeds"] = {
+        "eval_key": c4_config.EVAL_KEY_SEED,
+        "sampled_noise_key": c4_config.SAMPLED_NOISE_KEY_SEED,
+        "bootstrap": c4_config.BOOTSTRAP_SEED,
+    }
+    manifest["citizens"]["held_out_access"] = (
+        "none (fit-split human training rows only, for the input-range diagnostic)"
+    )
+    manifest["citizens"]["seconds"] = time.perf_counter() - start
+    files = [
+        ("summary", CROSSPLAY_FILE, dumps_json(summary)),
+        (
+            "summary",
+            SERIES_FILE,
+            dumps_json(
+                {
+                    "schema_version": stage.SCHEMA_VERSION,
+                    "series": crossplay.series_document(series),
+                }
+            ),
+        ),
+    ]
+    write_run_directory(out_dir, manifest, files)
+    stage.log(f"{out_dir}: {len(series)} series")
+    return 0
+
+
+def distill_planner(
+    planner: Planner, port: rc.JaxCitizen, key: Array, n_games: int
+) -> dict[str, Any]:
+    """Distil one planner on `n_games` games of `key` and play the distilled rules there."""
+    traj, _ = eqx.filter_jit(ppo.evaluate_planner)(planner, port, key, n_games, c3config.ROUNDS)
+    result = distill.distill(distill.trajectory_rows(traj))
+    planner_total = checks.trajectory_metrics(traj)["total_surplus"]
+    rules: dict[str, tuple[rc.MechStep, Any]] = {
+        "w_rule": (distill.w_rule_step(result.w_rule), None),
+        "interpolating_k": (distill.interpolating_step(result.interpolating["k"]), None),
+        "tree": (
+            distill.tree_rule_step(result.tree, result.first_share),
+            distill.tree_initial_state(n_games),
+        ),
+    }
+    surplus: dict[str, Any] = {"planner": float(planner_total.mean())}
+    for name, (step, state) in rules.items():
+        totals = distill.total_surplus(step, state, port, key, n_games)
+        surplus[name] = float(totals.mean())
+        surplus[f"{name}_minus_planner"] = float((totals - planner_total).mean())
+    return {**result.to_json(), "total_surplus_mean": surplus}
+
+
+def distill_command(args: argparse.Namespace) -> int:
+    protocol, _ = require_c4_freeze(bool(args.confirm_frozen))
+    run_id: str = args.run_id
+    validate_run_id(run_id)
+    out_dir: Path = args.runs_dir / run_id
+    if out_dir.exists():
+        raise SystemExit(f"{out_dir} already exists; runs are never overwritten")
+    base_dir, base, train_dirs, trains, fit_run = _read_inputs(args)
+    out: list[dict[str, Any]] = []
+    with twin.x64():
+        policies = load_policies(base, train_dirs, trains)
+        ports = rc.load_citizens(fit_run)
+        key = jax.random.key(c4_config.DISTILL_KEY_SEED)
+        for policy in policies:
+            if policy.kind != "planner" or policy.training_model is None:
+                continue
+            for seed, planner in zip(policy.seeds, policy.planners, strict=True):
+                port = ports[policy.training_model]
+                record = distill_planner(planner, port, key, c4_config.DISTILL_GAMES)
+                out.append({"policy": policy.name, "seed": seed, **record})
+                stage.log(f"{policy.name} seed {seed}: {record['total_surplus_mean']}")
+    manifest = c4_manifest(run_id, "distill", fit_run, c4_config.DISTILL_KEY_SEED)
+    manifest["citizens"]["c4_protocol"] = {"path": protocol.path, "sha256": protocol.sha256}
+    manifest["citizens"]["inputs"] = _inputs_record(base_dir, base, train_dirs, trains)
+    manifest["citizens"]["seeds"] = {"distill_key": c4_config.DISTILL_KEY_SEED}
+    write_run_directory(
+        out_dir,
+        manifest,
+        [
+            (
+                "summary",
+                DISTILL_FILE,
+                dumps_json({"schema_version": stage.SCHEMA_VERSION, "planners": out}),
+            )
+        ],
+    )
+    return 0
+
+
+def b4_command(args: argparse.Namespace) -> int:
+    """Planner versus B4 (never run before the C4 freeze; calls the Claude Code CLI)."""
+    from phasespace.citizens import heldout
+    from phasespace.citizens.llm import runner
+    from phasespace.citizens.llm.backend import ClaudeCLI
+
+    protocol, commit = require_c4_freeze(bool(args.confirm_frozen))
+    validate_run_id(args.run_id)
+    if (args.runs_dir / args.run_id).exists():
+        raise SystemExit(f"{args.runs_dir / args.run_id} already exists")
+    train_dir: Path = args.train_run
+    tm = json.loads((train_dir / "manifest.json").read_text("utf-8"))
+    if tm["citizens"]["stage"] not in TRAIN_STAGES:
+        raise SystemExit(f"{tm['run_id']} is not a training run")
+    backend = ClaudeCLI()
+    heldout.require_cli_version(backend.describe())
+    retention = retention_of(tm)
+    model = tm["citizens"]["training"]["model"]
+    name = f"{crossplay.planner_name(model, retention)} seed {tm['citizens']['training']['seed']}"
+    with twin.x64():
+        mechanism = b4play.PlannerGameMechanism(name, stage.load_planner(train_dir))
+    weights_record: dict[str, Any] | None = None
+    if args.variant == "calibrated":
+        if args.calibration_run is None:
+            raise SystemExit("--calibration-run is required for B4-calibrated")
+        heldout.check_calibration_identity(args.calibration_run, backend.describe())
+        weights_record = heldout.type_weights(args.calibration_run, args.processed_dir)
+        w = weights_record["weights"]
+
+        def spec(k: int) -> runner.GameSpec:
+            return runner.GameSpec(k, heldout.N_ROUNDS, runner.evaluation_types(w, k))
+    else:
+
+        def spec(k: int) -> runner.GameSpec:
+            return runner.GameSpec(k, heldout.N_ROUNDS, (None, None, None, None))
+
+    start = time.perf_counter()
+    try:
+        config, outcomes = b4play.run_planner_games(
+            mechanism,
+            backend,
+            args.runs_dir,
+            args.run_id,
+            int(args.games),
+            spec,
+            variant=args.variant,
+            workers=int(args.workers),
+            log=lambda m: print(m, flush=True),
+        )
+    except runner.InfrastructureError as exc:
+        print(f"stopped: {exc}", flush=True)
+        return 3
+    extra = {
+        "c4_protocol": {"path": protocol.path, "sha256": protocol.sha256},
+        "c4_config_sha256": c4_config.config_sha256(),
+        "git_commit_at_start": commit,
+        "planner": b4play.describe_planner(
+            tm["run_id"], stage.manifest_sha256(train_dir), retention
+        ),
+        "type_weights": weights_record,
+    }
+    manifest = runner.finalize_games_run(
+        args.runs_dir, config, outcomes, wall_s=time.perf_counter() - start, extra=extra
+    )
+    print(f"{args.runs_dir / args.run_id}: {manifest['status']}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m phasespace.citizens.rl.c4")
     parser.add_argument("--runs-dir", type=Path, default=stage.DEFAULT_RUNS_DIR)
@@ -322,8 +659,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--seed", type=int, required=True)
     p.add_argument("--iterations", type=int, default=c4_config.PILOT_ITERATIONS)
     p.add_argument("--run-id", required=True)
+    for name in ("crossplay", "distill"):
+        q = sub.add_parser(name)
+        q.add_argument("--confirm-frozen", action="store_true")
+        q.add_argument("--baselines-run", type=Path, default=DEFAULT_BASELINES_RUN)
+        q.add_argument("--train-run", type=Path, nargs="+", required=True)
+        q.add_argument("--processed-dir", type=Path, default=data.DEFAULT_PROCESSED_DIR)
+        q.add_argument("--run-id", required=True)
+    b = sub.add_parser("b4")
+    b.add_argument("--confirm-frozen", action="store_true")
+    b.add_argument("--train-run", type=Path, required=True)
+    b.add_argument("--variant", choices=("plain", "calibrated"), required=True)
+    b.add_argument("--calibration-run", type=Path)
+    b.add_argument("--processed-dir", type=Path, default=data.DEFAULT_PROCESSED_DIR)
+    b.add_argument("--games", type=int, default=c4_config.B4_PLANNER_GAMES)
+    b.add_argument("--workers", type=int, default=8)
+    b.add_argument("--run-id", required=True)
     args = parser.parse_args(argv)
-    commands: Mapping[str, Callable[[argparse.Namespace], int]] = {"pilot": pilot_command}
+    commands: Mapping[str, Callable[[argparse.Namespace], int]] = {
+        "pilot": pilot_command,
+        "crossplay": crossplay_command,
+        "distill": distill_command,
+        "b4": b4_command,
+    }
     return commands[str(args.command)](args)
 
 
