@@ -794,6 +794,8 @@ def _interpolating_games(k: float, n_games: int = 400) -> rc.Trajectory:
 
 
 def test_distillation_recovers_a_known_interpolating_rule() -> None:
+    """Idealised rule (continuous w, no rounding): the fit is exact by construction; the
+    deployed, quantised rule is checked in `test_recovery_on_the_deployed_quantised_rule`."""
     ln_k = 0.7  # a point of the paper's grid
     k = math.exp(ln_k)
     traj = _interpolating_games(k)
@@ -823,6 +825,139 @@ def test_distillation_recovers_a_known_interpolating_rule() -> None:
         distill.w_rule_step(result.w_rule), None, UniformReturn(), key, 400
     )
     assert abs(binned.mean() - rule.mean()) < 0.02 * rule.mean()
+
+
+def test_kept_share_per_bin_is_coin_weighted() -> None:
+    """Bin 0 holds R = 0.01 keeping 0.001 (excluded: R < 1) and R = 10 keeping 0, so
+    kappa = 0 (a mean of ratios would read 5 %); bin 9 holds R = 190 keeping 19 and
+    R = 195 keeping 0, so kappa = 19 / 385 (mean of ratios 0.05)."""
+    pool = np.array([[0.01, 10.0, 190.0, 195.0]])
+    kept = np.array([[0.001, 0.0, 19.0, 0.0]])
+    offers = np.repeat(((pool - kept) / 4.0)[..., None], 4, axis=-1)
+    rows = distill.rows_from_arrays(offers, np.zeros_like(offers), pool)
+    rule = distill.fit_w_rule(rows)
+    assert rule.kept[0] == pytest.approx(0.0, abs=1e-15)
+    assert rule.kept[9] == pytest.approx(19.0 / 385.0, rel=1e-12)
+
+
+def _deployed_games(k: float, port: Any, n_games: int = 400) -> rc.Trajectory:
+    traj, _ = rc.rollout(
+        port,
+        rc.weight_rule_step(rc.interpolating(k)),
+        None,
+        jax.random.key(17),
+        jax.random.key(0),
+        n_games,
+    )
+    return traj
+
+
+def test_recovery_on_the_deployed_quantised_rule() -> None:
+    """Data from the deployed rule (quantised w, float32 offers, R - 0.001): the fitted w
+    per bin matches an independent least-squares average of round((R/200)^k, 1) over the
+    bin's informative rows; the recovered k is reported with its ln k bias."""
+    k = 22.0
+    traj = _deployed_games(k, UniformReturn())
+    rows = distill.trajectory_rows(traj)
+    rec = distill.recovery(rows, k)
+    offers, actions, pool = (np.asarray(a) for a in (traj.offers, traj.actions, traj.pool))
+    prev_c = np.concatenate([np.zeros_like(actions[:, :1]), actions[:, :-1]], axis=1)
+    total = prev_c.sum(axis=-1)
+    informative = (np.arange(ROUNDS)[None, :] > 0) & (total > 0)
+    q = prev_c / np.where(total > 0, total, 1.0)[..., None]
+    w_true = np.round((pool / 200.0) ** k, 1)
+    bins = np.clip(np.floor(pool / 200.0 * 10), 0, 9).astype(int)
+    checked = 0
+    for b in range(10):
+        sel = informative & (bins == b)
+        if sel.sum() < 50:
+            continue
+        a2 = ((0.25 - q[sel]) ** 2).sum(axis=-1)
+        want = float((w_true[sel] * a2).sum() / a2.sum())
+        assert rec["w_true_quantised"][b] == pytest.approx(want, abs=1e-12)
+        assert rec["w_fitted"][b] == pytest.approx(want, abs=1e-3)
+        checked += 1
+    assert checked >= 3
+    assert rec["w_abs_error_max"] < 1e-3
+    assert rec["ln_k_bias"] == pytest.approx(rec["ln_k_recovered"] - math.log(k))
+    assert any(abs(rec["ln_k_recovered"] - g) < 1e-12 for g in c3config.ln_k_grid())
+    # the deployed rule withholds 0.001 per round, +- 4 x 5e-5 of offer rounding; with
+    # R >= 1 the coin-weighted kappa of any bin is at most (0.001 + 0.0002) / 1
+    assert 0.0 < max(distill.fit_w_rule(rows).kept) < 1.2e-3
+
+
+def _numpy_interpolating_total(k: float, fraction: float, rounds: int = ROUNDS) -> float:
+    """Independent reference: the deployed Interpolating rule (NumPy `deployed_offers`,
+    quantised weight) against c = f e."""
+    from phasespace.citizens.mechanisms import deployed_offers, interpolating_weight
+
+    pool, prev = game.MAX_POOL, None
+    total = 0.0
+    for _ in range(rounds):
+        w = interpolating_weight(np.asarray(pool), k)
+        e = np.asarray(deployed_offers(pool, prev, w), dtype=np.float64)
+        c = fraction * e
+        total += float((e - c).sum())
+        pool = max(
+            game.POOL_FLOOR, min(game.MAX_POOL, pool - e.sum() + game.GROWTH_FACTOR * c.sum())
+        )
+        prev = c
+    return total
+
+
+def test_distill_planner_plays_deployed_rules_on_the_same_games() -> None:
+    port = rc.FixedFraction(0.5)
+    key, n = jax.random.key(23), 6
+    deployed = c4.deployed_rule_totals(stage.weight_runner(port, n), key)
+    record, result = c4.distill_planner(_planner(3), port, key, n, 9.025, deployed)
+    surplus = record["total_surplus_mean"]
+    assert surplus["k22_deployed"] == pytest.approx(_numpy_interpolating_total(22.0, 0.5), abs=1e-6)
+    assert surplus["k_star_deployed"] == pytest.approx(
+        _numpy_interpolating_total(9.025, 0.5), abs=1e-6
+    )
+    k_fit = float(result.interpolating["k"])
+    assert surplus["distilled_k_deployed"] == pytest.approx(
+        _numpy_interpolating_total(k_fit, 0.5), abs=1e-6
+    )
+    assert "in-sample" in surplus["note"] and surplus["k_star"] == 9.025
+    assert surplus["k22_deployed_minus_k_star"] == pytest.approx(
+        surplus["k22_deployed"] - surplus["k_star_deployed"]
+    )
+    gain = surplus["planner"] - surplus["k_star_deployed"]
+    assert surplus["recovery_of_planner_gain"]["value"] == pytest.approx(
+        (surplus["w_rule"] - surplus["k_star_deployed"]) / gain
+    )
+    json.dumps(record, allow_nan=False)  # no NaN anywhere
+
+
+def test_recovery_tests_and_distilled_crossplay_on_toy_columns() -> None:
+    ports: dict[str, Any] = {"U": UniformReturn(), "F": rc.FixedFraction(0.5)}
+    key, n = jax.random.key(29), 40
+    runners = {m: stage.weight_runner(p, n) for m, p in ports.items()}
+    rec = c4.recovery_tests(runners, key, {"k=22": 22.0, "k*[U]": 3.0})
+    assert [(r["rule"], r["column"]) for r in rec] == [
+        ("k=22", "U"), ("k*[U]", "U"), ("k=22", "F"), ("k*[U]", "F"),
+    ]  # fmt: skip
+    deployed = {m: c4.deployed_rule_totals(r, key) for m, r in runners.items()}
+    _, result = c4.distill_planner(_planner(5), ports["U"], key, n, 3.0, deployed["U"])
+    cross = c4.distilled_crossplay(
+        [("Planner[U]", 5, result)], ports, deployed, key, n, {"U": 3.0, "F": 4.0}
+    )
+    assert [c["column"] for c in cross] == ["U", "F"]
+    f_cell = cross[1]
+    assert f_cell["k22_deployed"] == pytest.approx(_numpy_interpolating_total(22.0, 0.5), abs=1e-6)
+    assert f_cell["k_star_deployed"] == pytest.approx(
+        _numpy_interpolating_total(4.0, 0.5), abs=1e-6
+    )
+    assert f_cell["distilled_k_minus_k_star"] == pytest.approx(
+        f_cell["distilled_k_deployed"] - f_cell["k_star_deployed"]
+    )
+
+
+def test_r_squared_of_a_constant_target_is_null() -> None:
+    y = np.full(10, 0.25)
+    assert distill.r_squared(y, y) is None
+    assert distill.r2_record(None)["r2_null_reason"] == distill.R2_NULL_REASON
 
 
 def test_tree_recovers_a_step_function_and_jax_matches_numpy() -> None:

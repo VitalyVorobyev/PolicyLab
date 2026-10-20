@@ -24,7 +24,11 @@ Commands::
   (`rl.crossplay`). The input-range diagnostic reads the fit-split human training rows
   of the C2 fit (`data.load_training` and the fit run's split); never held-out rows.
 - **distill** (C4c): closed-form rules fitted to each planner's trajectories on its own
-  training model (`rl.distill`), with the surplus each distilled rule earns there.
+  training model (`rl.distill`) on the distillation games, with the surplus each
+  distilled rule earns there next to the deployed k*, k = 22 and the distilled k played
+  through the deployed rule (in-sample; stated in the output); the recovery test on the
+  deployed rules' trajectories (method bias); and the distilled rules of the main
+  planners played in every column (distilled-rule cross-play).
 - **b4**: LLM citizens (frozen `b4-prompt-v2`, calibrated or plain) against a planner's
   deterministic policy (`rl.b4play`).
 
@@ -628,27 +632,149 @@ def crossplay_command(args: argparse.Namespace) -> int:
     return 0
 
 
+IN_SAMPLE_NOTE: Final = (
+    "in-sample: the distilled rules are scored on the distillation games they were fitted "
+    "on (key 41002); the deployed rules are scored on the same games"
+)
+
+
+def deployed_rule_totals(
+    runner: Callable[[Array, Array, Array], rc.Trajectory], key: Array
+) -> Callable[[float], FloatArray]:
+    """(G,) total surplus of the deployed Interpolating rule with exponent k (w =
+    round((R/200)^k, 1), float32 offers, sum e = R - 0.001) on the games of `key`."""
+
+    def totals(k: float) -> FloatArray:
+        traj = runner(twin.f64(1), twin.f64(k), key)
+        return checks.trajectory_metrics(traj)["total_surplus"]
+
+    return totals
+
+
+def _ratio(num: float, den: float, reason: str) -> dict[str, Any]:
+    if den == 0.0:
+        return {"value": None, "null_reason": reason}
+    return {"value": num / den}
+
+
 def distill_planner(
-    planner: Planner, port: rc.JaxCitizen, key: Array, n_games: int
-) -> dict[str, Any]:
-    """Distil one planner on `n_games` games of `key` and play the distilled rules there."""
+    planner: Planner,
+    port: rc.JaxCitizen,
+    key: Array,
+    n_games: int,
+    k_star: float,
+    deployed: Callable[[float], FloatArray],
+) -> tuple[dict[str, Any], distill.Distilled]:
+    """Distil one planner on `n_games` games of `key` and play, on the same games, the
+    distilled w-rule and tree (as fitted), the distilled k through the deployed rule, the
+    deployed k* of the training model and the deployed k = 22 (protocol §6.4)."""
     traj, _ = eqx.filter_jit(ppo.evaluate_planner)(planner, port, key, n_games, c3config.ROUNDS)
     result = distill.distill(distill.trajectory_rows(traj))
     planner_total = checks.trajectory_metrics(traj)["total_surplus"]
-    rules: dict[str, tuple[rc.MechStep, Any]] = {
-        "w_rule": (distill.w_rule_step(result.w_rule), None),
-        "interpolating_k": (distill.interpolating_step(result.interpolating["k"]), None),
-        "tree": (
+    totals: dict[str, FloatArray] = {
+        "planner": planner_total,
+        "w_rule": distill.total_surplus(
+            distill.w_rule_step(result.w_rule), None, port, key, n_games
+        ),
+        "tree": distill.total_surplus(
             distill.tree_rule_step(result.tree, result.first_share),
             distill.tree_initial_state(n_games),
+            port,
+            key,
+            n_games,
         ),
+        "distilled_k_deployed": deployed(float(result.interpolating["k"])),
+        "k_star_deployed": deployed(k_star),
+        "k22_deployed": deployed(c3config.K_PUBLISHED),
     }
-    surplus: dict[str, Any] = {"planner": float(planner_total.mean())}
-    for name, (step, state) in rules.items():
-        totals = distill.total_surplus(step, state, port, key, n_games)
-        surplus[name] = float(totals.mean())
-        surplus[f"{name}_minus_planner"] = float((totals - planner_total).mean())
-    return {**result.to_json(), "total_surplus_mean": surplus}
+    means = {name: float(v.mean()) for name, v in totals.items()}
+    surplus: dict[str, Any] = {
+        **means,
+        **{f"{n}_minus_planner": float((v - planner_total).mean()) for n, v in totals.items()},
+        **{
+            f"{n}_minus_k_star": float((v - totals["k_star_deployed"]).mean())
+            for n, v in totals.items()
+        },
+        "k_star": k_star,
+        "recovery_of_planner_gain": _ratio(
+            means["w_rule"] - means["k_star_deployed"],
+            means["planner"] - means["k_star_deployed"],
+            "the planner earns exactly k*'s surplus",
+        ),
+        "note": IN_SAMPLE_NOTE,
+        "rule_paths": {
+            "w_rule": "binned w(R) and kappa(R) as fitted (idealised offers, no rounding)",
+            "tree": "the tree's shares as fitted (clipped at 0, scaled to sum <= 1)",
+            "distilled_k_deployed": "deployed rule: round((R/200)^k, 1), float32, R - 0.001; "
+            "k was fitted jointly with kappa but is played without it, as deployed",
+        },
+    }
+    kept = stage.coin_weighted_kept_share(*stage.kept_coins(traj))
+    record = {**result.to_json(), "total_surplus_mean": surplus, "kept_share_coin_weighted": kept}
+    return record, result
+
+
+def recovery_tests(
+    runners: Mapping[str, Callable[[Array, Array, Array], rc.Trajectory]],
+    key: Array,
+    rules: Mapping[str, float],
+) -> list[dict[str, Any]]:
+    """The distiller on trajectories of each deployed, quantised Interpolating rule of
+    `rules` (name -> k) on each model's distillation games (`distill.recovery`)."""
+    out: list[dict[str, Any]] = []
+    for column, runner in runners.items():
+        for name, k in rules.items():
+            traj = runner(twin.f64(1), twin.f64(k), key)
+            rec = distill.recovery(distill.trajectory_rows(traj), k)
+            out.append({"rule": name, "column": column, **rec})
+    return out
+
+
+def distilled_crossplay(
+    distilled: Sequence[tuple[str, int, distill.Distilled]],
+    ports: Mapping[str, rc.JaxCitizen],
+    deployed: Mapping[str, Callable[[float], FloatArray]],
+    key: Array,
+    n_games: int,
+    k_star: Mapping[str, float],
+) -> list[dict[str, Any]]:
+    """Each main planner seed's distilled w-rule and distilled k (deployed rule) in every
+    column, on that column's distillation games, next to k*[column] and k = 22 there."""
+    reference = {
+        column: {
+            "k_star_deployed": deployed[column](k_star[column]),
+            "k22_deployed": deployed[column](c3config.K_PUBLISHED),
+        }
+        for column in ports
+    }
+    out: list[dict[str, Any]] = []
+    for policy, seed, result in distilled:
+        for column, port in ports.items():
+            ref = reference[column]
+            w_rule = distill.total_surplus(
+                distill.w_rule_step(result.w_rule), None, port, key, n_games
+            )
+            k_rule = deployed[column](float(result.interpolating["k"]))
+            out.append(
+                {
+                    "policy": policy,
+                    "seed": seed,
+                    "column": column,
+                    "distilled_k": float(result.interpolating["k"]),
+                    "w_rule": float(w_rule.mean()),
+                    "distilled_k_deployed": float(k_rule.mean()),
+                    "k_star": k_star[column],
+                    "k_star_deployed": float(ref["k_star_deployed"].mean()),
+                    "k22_deployed": float(ref["k22_deployed"].mean()),
+                    "w_rule_minus_k_star": float((w_rule - ref["k_star_deployed"]).mean()),
+                    "distilled_k_minus_k_star": float((k_rule - ref["k_star_deployed"]).mean()),
+                    "w_rule_minus_k22": float((w_rule - ref["k22_deployed"]).mean()),
+                    "distilled_k_minus_k22": float((k_rule - ref["k22_deployed"]).mean()),
+                    "note": "out of sample in other columns; in-sample in the planner's own "
+                    "column (its distillation games)",
+                }
+            )
+    return out
 
 
 def distill_command(args: argparse.Namespace) -> int:
@@ -659,34 +785,66 @@ def distill_command(args: argparse.Namespace) -> int:
     if out_dir.exists():
         raise SystemExit(f"{out_dir} already exists; runs are never overwritten")
     base_dir, base, train_dirs, trains, fit_run = _read_inputs(args)
-    out: list[dict[str, Any]] = []
+    n = c4_config.DISTILL_GAMES
+    planners_out: list[dict[str, Any]] = []
+    not_distilled: list[dict[str, Any]] = []
+    main_distilled: list[tuple[str, int, distill.Distilled]] = []
+    k_star = {m: k_star_of(base, m) for m in rc.TRAINABLE_MODELS}
     with twin.x64():
         policies = load_policies(base, train_dirs, trains)
-        ports = rc.load_citizens(fit_run)
+        ports = {m: p for m, p in rc.load_citizens(fit_run).items() if m in rc.TRAINABLE_MODELS}
         key = jax.random.key(c4_config.DISTILL_KEY_SEED)
+        runners = {m: stage.weight_runner(port, n) for m, port in ports.items()}
+        deployed = {m: deployed_rule_totals(r, key) for m, r in runners.items()}
+        rules = {c4_config.K_PUBLISHED_RULE: c3config.K_PUBLISHED} | {
+            crossplay.k_star_name(m): k for m, k in k_star.items()
+        }
+        recovery = recovery_tests(runners, key, rules)
+        bias = {
+            r["column"]: r["ln_k_bias"]
+            for r in recovery
+            if r["rule"] == crossplay.k_star_name(r["column"])
+        }
         for policy in policies:
             if policy.kind != "planner" or policy.training_model is None:
                 continue
+            model = policy.training_model
+            if model not in ports:
+                not_distilled.append(
+                    {
+                        "policy": policy.name,
+                        "seeds": list(policy.seeds),
+                        "reason": "no single training model (§6.4 distils on the own model)",
+                    }
+                )
+                continue
             for seed, planner in zip(policy.seeds, policy.planners, strict=True):
-                port = ports[policy.training_model]
-                record = distill_planner(planner, port, key, c4_config.DISTILL_GAMES)
-                out.append({"policy": policy.name, "seed": seed, **record})
-                stage.log(f"{policy.name} seed {seed}: {record['total_surplus_mean']}")
+                record, result = distill_planner(
+                    planner, ports[model], key, n, k_star[model], deployed[model]
+                )
+                record["method_bias_ln_k"] = {
+                    "value": bias[model],
+                    "source": f"recovery test of {crossplay.k_star_name(model)} on {model}",
+                }
+                planners_out.append({"policy": policy.name, "seed": seed, **record})
+                if policy.retention:
+                    main_distilled.append((policy.name, seed, result))
+                stage.log(f"{policy.name} seed {seed}: {record['total_surplus_mean']['planner']}")
+        cross = distilled_crossplay(main_distilled, ports, deployed, key, n, k_star)
     manifest = c4_manifest(run_id, "distill", fit_run, c4_config.DISTILL_KEY_SEED)
     manifest["citizens"]["c4_protocol"] = {"path": protocol.path, "sha256": protocol.sha256}
     manifest["citizens"]["inputs"] = _inputs_record(base_dir, base, train_dirs, trains)
     manifest["citizens"]["seeds"] = {"distill_key": c4_config.DISTILL_KEY_SEED}
-    write_run_directory(
-        out_dir,
-        manifest,
-        [
-            (
-                "summary",
-                DISTILL_FILE,
-                dumps_json({"schema_version": stage.SCHEMA_VERSION, "planners": out}),
-            )
-        ],
-    )
+    manifest["limitations"].append(IN_SAMPLE_NOTE)
+    document = {
+        "schema_version": stage.SCHEMA_VERSION,
+        "note": IN_SAMPLE_NOTE,
+        "planners": planners_out,
+        "not_distilled": not_distilled,
+        "recovery": recovery,
+        "distilled_crossplay": cross,
+    }
+    write_run_directory(out_dir, manifest, [("summary", DISTILL_FILE, dumps_json(document))])
     return 0
 
 

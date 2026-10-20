@@ -8,9 +8,11 @@ the pool fraction R / 200 and the previous round's reciprocations.
     s_i = (1 - kappa(R)) [w(R) / 4 + (1 - w(R)) q_i],   q_i = c_{i,t-1} / sum_j c_{j,t-1}
 
 (q_i = 1/4 in round 1 or when nobody returned anything), with w and kappa piecewise
-constant on `DISTILL_W_BINS` equal-width bins of R / 200. kappa(bin) is the mean kept
-share 1 - sum e / R of the bin; w(bin) is the least-squares weight of the normalised
-shares p_i = s_i / (1 - kappa_round) on the rows where q is informative:
+constant on `DISTILL_W_BINS` equal-width bins of R / 200. kappa(bin) is the
+coin-weighted kept share of the bin, sum (R - sum e) / sum R over its rounds with
+R >= 1 (protocol §6.3; a mean of ratios would read the 0.001 withheld at R = 0.01 as
+10 %); w(bin) is the least-squares weight of the normalised shares
+p_i = s_i / (1 - kappa_round) on the rows where q is informative:
 w = sum (p - q)(1/4 - q) / sum (1/4 - q)^2, clipped to [0, 1]. Empty bins take the
 nearest non-empty bin's value. The one-parameter special case w = (R / 200)^k is fitted
 by grid search over the paper's ln k grid (with the same binned kappa).
@@ -21,7 +23,17 @@ by grid search over the paper's ln k grid (with the same binned kappa).
 e_{i,t-1} / R_{t-1}), rounds 2..40; round 1 gets the mean round-1 share.
 
 Both rules can be played (`w_rule_step`, `tree_rule_step`) to measure the surplus a
-distilled rule earns next to the planner on the same games.
+distilled rule earns next to the planner on the same games. The distilled k is played
+through the deployed rule (`citizens.weight_rule_step(citizens.interpolating(k))`:
+w = round((R / 200)^k, 1), float32 offers, sum e = R - 0.001), like k* and k = 22.
+
+**Recovery test** (`recovery`): the distiller run on trajectories of a deployed,
+quantised Interpolating rule of known k; the recovered k and the per-bin error of the
+fitted w against the true quantised weight (its least-squares average in the bin) are
+the method's bias.
+
+A fit statistic that is undefined (R^2 when the target has no variance) is null, with
+the reason, never NaN.
 """
 
 from __future__ import annotations
@@ -36,6 +48,7 @@ import numpy as np
 from jax import Array
 
 from phasespace.citizens.game import EXCLUSION_THRESHOLD, MAX_POOL, N_PLAYERS
+from phasespace.citizens.mechanisms import interpolating_weight
 from phasespace.citizens.rl import c4_config, twin
 from phasespace.citizens.rl import citizens as rc
 from phasespace.citizens.rl import config as c3config
@@ -52,6 +65,7 @@ class Rows:
     """Flattened player-rounds (G * T * 4) of a trajectory."""
 
     pool_frac: FloatArray
+    pool: FloatArray  # R in coins
     share: FloatArray
     q: FloatArray
     informative: BoolArray  # t > 0 and sum c_{t-1} > 0
@@ -83,6 +97,7 @@ def rows_from_arrays(offers: FloatArray, actions: FloatArray, pool: FloatArray) 
     features = np.stack([pool_frac, own_frac, others_frac, own_share], axis=-1)
     return Rows(
         pool_frac=pool_frac.reshape(-1),
+        pool=np.broadcast_to(pool[..., None], offers.shape).reshape(-1),
         share=share.reshape(-1),
         q=q.reshape(-1),
         informative=informative.reshape(-1),
@@ -98,9 +113,22 @@ def trajectory_rows(traj: rc.Trajectory) -> Rows:
     )
 
 
-def r_squared(y: FloatArray, prediction: FloatArray) -> float:
+R2_NULL_REASON: Final = "R^2 undefined: the target has no variance"
+
+
+def r_squared(y: FloatArray, prediction: FloatArray) -> float | None:
+    """1 - SSE / SST; None (undefined) when SST = 0 or there are no rows."""
+    if y.size == 0:
+        return None
     sst = float(((y - y.mean()) ** 2).sum())
-    return 1.0 - float(((y - prediction) ** 2).sum()) / sst if sst > 0.0 else float("nan")
+    return 1.0 - float(((y - prediction) ** 2).sum()) / sst if sst > 0.0 else None
+
+
+def r2_record(value: float | None) -> dict[str, Any]:
+    out: dict[str, Any] = {"r2": value}
+    if value is None:
+        out["r2_null_reason"] = R2_NULL_REASON
+    return out
 
 
 # --- w(R) family -----------------------------------------------------------------------------
@@ -143,12 +171,27 @@ class WRule:
         }
 
 
+KEPT_MIN_POOL: Final = 1.0
+"""Rows with R >= 1 coin enter the coin-weighted kept share (protocol §6.3)."""
+
+
+def coin_weighted_kept(rows: Rows, n_bins: int) -> tuple[FloatArray, BoolArray]:
+    """(bins,) sum (R - sum e) / sum R over each bin's rows with R >= 1, and which bins
+    have such rows (the player rows of a round repeat its R and kept coins, so the ratio
+    is the rounds' coin-weighted kept share)."""
+    b = bin_index(rows.pool_frac, n_bins)
+    use = rows.pool >= KEPT_MIN_POOL
+    kept_coins = np.bincount(b[use], weights=(rows.kept * rows.pool)[use], minlength=n_bins)
+    pool_coins = np.bincount(b[use], weights=rows.pool[use], minlength=n_bins)
+    has = pool_coins > 0.0
+    return np.where(has, kept_coins / np.where(has, pool_coins, 1.0), 0.0), has
+
+
 def fit_w_rule(rows: Rows, n_bins: int = c4_config.DISTILL_W_BINS) -> WRule:
     b = bin_index(rows.pool_frac, n_bins)
     counts = np.bincount(b, minlength=n_bins)
-    kept_sum = np.bincount(b, weights=rows.kept, minlength=n_bins)
-    has = counts > 0
-    kept = _fill_nearest(np.where(has, kept_sum / np.maximum(counts, 1), 0.0), has, 0.0)
+    kept_raw, has = coin_weighted_kept(rows, n_bins)
+    kept = _fill_nearest(kept_raw, has, 0.0)
     distributed = 1.0 - rows.kept
     use = rows.informative & (distributed > EPS)
     p = np.where(use, rows.share / np.where(use, distributed, 1.0), 0.0)
@@ -162,7 +205,7 @@ def fit_w_rule(rows: Rows, n_bins: int = c4_config.DISTILL_W_BINS) -> WRule:
     return WRule(w=w, kept=kept, w_rows=w_rows.astype(np.int64), rows=counts.astype(np.int64))
 
 
-def fit_interpolating_k(rows: Rows, kept_bins: FloatArray) -> dict[str, float]:
+def fit_interpolating_k(rows: Rows, kept_bins: FloatArray) -> dict[str, Any]:
     """Grid search of w = (R / 200)^k over the paper's ln k grid, with the binned kept
     share; the smallest ln k among the minimal squared errors."""
     b = bin_index(rows.pool_frac, kept_bins.size)
@@ -178,7 +221,7 @@ def fit_interpolating_k(rows: Rows, kept_bins: FloatArray) -> dict[str, float]:
     ln_k = best[0]
     w = rows.pool_frac ** math.exp(ln_k)
     pred = (1.0 - kappa) * (w / N_PLAYERS + (1.0 - w) * rows.q)
-    return {"ln_k": ln_k, "k": math.exp(ln_k), "r2": r_squared(rows.share, pred)}
+    return {"ln_k": ln_k, "k": math.exp(ln_k), **r2_record(r_squared(rows.share, pred))}
 
 
 # --- decision tree ------------------------------------------------------------------------------
@@ -296,18 +339,24 @@ def fit_tree(
 @dataclass(frozen=True)
 class Distilled:
     w_rule: WRule
-    w_rule_r2: float
-    interpolating: dict[str, float]
+    w_rule_r2: float | None
+    interpolating: dict[str, Any]
     tree: Tree
     first_share: float
-    tree_r2: float
-    tree_r2_later: float
+    tree_r2: float | None
+    tree_r2_later: float | None
     rows: int
 
     def to_json(self) -> dict[str, Any]:
+        later = r2_record(self.tree_r2_later)
         return {
             "rows": self.rows,
-            "w_rule": {**self.w_rule.to_json(), "r2": self.w_rule_r2},
+            "w_rule": {
+                **self.w_rule.to_json(),
+                "kept_share_definition": "coin-weighted: sum (R - sum e) / sum R over the "
+                "bin's rounds with R >= 1",
+                **r2_record(self.w_rule_r2),
+            },
             "interpolating_k": self.interpolating,
             "tree": {
                 "features": list(c4_config.DISTILL_FEATURES),
@@ -315,8 +364,11 @@ class Distilled:
                 "min_leaf": c4_config.DISTILL_TREE_MIN_LEAF,
                 "first_round_share": self.first_share,
                 "nodes": self.tree.to_json(c4_config.DISTILL_FEATURES),
-                "r2": self.tree_r2,
-                "r2_rounds_2_to_40": self.tree_r2_later,
+                **r2_record(self.tree_r2),
+                "r2_rounds_2_to_40": later["r2"],
+                **(
+                    {"r2_rounds_2_to_40_null_reason": R2_NULL_REASON} if later["r2"] is None else {}
+                ),
             },
         }
 
@@ -338,6 +390,51 @@ def distill(rows: Rows) -> Distilled:
         tree_r2_later=r_squared(rows.share[later], tree.predict(rows.features[later])),
         rows=int(rows.share.size),
     )
+
+
+# --- recovery test (method bias) ---------------------------------------------------------------------
+
+
+def true_binned_w(rows: Rows, k: float, n_bins: int = c4_config.DISTILL_W_BINS) -> FloatArray:
+    """(bins,) the least-squares average, over each bin's informative rows, of the true
+    deployed weight round((R / 200)^k, 1) (`mechanisms.interpolating_weight`), with the
+    same row weights (1/4 - q)^2 as the w fit; NaN for a bin without informative rows."""
+    b = bin_index(rows.pool_frac, n_bins)
+    use = rows.informative
+    a2 = (0.25 - rows.q) ** 2
+    w_true = interpolating_weight(rows.pool, k)
+    num = np.bincount(b[use], weights=(w_true * a2)[use], minlength=n_bins)
+    den = np.bincount(b[use], weights=a2[use], minlength=n_bins)
+    return np.where(den > EPS, num / np.where(den > EPS, den, 1.0), np.nan)
+
+
+def recovery(rows: Rows, k_true: float, n_bins: int = c4_config.DISTILL_W_BINS) -> dict[str, Any]:
+    """The distiller (w(R) bins and the one-parameter k) on trajectories of the deployed,
+    quantised Interpolating rule with exponent `k_true`: the recovered k and ln k, the
+    ln k bias, and per bin the fitted w against the true quantised weight."""
+    rule = fit_w_rule(rows, n_bins)
+    fitted_k = fit_interpolating_k(rows, rule.kept)
+    true_w = true_binned_w(rows, k_true, n_bins)
+    ok = np.isfinite(true_w) & (rule.w_rows > 0)
+    error = np.where(ok, rule.w - np.where(ok, true_w, 0.0), np.nan)
+    abs_error = np.abs(error[ok])
+    return {
+        "k_true": k_true,
+        "ln_k_true": math.log(k_true),
+        "k_recovered": fitted_k["k"],
+        "ln_k_recovered": fitted_k["ln_k"],
+        "ln_k_bias": fitted_k["ln_k"] - math.log(k_true),
+        **r2_record(fitted_k["r2"]),
+        "w_fitted": rule.w.tolist(),
+        "w_true_quantised": [float(x) if np.isfinite(x) else None for x in true_w],
+        "w_error": [float(x) if np.isfinite(x) else None for x in error],
+        "w_abs_error_max": float(abs_error.max()) if abs_error.size else None,
+        "w_abs_error_mean": float(abs_error.mean()) if abs_error.size else None,
+        "informative_rows": rule.w_rows.tolist(),
+        "note": "deployed rule: w = round((R/200)^k, 1), float32 offers, sum e = R - 0.001; "
+        "w_true_quantised is the least-squares average of the true weight in the bin (null "
+        "without informative rows)",
+    }
 
 
 # --- distilled rules as mechanisms -------------------------------------------------------------------
@@ -372,7 +469,8 @@ def w_rule_step(rule: WRule) -> rc.MechStep:
 
 
 def interpolating_step(k: float) -> rc.MechStep:
-    """Paper-form rule with the continuous weight w = (R / 200)^k and no kept share."""
+    """Paper-form rule with the continuous weight w = (R / 200)^k and no kept share
+    (idealised; the C4 comparisons play a distilled k through the deployed rule)."""
 
     def step(state: Any, obs: rc.MechObs, key: Array) -> tuple[Array, Any, Any]:
         del key
