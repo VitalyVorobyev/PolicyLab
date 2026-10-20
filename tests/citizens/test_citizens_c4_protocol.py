@@ -128,3 +128,13 @@ def test_protocol_seeds_are_disjoint_from_every_reserved_seed_and_key() -> None:
     assert c4_config.FAMILY_SIZES["H1-reversal"] == len(TRAINABLE_MODELS) * (
         len(TRAINABLE_MODELS) - 1
     )
+
+
+def test_the_frozen_header_records_the_configuration_hashes() -> None:
+    """At the freeze (D36) §1 records both configuration hashes; any later change to
+    either configuration module breaks this test instead of silently drifting."""
+    text = PROTOCOL.read_text(encoding="utf-8")
+    assert re.search(r"^Status: frozen$", text, re.MULTILINE)
+    header = text.split("## 2.")[0]
+    assert f"| C4 config hash at freeze | `{c4_config.config_sha256()}`" in header
+    assert f"| C3 config hash | `{c3.config_sha256()}`" in header

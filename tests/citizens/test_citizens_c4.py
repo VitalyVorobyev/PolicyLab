@@ -245,11 +245,12 @@ def test_c4_training_refuses_undeclared_seeds_and_the_unfrozen_protocol(tmp_path
         stage.main(_train_args(tmp_path, "B2", 7, "--confirm-frozen"))
     with pytest.raises(SystemExit, match="not declared"):
         stage.main(_train_args(tmp_path, "B1", 1001, "--no-retention", "--confirm-frozen"))
-    # a declared seed: refused because the C4 protocol is not frozen (draft) or not confirmed
+    # a declared seed: refused without confirmation, and the guard refuses a draft protocol
     with pytest.raises(data.ProtocolNotFrozenError, match="confirm"):
         stage.main(_train_args(tmp_path, "B2", 1001))
+    (tmp_path / "protocol.md").write_text("# C4\n\nStatus: draft\n", encoding="utf-8")
     with pytest.raises(data.ProtocolNotFrozenError, match="header status"):
-        stage.main(_train_args(tmp_path, "B2", 1001, "--confirm-frozen"))
+        data.require_frozen_protocol(tmp_path, Path("protocol.md"), True)
     with pytest.raises(SystemExit, match="C4 row"):
         stage.main(
             [

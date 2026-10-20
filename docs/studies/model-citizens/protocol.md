@@ -1,6 +1,6 @@
 # Model Citizens C4: cross-model planner comparison protocol
 
-Status: draft
+Status: frozen
 
 Version v1, drafted 2026-10-20 for the study owner's review. Only the owner freezes it. The freeze changes the word `draft` above to `frozen`; that is the single status line that the C4 stages (`phasespace.citizens.rl.c4`: `crossplay`, `distill`, `b4`, `hypotheses`; and C4 training, `stage train --milestone c4`) read. The freeze also fills in §1. A frozen protocol is never edited in place: changes create v2, with a changelog entry and a reason, and every result states the version it used.
 
@@ -18,10 +18,10 @@ Version v1, drafted 2026-10-20 for the study owner's review. Only the owner free
 | | |
 |---|---|
 | Protocol version | v1 |
-| Frozen date | (at freeze) |
-| Git commit at freeze | (at freeze) |
-| C4 config hash at freeze | (at freeze; `c4_config.config_sha256()`) |
-| C3 config hash | (at freeze; `rl.config.config_sha256()`, unchanged since C3) |
+| Frozen date | 2026-10-20, owner-approved |
+| Git commit at freeze | `67f31a2` (the commit the frozen code lives at; main after merging the C3, C4 and D35 branches) |
+| C4 config hash at freeze | `47ebefeb6e2d69fc0672963c6b7dd29ac2aeb95b145234d7c9b8a451921ed4b8` (`c4_config.config_sha256()`) |
+| C3 config hash | `4a312211d02c3b5a2f6c98f2cac4d2a5d7db44143f9341babc7c165f971a1dde` (`rl.config.config_sha256()`, unchanged since C3) |
 | Inputs | D31–D35 (`docs/decisions.md`); `README.md` (spec v0, amended by D35); `protocol-validation.md` v1 (frozen, D34); runs `citizens-c2-fit-v1`, `citizens-c2-heldout-eval-v1`, `citizens-c3-baselines-v1`, `citizens-c3-g3-v1` (with `citizens-c3-train-b1-s{1,2,3}-v1`), pilots `citizens-c4-pilot-b2-s901`, `citizens-c4-pilot-b3-s902`, `citizens-c4-pilot-b23-s903` |
 | Scope | Milestone C4 and gate G4: cross-play (C4b) and distillation (C4c). The report and the public page (C5) are out of scope. |
 
@@ -39,13 +39,16 @@ Version v1, drafted 2026-10-20 for the study owner's review. Only the owner free
 
   B2's pilot exceeds its own k\* by 12 coins, which is below the minimum effect δ = 16 chosen in §9.1. δ is anchored on C2's surplus tolerance and on the B1 seed SD, not on this pilot (§9.1).
 
+- **At the freeze (2026-10-20): B4's C2 held-out labels** (`citizens-c2-b4-eval-v1`, commit d249ef0, protocol-validation v1). They were read only after §9.4 was written; they set B4's role by §9.4 with no other judgement (D36):
+  - B4-calibrated: "validated (closed-loop)" on R-M2 (3 of 4 metrics, mean normalised W1 0.32 against M0-sim's 0.45), so it is a **validated evaluation population** and H2-B4 is confirmatory for it;
+  - B4-plain: "not validated" on R-I and R-M2 (0 of 4 metrics each), so its C4 numbers are **descriptive**.
 - **After drafting, while implementing §14 (2026-10-20):** a 20-iteration timing of PPO on B1 and on the mixture citizen (test seed 5, not a C4 seed; wall time only, no score read or printed), and the C3 golden test (B1, seed 5, 4 iterations of 64 games; parameter hash only).
 
 **Not seen:**
 - any planner evaluated on a model other than its training model;
 - any C4 evaluation game (key 41000) or distillation game (key 41002);
 - any planner or k\* game with B4;
-- B4's C2 held-out outcomes (still running at drafting).
+- B4's C2 held-out outcomes while §2–§14 were drafted (they were read at the freeze, above).
 
 ## 2. Question and hypotheses
 
