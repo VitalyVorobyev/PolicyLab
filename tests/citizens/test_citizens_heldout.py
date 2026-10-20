@@ -712,6 +712,44 @@ def test_surrogate_human_fidelity_runs_the_post_freeze_guard(
         surrogate.human_fidelity({}, confirm_frozen=True)
 
 
+def _fid(passes: bool) -> Any:
+    from phasespace.citizens import surrogate
+
+    # Synthetic fidelity values on either side of the §6.4 thresholds (1 / 5 coins, 0.90).
+    if passes:
+        return surrogate.Fidelity(1000, 0.4, 2.0, 0.6, 0.97, 0.2)
+    return surrogate.Fidelity(1000, 1.8, 7.5, 2.4, 0.80, 0.2)
+
+
+def test_surrogate_acceptance_uses_the_gating_experiments_only() -> None:
+    """A34 (owner decision 2026-10-20): M2's human-row acceptance is decided by Exp 3,
+    the only experiment of R-M2; M2 Exp 4 is computed but diagnostic. M1: Exp 1 and 2."""
+    assert heldout.SURROGATE_GATING_EXPERIMENTS == {"M1": ("Exp 1", "Exp 2"), "M2": ("Exp 3",)}
+    bc = {"M1": True, "M2": True}
+    good = {
+        ("M1", "Exp 1"): _fid(True),
+        ("M1", "Exp 2"): _fid(True),
+        ("M2", "Exp 3"): _fid(True),
+        ("M2", "Exp 4"): _fid(True),
+    }
+    assert heldout.surrogate_human_acceptance(bc, good) == {"M1": True, "M2": True}
+    # An M2 Exp 4 failure alone does not reject the M2 surrogate.
+    exp4_fails = {**good, ("M2", "Exp 4"): _fid(False)}
+    assert exp4_fails[("M2", "Exp 4")].accepted is False
+    assert heldout.surrogate_human_acceptance(bc, exp4_fails) == {"M1": True, "M2": True}
+    # An M2 Exp 3 failure rejects it, whatever Exp 4 shows.
+    exp3_fails = {**good, ("M2", "Exp 3"): _fid(False)}
+    assert heldout.surrogate_human_acceptance(bc, exp3_fails) == {"M1": True, "M2": False}
+    # M1 still gates on both of its experiments.
+    for cohort in ("Exp 1", "Exp 2"):
+        m1_fails = {**good, ("M1", cohort): _fid(False)}
+        assert heldout.surrogate_human_acceptance(bc, m1_fails) == {"M1": False, "M2": True}
+    # A BC-rejected surrogate, or a missing gating experiment, is never accepted.
+    assert heldout.surrogate_human_acceptance({**bc, "M2": False}, good)["M2"] is False
+    missing = {k: v for k, v in good.items() if k != ("M2", "Exp 3")}
+    assert heldout.surrogate_human_acceptance(bc, missing)["M2"] is False
+
+
 def test_count_only_identities_on_toy_rows() -> None:
     from phasespace.citizens import validation
 

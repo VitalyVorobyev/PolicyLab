@@ -611,6 +611,31 @@ def load_inputs(
     return Inputs(fitted, mechanisms, accepted, frozenset(failed), records, reproduction_record)
 
 
+SURROGATE_GATING_EXPERIMENTS: Final[dict[str, tuple[str, ...]]] = {
+    sim: cohorts for _, cohorts, sim in evaluate.GATING_REGIMES.values() if sim in ("M1", "M2")
+}
+"""§6.4 (A34): the experiments whose held-out human rows decide a surrogate's
+acceptance, i.e. those of the mechanism's gating regime: M1 Exp 1 and Exp 2; M2 Exp 3.
+Every other experiment (M2 Exp 4) is computed and reported as a diagnostic only."""
+
+
+def surrogate_human_acceptance(
+    bc_accepted: Mapping[str, bool], by_experiment: Mapping[tuple[Any, str], Any]
+) -> dict[str, bool]:
+    """§6.4 (A34): a surrogate is accepted on held-out human rows iff it passed the BC
+    check and every gating experiment of its mechanism (`SURROGATE_GATING_EXPERIMENTS`)
+    meets the thresholds. `by_experiment[(key, cohort)]` has an `accepted` attribute;
+    a gating experiment without a result rejects the surrogate. Non-gating experiments
+    (M2 Exp 4) never decide acceptance."""
+    out: dict[str, bool] = {}
+    for key, cohorts in SURROGATE_GATING_EXPERIMENTS.items():
+        results = [by_experiment.get((key, cohort)) for cohort in cohorts]
+        out[key] = bool(bc_accepted.get(key, False)) and all(
+            r is not None and bool(r.accepted) for r in results
+        )
+    return out
+
+
 VALIDATED_CLOSED: Final = "validated (closed-loop)"
 VALIDATED_ONE_STEP: Final = "validated (one-step)"
 NOT_VALIDATED: Final = "not validated"
@@ -786,18 +811,15 @@ def evaluate_command(args: argparse.Namespace) -> int:
     training = data.load_training(args.processed_dir)
     from phasespace.citizens import surrogate
 
-    # (b) surrogate acceptance on human mechanism rows (every experiment of M1, M2).
+    # Surrogate acceptance on human mechanism rows: computed for every experiment of
+    # M1 and M2, decided by the gating experiments only (§6.4, A34; M2 Exp 4 diagnostic).
     accepted_mechanisms = cast(
         "dict[surrogate.MechanismKey, surrogate.SurrogateMechanism]", inputs.mechanisms
     )
     human_fid = surrogate.human_fidelity(
         accepted_mechanisms, confirm_frozen=True, processed_dir=args.processed_dir
     )
-    accepted_human = {
-        key: inputs.bc_accepted[key]
-        and all(f.accepted for (k, _), f in human_fid.by_experiment.items() if k == key)
-        for key in ("M1", "M2")
-    }
+    accepted_human = surrogate_human_acceptance(inputs.bc_accepted, human_fid.by_experiment)
     lik = inputs.fitted.likelihood_models()
     sims = inputs.fitted.sim_models()
 
@@ -915,6 +937,9 @@ def evaluate_command(args: argparse.Namespace) -> int:
     manifest["citizens"]["surrogates"] = {
         "bc_accepted": inputs.bc_accepted,
         "human_accepted": accepted_human,
+        "human_acceptance_experiments": SURROGATE_GATING_EXPERIMENTS,
+        "human_acceptance_rule": "BC check passed and every gating experiment of the "
+        "mechanism meets the thresholds; M2 Exp 4 is diagnostic only (§6.4, A34)",
         "closed_loop_tier": closed_loop,
     }
     manifest["citizens"]["labels"] = labels
@@ -944,7 +969,8 @@ def evaluate_command(args: argparse.Namespace) -> int:
         )
     fid_rows = [
         [key, cohort, f.player_rounds, f.median_abs, f.p90_abs, f.mean_abs,
-         f.exclusion_agreement, f.recorded_exclusion_rate, "true" if f.accepted else "false"]
+         f.exclusion_agreement, f.recorded_exclusion_rate, "true" if f.accepted else "false",
+         "gating" if cohort in SURROGATE_GATING_EXPERIMENTS.get(key, ()) else "diagnostic"]
         for (key, cohort), f in sorted(human_fid.by_experiment.items())
     ]  # fmt: skip
     fid_cols = [
@@ -957,7 +983,9 @@ def evaluate_command(args: argparse.Namespace) -> int:
         ("exclusion_agreement", "dimensionless", "fraction with 1[e_hat<1] = 1[e<1]"),
         ("recorded_exclusion_rate", "dimensionless", "fraction of recorded e < 1"),
         ("accepted", None, "median <= 1, p90 <= 5, agreement >= 0.90 (§6.4)"),
-    ]
+        ("role", None, "gating: decides the surrogate's acceptance; diagnostic: reported "
+         "only (M2 Exp 4; §6.4, A34)"),
+    ]  # fmt: skip
     files = [
         ("sample_table", "surrogate_fidelity_human.json", _table(run_id, fid_cols, fid_rows)),
         ("sample_table", HUMAN_UNITS_FILE,

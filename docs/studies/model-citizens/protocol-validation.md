@@ -120,12 +120,12 @@ M1/M2 weights are not released, so closed-loop simulation needs a surrogate.
 - **Loss:** cross-entropy between the recorded share vector (e_i/R, 1 − Σe/R) and the predicted shares, over rounds with R ≥ 1. Adam 1e-3, batch 64 games (each epoch a permutation of the fit games by `default_rng(seed)`, the last partial batch dropped; initial weights from `jax.random.key(seed)`), validation offer MAE every 250 updates, patience 8, at most 20,000 updates; seeds 401–403 (M1) and 411–413 (M2); the best BC-validation seed is kept.
 - **Pre-freeze fit.** Because the surrogates use BC rows only and the fit is deterministic, they may be fitted before the freeze (run `citizens-c2-surrogates-pre1`: BC-validation median / p90 |ê − e| and exclusion agreement M1 0.28 / 1.60 coins / 0.993, M2 0.36 / 2.64 coins / 0.991; both accepted at width 32, kept seeds 403 and 413; every seed ran the full 20,000 updates). The post-freeze step (§10.2) re-runs the fit and must reproduce the parameter files bit for bit (`--reproduce`); a difference is reported to the owner before the unlock.
 - **Pre-unlock check (BC validation games):** the acceptance thresholds below must hold. If they fail, one pre-declared capacity step (FC/GRU 64, seeds 404–406 / 414–416); if that also fails, the surrogate is rejected before the unlock.
-- **Acceptance on held-out human mechanism rows** (after the unlock; offers predicted teacher-forced from the recorded observation sequence of each human game; rounds with R ≥ 1; per (mechanism, experiment), every experiment of the mechanism including M2 Exp 4):
+- **Acceptance on held-out human mechanism rows** (after the unlock; offers predicted teacher-forced from the recorded observation sequence of each human game; rounds with R ≥ 1; per (mechanism, experiment)). Acceptance is decided by the experiments of the mechanism's gating regime only (A34): M1 Exp 1 and Exp 2; M2 Exp 3. The same numbers are computed and reported for M2 Exp 4 as a diagnostic, which never decides acceptance. Each deciding experiment must meet all three thresholds:
   1. median |ê − e| ≤ 1.0 coin, **and**
   2. 90th percentile |ê − e| ≤ 5.0 coins, **and**
   3. exclusion agreement 1[ê < 1] = 1[e < 1] on ≥ 90 % of player-rounds.
   *Justification.* Humans act in whole coins, so a 1-coin median error is below the action resolution; 5 coins is 10 % of the full-pool equal share (50), so large misallocations such as excluding the wrong player (errors of order R/4) must be rare; exclusion is M1/M2's signature behaviour and drives depletion and players-active.
-- **If a surrogate fails acceptance** in any experiment of its mechanism: that mechanism's closed-loop results are reported as diagnostic only, and its validation rests on the one-step likelihood alone (tier "one-step", §8). The surrogate is never refitted after the unlock.
+- **If a surrogate fails acceptance** in any gating experiment of its mechanism: that mechanism's closed-loop results are reported as diagnostic only, and its validation rests on the one-step likelihood alone (tier "one-step", §8). The surrogate is never refitted after the unlock.
 
 ## 7. Budget, seeds and simulation sizes
 
@@ -234,6 +234,7 @@ These were the draft's open questions. The owner chose the B4 model; the rest ar
 - **O7.** "Gini" means exactly the metric that reproduced the published Exp 1 Gini z-values in C1 (`phasespace.citizens.metrics`). The CSV column `offer_gini` is not used.
 - **O8.** The likelihood criterion requires the CI lower bound to be above 0, as drafted.
 - **Pre-freeze check.** On training rows, `players_kept_active` must equal the number of players offered at least 1 coin. This is verified by test before the freeze.
+- **Owner's decisions at the freeze (2026-10-20).** The G1b tolerance stays as drafted (|Δz| ≤ 0.005; ≤ 0.05 for the value printed as 2.9). Surrogate acceptance on held-out human rows uses the gating experiments only (M1 Exp 1 and Exp 2; M2 Exp 3); M2 Exp 4 is reported as a diagnostic (A34). The pre-freeze calibration `citizens-c2-b4-calibration-v2` is the run of record.
 
 ## 14. Pre-freeze amendments (2026-10-20)
 
@@ -256,7 +257,7 @@ Recorded before the freeze, from the C2 implementation and the pre-freeze runs; 
 | A13 | Surrogate BC split: a fresh `default_rng(20261021)` per mechanism over games sorted by `launch_id`; all hidden widths = width; epoch-permutation batches | §6.1, §6.4 |
 | A14 | Surrogates may be fitted before the freeze (BC data only, deterministic fit); the post-freeze step re-runs the fit and must reproduce it bit for bit, otherwise it is reported | §6.4, §10.2 |
 | A15 | Pre-freeze facts, surrogate BC-validation fidelity (median / p90 / exclusion agreement): M1 0.28 / 1.60 / 0.993; M2 0.36 / 2.64 / 0.991 | §6.4 |
-| A16 | Surrogate acceptance on human rows covers every experiment of the mechanism, including M2 Exp 4 | §6.4 |
+| A16 | Surrogate acceptance on human rows covers every experiment of the mechanism, including M2 Exp 4 (superseded by A34: M2 Exp 4 is diagnostic only) | §6.4 |
 | A17 | M2 Exp 4 simulation: per human set 25 simulated 3-game sets of the recorded lengths; set metric = mean over its games | §8 |
 | A18 | G2 rule integrates O3 and O4 (one common counting regime) | §9 |
 | A19 | G1b: the 13 surplus and Gini z-values listed; tolerance half a unit of the last printed digit | §10.3 |
@@ -274,6 +275,7 @@ Recorded before the freeze, from the C2 implementation and the pre-freeze runs; 
 | A31 | `heldout b4 --games` accepts only 40 or the §7 reductions (30; 20 for M1/M2); the calibration `games.json` is verified against its manifest SHA-256 and must hold exactly 4 complete games per composition | §6.3, §10.2 |
 | A32 | Display fix, `b4-prompt-v2`: every coin amount truncated (not rounded) to 2 decimals, so a displayed own offer never reaches ⌊e⌋ + 1 (v1 showed the round-1 offer 49.99975 as "50.00" with a maximum of 49; all 4 v1 calibration discards were answers of 50), and the question first states "You may return any whole number of coins from 0 to ⌊e⌋." (the humans' integer slider); other wording unchanged. Calibration v1 (`citizens-c2-b4-calibration-v1`, old display) is superseded by `citizens-c2-b4-calibration-v2` and kept on disk unchanged; pilot `citizens-c2-b4-pilot-v3` and calibration v2 run with v2 (weights w = (0.7, 0.0, 0.3)) | §6.3, §7, §10.1 |
 | A33 | Probe verdict: no evidence that Haiku knows the 2025 study (all paper-specific answers deny knowledge; keyword flags fire on denials); it knows Koster et al. 2022. B4 label: "no contamination evidence for the 2025 study" | §6.3 |
+| A34 | **Owner decision 2026-10-20.** (1) Surrogate acceptance on held-out human rows is decided by the gating experiments of each regime only: M1 Exp 1 and Exp 2; M2 Exp 3 (the only experiment of R-M2). M2 Exp 4 acceptance numbers are still computed and reported, labelled diagnostic (`heldout.surrogate_human_acceptance`; supersedes A16). (2) The G1b tolerance is confirmed as drafted: \|Δz\| ≤ 0.005, ≤ 0.05 for the value printed as 2.9. (3) The pre-freeze B4 calibration run `citizens-c2-b4-calibration-v2` is accepted as the run of record | §6.4, §10.1, §10.3 |
 
 ## Appendix A. Key constants
 
