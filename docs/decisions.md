@@ -207,3 +207,23 @@ A milestone may change only because of observed source state, physical feasibili
   4. **B4 stays an evaluation-only population.** Its held-out runs continue to completion under the frozen protocol.
 - **Disclosure.** The C4 scope was set *after* the G2 results were seen. It was set *before* any planner was trained and before any C4 comparison was run.
 - **What fixes C4.** `studies/model-citizens/protocol.md` will fix the hypotheses, seeds and statistics. It is not yet written; it will be frozen with the owner's approval before any C4 evidence run. The hypotheses in the spec are drafts until then. The spec v0 hypotheses are kept there, marked superseded. G3 is unchanged.
+
+**D36 — Model Citizens C4 protocol frozen; B4's C4 role set by its C2 labels (2026-10-20, owner-approved).**
+- **B4 held-out evidence.** `citizens-c2-b4-eval-v1`: status `validated`, commit d249ef0, `git_dirty = false`, protocol-validation v1 (frozen, D34). Six runs of 40 games each: `citizens-c2-b4-{plain,calibrated}-{interpolating,m1,m2}-v1`, 26,703 calls in all, no discarded game. Metrics in range and mean normalised W1 (M0-sim's W1 in brackets):
+
+  | Variant | R-I | R-M1 (diagnostic) | R-M2 |
+  |---|---|---|---|
+  | plain | 0 of 4, 0.54 (0.35): not validated | 4 of 4, 0.20 (0.46) | 0 of 4, 0.69 (0.45): not validated |
+  | calibrated | 1 of 4, 0.40 (0.35): not validated | 3 of 4, 0.34 (0.46) | **3 of 4, 0.32 (0.45): validated (closed-loop)** |
+
+  - R-M1 cannot validate B4, because the M1 surrogate failed (D35) and B4 has no likelihood.
+  - B4-calibrated's R-M2 pass is narrow. Gini (0.263, against the human [0.261, 0.317]) and depletion (34.5, against [34.5, 38.3]) sit at the edge of the human interval. Players active (2.90, against [2.15, 2.84]) is in range only through the 0.1 tolerance. Surplus is the miss: 10.1, against [7.84, 9.66]. It is the only model of any class validated in closed loop on R-M2.
+  - Plain B4 errs in opposite directions on the two closed-loop regimes. On R-I it is too cooperative (no depletion by round 40). On R-M2 it depletes early, with a high Gini.
+  - Run `citizens-c2-b4-calibrated-interpolating-v1` was paused and resumed by its built-in resume after a hang. 10 interrupted games were replayed from round 1, and their 190 partial calls are kept in `abandoned.calls.jsonl`. No game was dropped.
+- **C4 role by §9.4, with no other judgement.**
+  - **B4-calibrated is a validated evaluation population:** H2-B4 is confirmatory for it.
+  - **B4-plain is descriptive:** "B4-plain not validated in closed loop (C2)".
+- **Owner's decisions at the freeze.**
+  1. Freeze now: `protocol.md` v1 frozen at 6917485. The code lives at 67f31a2, `c4_config_sha256` = `47ebefeb…21ed4b8`, C3 `config_sha256` = `4a312211…a1dde`.
+  2. Keep both B4 variants (O2 option (ii)), as decided before the labels were known. The descriptive plain arm is not dropped, so the B4 budget is free of selection on the labels.
+- **Disclosure.** The B4 labels were read after §9.4 had fixed their mapping, and before any C4 training or evaluation run.
