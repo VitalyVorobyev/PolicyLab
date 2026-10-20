@@ -17,7 +17,10 @@ row has `four_usable_players`, `completed` and `first_x_games` True).
 - Depletion round: 1-based index of the first round whose pool before allocation is
   below 1, else 40 (the notebook returns 40 even for Exp 4 games of other lengths).
 - Players active: the mean over rounds of `players_kept_active`, and its value in
-  the game's last round.
+  the game's last round. C2 (protocol-validation amendment A30) defines it for humans
+  and simulations alike as #{i : e_{i,t} >= 1} (`players_offered_at_least_one`), which
+  equals `players_kept_active` on every training row; held-out rows are checked as an
+  identity (mismatch counts only).
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy import stats
 
-from phasespace.citizens.game import DEPLETION_THRESHOLD, N_ROUNDS
+from phasespace.citizens.game import DEPLETION_THRESHOLD, EXCLUSION_THRESHOLD, N_ROUNDS
 
 type FloatArray = npt.NDArray[np.float64]
 type IntArray = npt.NDArray[np.int64]
@@ -79,6 +82,12 @@ def depletion_round(pool: npt.ArrayLike, n_rounds: npt.ArrayLike) -> IntArray:
     p = np.asarray(pool, dtype=np.float64)
     below = _round_mask(n_rounds, p.shape[1]) & (p < DEPLETION_THRESHOLD)
     return np.where(below.any(axis=1), below.argmax(axis=1) + 1, NOT_DEPLETED).astype(np.int64)
+
+
+def players_offered_at_least_one(offers: npt.ArrayLike) -> IntArray:
+    """(..., 4) offers -> (...) number of players offered at least 1 coin (#{e >= 1})."""
+    e = np.asarray(offers, dtype=np.float64)
+    return (e >= EXCLUSION_THRESHOLD).sum(axis=-1).astype(np.int64)
 
 
 def mean_players_active(players_kept_active: npt.ArrayLike, n_rounds: npt.ArrayLike) -> FloatArray:

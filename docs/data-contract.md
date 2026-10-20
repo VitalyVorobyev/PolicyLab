@@ -570,6 +570,15 @@ interface CitizensBlock {
   };
   rules: { name: string; rule: string }[];      // game conventions established from data
   diagnostics: Record<string, unknown>;         // training-only counts behind the rules
+  c2_heldout_counts?: {        // C2 count-only held-out checks (protocol-validation A29, A30);
+                               // reported, never gates; indicator residuals (counts only)
+    action_anomalies: { entries: number; n_flagged: number; non_integer_c: number;
+                        c_above_floor_e: number; positive_c_on_offer_below_1: number;
+                        negative_c: number; games_with_anomalies: number };
+    players_active_identity: { entries: number; n_flagged: number; games_with_mismatch: number };
+    flagged_by_mechanism_and_cohort: Record<string, number>;
+    definition: string;
+  };
 }
 
 interface DeferredItem {
@@ -585,5 +594,107 @@ interface DeferredItem {
 **Status of a citizens run.** `validated` means: every check in `validation.checks` passed, and every `citizens.gate.deferred` item is `within_bound`. The checks cover only the scope named in `citizens.gate.name`. For the C1 audit that is G1a (D33): training-population identities, mechanism-offer reproduction including held-out Interpolating rows as an arithmetic identity, and the four training-only Exp 1 z-values. A deferred item inside its bound is a known, documented, undiagnosed exception. It is not validated, and the run makes no claim about it beyond the bound. G1 as a whole passes only when a G1b run, made after the validation protocol freeze, records the deferred work as passing checks. Otherwise the status is `computed_unvalidated`.
 
 **Held-out data in citizens runs.** Before the validation protocol freeze, held-out human games (Interpolating, M1, M2 in Exps 1–4) may appear only as game counts and as residual summaries of the arithmetic identities: entries, maximum |residual| in coins, failing entries and failing games. Sample tables give no game lengths or per-game values for them. The only row information is the identity entry counts: row totals per mechanism and cohort.
+
+## Model Citizens addendum (C2 models)
+
+**Scope (additive; `python -m phasespace.citizens.fit`, `just citizens-c2-fit`, `just citizens-c2-smoke`).** C2 runs follow the C1 addendum with these differences. This amendment defines `CitizensSimulator`, as the C1 addendum requires before a run that simulates games is emitted.
+
+```ts
+interface CitizensC2Manifest {   // CitizensManifest with these differences:
+  experiment_id: "citizens-c2-fit-v1" | "citizens-c2-smoke-v1";
+  simulator: CitizensSimulator | null;   // null for a fitted-model run (no games simulated)
+  random_seed: number;                   // the split seed 20261020; every other seed is in citizens.seeds
+  citizens: CitizensC2Block;
+}
+
+interface CitizensSimulator {
+  name: "phasespace.citizens.simulate";
+  pool_rule: string;                  // full rule with the 0.01 floor (D33)
+  offer_rule: "deployed" | "paper";   // D33: "deployed"
+  rounds: number;                     // 40
+  games_per_model_mechanism: number;  // S (protocol 7: 1000)
+  seed_rule: string;                  // "50000 + 100 m + r (protocol 7)"
+  feasibility_atol: number;           // protocol 5: sum(e) <= R + 1e-9
+}
+
+interface CitizensC2Block {
+  stage: "c2_fit" | "c2_smoke";
+  config_sha256: string;              // phasespace.citizens.config.config_sha256()
+  config: Record<string, unknown>;    // every constant of the configuration module
+  validation_protocol: {
+    path: string;                     // docs/studies/model-citizens/protocol-validation.md
+    version: string;                  // "v1"
+    status: string;                   // header status when the run was made ("draft" before the freeze)
+    sha256: string;                   // of the protocol text read at run time (draft or frozen)
+    held_out_access: string;          // "none" for every pre-unlock C2 run
+  };
+  dataset: { source_sha256: string; parser_version: string; processed_training_sha256: string };
+  seeds: Record<string, number | number[] | string>;
+  split: Record<string, number | string>;     // unit, game and decision counts per split
+  fit_settings: Record<string, unknown>;      // protocol_settings = false for reduced fits
+  smoke?: Record<string, unknown>;            // c2_smoke only
+}
+```
+
+**Artifacts.** `split.json` (sample table: unit, stratum, split), `models.json` (`kind: "fitted_parameters"`: every fitted parameter and every optimiser start), `b1-member-<seed>.npz` (`kind: "checkpoint"`: float32 GRU weights, deterministic bytes), `likelihoods.json` (fit/validation-split mean log-likelihood per model and Δℓ vs M0). Smoke runs add `criterion_*.json` and `outcomes_*.json` (protocol 8 tables on the training regimes). Later stages load fitted models only through the manifest's SHA-256 values (`fit.load_fitted`).
+
+**Status of a C2 run.** A run made while `validation_protocol.status` is not `frozen` is always `computed_unvalidated`, whatever its checks say; its checks (split sizes, stop rule K1, feasibility of every simulated game) are recorded for inspection. A fit run made under the frozen protocol keeps `computed_unvalidated` too: it is an input, judged by the stages that load it.
+
+## Model Citizens addendum (C2 surrogates, B4 and post-freeze stages)
+
+**Scope (additive).** These runs follow the C1 and C2 addenda. They add stages, two simulator kinds and three artifact kinds. All of them stay local under `runs/`; raw B4 call records are never published (below).
+
+```ts
+type ArtifactKind = /* ... */
+  | "model_parameters"   // equinox.tree_serialise_leaves bytes of a surrogate network
+  | "llm_calls"          // JSONL, one record per CLI call: prompt, raw stdout/stderr,
+                         // parsed value or error, latency, cost, reported model ids
+  | "config";            // a B4 run's resumable configuration (config.json, verbatim)
+
+type CitizensStage =
+  | "c1_data_audit" | "c2_fit" | "c2_smoke"   // earlier addenda
+  | "c2_surrogate_fit"   // phasespace.citizens.surrogate fit (just citizens-c2-surrogates)
+  | "c2_b4_probes"       // memorisation and isolation probes (just citizens-b4-probe)
+  | "c2_b4_pilot"        // B4-plain Proportional pilot (just citizens-b4-pilot)
+  | "c2_b4_calibration"  // B4-calibrated calibration games (just citizens-b4-calibrate)
+  | "c1_g1b"             // post-freeze: held-out z-values and pool anomaly rows (just citizens-g1b)
+  | "c2_heldout_eval"    // post-freeze: the frozen held-out evaluation (just citizens-c2-evaluate)
+  | "c2_b4_heldout"      // post-freeze: one B4 run per (variant, mechanism) (just citizens-b4-heldout)
+  | "c2_b4_eval";        // post-freeze: B4 runs against the evaluation run (just citizens-b4-evaluate)
+
+interface CitizensLlmSimulator {   // `simulator` of the B4 game runs
+  kind: "llm_citizens";
+  variant: "plain" | "calibrated";
+  mechanism: string;               // e.g. "Proportional Baseline", "Interpolating", "RL Agent (M1) surrogate"
+  offer_rule: "deployed";
+  n_rounds: number;                // 40
+  backend: { kind: "claude_cli"; argv: string[]; prompt_via: "stdin"; cwd: string;
+             timeout_s: number; model_requested: string; effort_requested: string;
+             cli_version: string | null };
+  environment_passed: string[];    // names (never values) of the allowlisted variables passed
+                                   // (A28; runs before A28 hold removed_environment instead)
+  environment_rule: string;
+  retry_policy: { invalid_answer_retries: number; infrastructure_retries: number;
+                  infrastructure_backoff_s: number[]; discards: string };   // A27
+  prompt_version: string;          // "b4-prompt-v2" (A32; "b4-prompt-v1" in superseded runs)
+  system_prompt: string;
+  rules_sha256: string;
+}
+
+interface CitizensProbeSimulator { // `simulator` of the probe run
+  kind: "llm_probe";
+  backend: CitizensLlmSimulator["backend"];
+  environment_passed: string[];
+}
+```
+
+- **`c2_surrogate_fit`.** `random_seed` is the BC split seed (20261021). `citizens` holds `pre_freeze` (true while the protocol is a draft), `training_data`, `split`, `train_config`, `acceptance`, `config_sha256`, `validation_protocol` (path, version, status, sha256), `reference_parameters_sha256` (the run whose parameter files must be reproduced, or null) and `surrogates.M1|M2` (parameter file, width, kept seed, every attempt, BC fit and validation fidelity). Artifacts: `surrogate-m1.eqx`, `surrogate-m2.eqx` (`model_parameters`), `training_curves.json`. Checks: the §6.4 BC thresholds and, with a reference, one `surrogate_<key>_differs_from_reference` check per mechanism (0 = bit-identical). Status: `validated` only if every check passes and the protocol was frozen; a pre-freeze run is `computed_unvalidated`.
+- **`c2_b4_probes`, `c2_b4_pilot`, `c2_b4_calibration`, `c2_b4_heldout`.** `random_seed` is 7001. Artifacts: `config.json` (`config`), one `game-NNNN.calls.jsonl` per game and `abandoned.calls.jsonl` if any (`llm_calls`), `games.json` and `rounds.json` (`sample_table`: per-game metrics and type keys; per-round pool, offers, whole-coin returns, next pool); the probe run has `probes.jsonl` only. `citizens` holds `stage`, `label`, `pre_freeze`, `config`, `call_statistics`, `budget_projection` and `validation_protocol` (path, status, sha256 at run time, `held_out_access: "none"`). Held-out B4 runs add `frozen_protocol_sha256`, `config_sha256`, `git_commit_at_start`, `mechanism_key`, `surrogate_run` and `type_weights` (the chosen weights, objective, human targets and the calibration run's manifest sha256). Each call record carries `error_class` (`null`, `"invalid_answer"` or `"infrastructure"`, A27) and `infra_error`; `call_statistics` counts `invalid_attempts` and `infrastructure_attempts` separately, and `games.json` has an `infrastructure_calls` column (records written before A27 are classified by their error kind). Status is always `computed_unvalidated`: LLM sampling is not seeded.
+- **`c1_g1b`.** `z_values.json` (13 published z-values involving held-out mechanisms, reproduced, tolerance, pass) and `pool_anomaly_rows.json` (every held-out pool row that misses the full rule: game, round, R, Σe, Σc, raw and full-rule next pool, recorded next pool, residual, offers, reciprocations). Checks: each z within half a unit of its last printed digit; the D33 anomaly bound. `validated` iff every check passes. This run, made after the freeze, contains held-out row values.
+- **`c2_heldout_eval`.** `citizens.inputs` lists the fitted-model, surrogate and G1b runs with their manifest sha256; each must have been made under the same frozen protocol sha256 and `config_sha256` from a clean tree, or the stage refuses. Artifacts: `surrogate_fidelity_human.json`; `criterion_heldout.json` / `outcomes_heldout.json` (gating regimes), `criterion_diagnostic.json` / `outcomes_diagnostic.json` (per experiment, M2 Exp 4), `criterion_in_sample.json` / `outcomes_in_sample.json`. `human_units_heldout.json` (each gating regime's human unit metrics, the distribution the A22 W1 uses). Outcome tables add `w1_scale` and `w1_normalised`; criterion tables add `mean_normalised_w1`, `floored_decisions` and `excluded_decisions` (A29). `citizens.labels` holds every (regime, model) label (closed-loop labels include the must-beat-marginal rule, A22) and `citizens.g2` the G2 decision with `b0_passes` (A23), `m0_sim_passes_a` and `w1_comparison`; `citizens.human_reference` (per regime and metric: mean, CI, τ, W1 scale), `citizens.closed_loop_tier`, `citizens.surrogate_reproduction` (problems and the owner's override reason, A25) and `citizens.declared_handling` (A29 counts). Checks: feasibility of every simulated game, input checksums, regimes failing G1b. `validated` iff every check passes.
+- **`c2_b4_eval`.** Reads the evaluation run and the B4 held-out runs only (their `human_units_heldout.json` and `games.json` verified by SHA-256; each made under the frozen protocol sha256 and current `config_sha256`). `citizens.b4` holds one record per (variant, regime): complete and discarded games, `discard_fraction`, `b4_gating`, metrics in range, `pass_outcomes`, `mean_normalised_w1`, `m0_sim_passes_a`, `beats_m0_sim`, `label`, `counts_as_validated`. Artifact `b4_outcomes.json` (B4 mean and game-bootstrap CI, B = 10,000, seed 9001; human CI; τ; in range; W1 and normalised W1). `random_seed` is 9001.
+- **Post-freeze runs** (`c1_g1b`, `c2_heldout_eval`, `c2_b4_heldout`, `c2_b4_eval`) are made only under the frozen, committed protocol with `--confirm-frozen` and from a clean tree; `source.git_dirty` is always false and `citizens.validation_protocol.sha256` (or `frozen_protocol_sha256`) is the frozen text's sha256.
+
+**Privacy of B4 call records.** `llm_calls` artifacts hold raw prompts and CLI output, which can contain the operator's account e-mail address (the CLI injects it into the model's environment context). B4 runs are never copied to `web/public/`; a public B4 sample is derived from `games.json` / `rounds.json` (parsed actions) only.
 
 Prefer schema validation on producer and consumer sides (Python + TypeScript). Avoid generating a complicated cross-language framework before first two consumers exist.

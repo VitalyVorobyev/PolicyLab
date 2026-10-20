@@ -545,9 +545,12 @@ def heldout_identity_residuals(
 
     The one sanctioned pre-freeze use of held-out rows (C1): the pool-transition identity
     over every row (all held-out games together and per mechanism and cohort) and the
-    offer reproduction of the Interpolating rows. Only `IdentityResult` records (entries
-    checked, residual maxima, pass/fail counts) leave this function; no behavioural
-    quantity of a held-out game is computed or returned.
+    offer reproduction of the Interpolating rows; and, for C2 (protocol-validation A29,
+    A30), counts of recorded actions a likelihood cannot score as recorded and of rows
+    whose `players_kept_active` differs from #{i : e_i >= 1}, per mechanism and cohort
+    (indicator residuals: counts only). Only `IdentityResult` records (entries checked,
+    residual maxima, pass/fail counts) leave this function; no behavioural quantity of a
+    held-out game is computed or returned.
     """
     games = _read_games(processed_path(processed_dir, HELDOUT_FILE), access=_HELDOUT_ACCESS)
     results = [validation.pool_transition(games, HELDOUT_POPULATION)]
@@ -558,6 +561,12 @@ def heldout_identity_residuals(
         population = f"{HELDOUT_POPULATION}:{mechanism}:{cohort}"
         results.append(validation.pool_transition(group, population))
     results.extend(validation.offer_reproduction(games, HELDOUT_POPULATION, diagnostics=False))
+    groups = sorted(set(zip(games.mechanism.tolist(), games.cohort.tolist(), strict=True)))
+    for check in (validation.action_anomalies, validation.players_active_identity):
+        results.append(check(games, HELDOUT_POPULATION))
+        for mechanism, cohort in groups:
+            group = games.where(mechanism=mechanism, cohort=cohort)
+            results.append(check(group, f"{HELDOUT_POPULATION}:{mechanism}:{cohort}"))
     return results
 
 

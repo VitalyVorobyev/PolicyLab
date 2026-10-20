@@ -333,6 +333,34 @@ def heldout_pool_anomaly(audit: Audit) -> dict[str, Any]:
     }
 
 
+def c2_heldout_counts(audit: Audit) -> dict[str, Any]:
+    """C2 declared-handling counts over all held-out human rows (counts only; A29, A30).
+
+    Not gates: the protocol declares how the evaluation handles such rows (excluded from
+    the likelihood and counted; players active defined as #{e >= 1}).
+    """
+    out: dict[str, Any] = {}
+    for r in audit.identity:
+        if r.name in validation.COUNT_ONLY_CHECKS and r.population == data.HELDOUT_POPULATION:
+            out[r.name] = {"entries": r.entries, "n_flagged": r.n_fail, **dict(r.details)}
+    by_group = {
+        r.population.removeprefix(f"{data.HELDOUT_POPULATION}:"): r.n_fail
+        for r in audit.identity
+        if r.name in validation.COUNT_ONLY_CHECKS
+        and r.population != data.HELDOUT_POPULATION
+        and r.population.startswith(data.HELDOUT_POPULATION)
+        and r.n_fail
+    }
+    out["flagged_by_mechanism_and_cohort"] = by_group
+    out["definition"] = (
+        "action_anomalies: held-out human player-entries with non-integer c, c > floor(e) "
+        "for e >= 1, c > 0 for e < 1, or c < 0 (union; protocol-validation A29); "
+        "players_active_identity: held-out rows whose players_kept_active differs from "
+        "#{i : e_i >= 1} (A30). Indicator residuals: counts only."
+    )
+    return out
+
+
 def gate_status(run_checks: Sequence[Check], deferred: Sequence[dict[str, Any]]) -> str:
     """'validated' iff every G1a check passes and every deferred item is within its bound."""
     if run_status(run_checks) == "validated" and all(d["within_bound"] for d in deferred):
@@ -367,7 +395,7 @@ def checks(audit: Audit) -> list[Check]:
         ),
     ]
     for r in audit.identity:
-        if r.entries == 0 or _is_heldout_pool(r):
+        if r.entries == 0 or _is_heldout_pool(r) or r.name in validation.COUNT_ONLY_CHECKS:
             continue
         slug = r.population.lower().replace(" ", "_")
         for char in "():":
@@ -502,7 +530,9 @@ def build_documents(
         "Data audit of a published dataset: 'validated' means the recorded identity and "
         "reproduction checks passed; it is not a new behavioural result.",
         "Held-out human games (Interpolating, M1, M2 in Exps 1-4) were touched only by the "
-        "pool-transition and offer-reproduction identities; only residual statistics, "
+        "pool-transition and offer-reproduction identities and, for C2, by two count-only "
+        "checks (action anomalies, players_kept_active vs #{e >= 1}; citizens."
+        "c2_heldout_counts, not gates); only residual statistics, "
         "pass/fail counts and game counts are reported. No behavioural quantity of a "
         "held-out game is computed and their game lengths are not tabulated (the identity "
         "table's entry counts are their row totals per mechanism and cohort; Exp 4 lengths "
@@ -628,6 +658,7 @@ def build_documents(
             },
             "rules": list(RULES),
             "diagnostics": audit.diagnostics,
+            "c2_heldout_counts": c2_heldout_counts(audit),
         },
     }
     files = [

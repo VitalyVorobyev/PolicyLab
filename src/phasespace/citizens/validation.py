@@ -17,9 +17,10 @@ Tolerances come from how the CSV stores numbers:
   representation error of values < 256: `OFFER_TOLERANCE` = 1.5e-4.
 
 Held-out human games reach this module only through
-`phasespace.citizens.data.heldout_identity_residuals`, which calls `pool_transition`
-and `offer_reproduction` (without diagnostics) only; their results are residual
-statistics and pass/fail counts.
+`phasespace.citizens.data.heldout_identity_residuals`, which calls `pool_transition`,
+`offer_reproduction` (without diagnostics), `action_anomalies` and
+`players_active_identity` only; their results are residual statistics and pass/fail
+counts.
 
 **Two pool rules, assigned per game in advance.** Seven early Exp 1 training games
 (`LEGACY_REMAINDER_DROPPED`, found in the training data only) were run by a software
@@ -365,6 +366,59 @@ def record_consistency(games: Games, population: str) -> list[IdentityResult]:
             {"bc_positive_actions_on_offers_below_1": int(np.count_nonzero(bc_sub_one))},
         ),
     ]
+
+
+ACTION_ANOMALIES: Final = "action_anomalies"
+PLAYERS_ACTIVE_IDENTITY: Final = "players_active_identity"
+COUNT_ONLY_CHECKS: Final = (ACTION_ANOMALIES, PLAYERS_ACTIVE_IDENTITY)
+"""C2 declared-handling counts (protocol-validation A29, A30): reported, never C1 gates."""
+
+
+def action_anomalies(games: Games, population: str) -> IdentityResult:
+    """Counts of recorded player-entries a C2 likelihood cannot score as recorded.
+
+    Categories (an entry can fall in more than one; `n_fail` counts the union):
+    non-integer c; c > floor(e) with e >= 1; c > 0 with e < 1 (an excluded player who
+    reciprocated); c < 0. The residual of an entry is its indicator (0 or 1), so the
+    result carries counts only, never a behavioural value (amendment A29).
+    """
+    entries = games.round_mask()[..., None].repeat(4, axis=-1)
+    e, c = games.offers, games.actions
+    non_integer = entries & (c != np.floor(c))
+    above = entries & (e >= 1.0) & (c > np.floor(e))
+    excluded_positive = entries & (e < 1.0) & (c > 0.0)
+    negative = entries & (c < 0.0)
+    anomalous = non_integer | above | excluded_positive | negative
+    return _summary(
+        ACTION_ANOMALIES,
+        population,
+        anomalous[entries].astype(np.float64),
+        0.0,
+        {
+            "non_integer_c": int(np.count_nonzero(non_integer)),
+            "c_above_floor_e": int(np.count_nonzero(above)),
+            "positive_c_on_offer_below_1": int(np.count_nonzero(excluded_positive)),
+            "negative_c": int(np.count_nonzero(negative)),
+            "games_with_anomalies": int(np.count_nonzero(anomalous.any(axis=(1, 2)))),
+        },
+    )
+
+
+def players_active_identity(games: Games, population: str) -> IdentityResult:
+    """Rows whose `players_kept_active` differs from #{i : e_i >= 1} (indicator residuals).
+
+    Counts only (amendment A30): the residual of a row is 1 if the two differ, else 0.
+    """
+    mask = games.round_mask()
+    offered = metrics.players_offered_at_least_one(games.offers)
+    mismatch = mask & (games.players_kept_active != offered)
+    return _summary(
+        PLAYERS_ACTIVE_IDENTITY,
+        population,
+        mismatch[mask].astype(np.float64),
+        0.0,
+        {"games_with_mismatch": int(np.count_nonzero(mismatch.any(axis=1)))},
+    )
 
 
 def depletion_absorbing(games: Games) -> dict[str, int]:

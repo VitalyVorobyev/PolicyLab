@@ -145,3 +145,58 @@ citizens-data:
 # Model Citizens C1 data audit (identity checks, published z-values) as a new run under runs/ (never overwrites).
 citizens-audit run_id="citizens-c1-data-audit-v1":
     uv run python -m phasespace.citizens.export --runs-dir runs --run-id {{run_id}}
+
+# Model Citizens C2 (models)
+# Fit M0, P0, B1 (4 members), B2, B3 and B23 on the training fit split (protocol 6) as a new run under runs/.
+citizens-c2-fit run_id="citizens-c2-fit-v1-dev" *args:
+    uv run python -m phasespace.citizens.fit --runs-dir runs fit --run-id {{run_id}} {{args}}
+
+# Pre-freeze smoke (training data only): fit every model, dry-run the criterion on the training regimes, time S=1000 simulations.
+citizens-c2-smoke run_id="citizens-c2-smoke-v1-dev" *args:
+    uv run python -m phasespace.citizens.fit --runs-dir runs smoke --run-id {{run_id}} {{args}}
+
+# Print the C2 configuration hash (config_sha256 of phasespace.citizens.config).
+citizens-c2-config:
+    uv run python -m phasespace.citizens.config
+
+# M1/M2 mechanism surrogates on BC games only (protocol 6.4; deterministic). After the freeze, re-run and
+# require bit-identical parameters: just citizens-c2-surrogates citizens-c2-surrogates-v1 --reproduce runs/citizens-c2-surrogates-pre1
+citizens-c2-surrogates run_id="citizens-c2-surrogates-v1" *args:
+    uv run python -m phasespace.citizens.surrogate --runs-dir runs fit --run-id {{run_id}} {{args}}
+
+# B4 memorisation and isolation probes (16 calls; protocol 6.3).
+citizens-b4-probe run_id="citizens-c2-b4-probes-v1":
+    uv run python -m phasespace.citizens.llm.runner probe --run-id {{run_id}}
+
+# B4-plain Proportional pilot (resumable; protocol 10.1 step 4): just citizens-b4-pilot citizens-c2-b4-pilot-v3 --games 2
+citizens-b4-pilot run_id="citizens-c2-b4-pilot-v3" *args:
+    uv run python -m phasespace.citizens.llm.runner pilot --run-id {{run_id}} {{args}}
+
+# B4-calibrated calibration: 60 Proportional games over 4 x 15 type compositions (resumable: re-run the same command).
+citizens-b4-calibrate run_id="citizens-c2-b4-calibration-v2" *args:
+    uv run python -m phasespace.citizens.llm.runner calibrate --run-id {{run_id}} {{args}}
+
+# B4-calibrated type weights from a calibration run (training data only; prints, writes nothing).
+citizens-b4-weights calibration_run="runs/citizens-c2-b4-calibration-v2":
+    uv run python -m phasespace.citizens.heldout b4-weights --calibration-run {{calibration_run}}
+
+# Model Citizens post-freeze stages: each refuses unless protocol-validation.md says `frozen` (committed),
+# --confirm-frozen is passed and the working tree is clean.
+# G1b first (held-out z-values, pool anomaly rows): just citizens-g1b --confirm-frozen   (writes citizens-c1-g1b-v1)
+citizens-g1b *args:
+    uv run python -m phasespace.citizens.heldout g1b {{args}}
+
+# The frozen held-out evaluation (surrogate acceptance, criterion, G2):
+# just citizens-c2-evaluate --confirm-frozen --fitted-run runs/citizens-c2-fit-v1 --surrogate-run runs/citizens-c2-surrogates-v1 --g1b-run runs/citizens-c1-g1b-v1
+citizens-c2-evaluate *args:
+    uv run python -m phasespace.citizens.heldout evaluate {{args}}
+
+# One B4 held-out run (40 games, resumable, long): just citizens-b4-heldout --confirm-frozen --variant calibrated
+#   --mechanism M1 --surrogate-run runs/citizens-c2-surrogates-v1 --calibration-run runs/citizens-c2-b4-calibration-v2 --run-id citizens-c2-b4-calibrated-m1-v1
+citizens-b4-heldout *args:
+    uv run python -m phasespace.citizens.heldout b4 {{args}}
+
+# B4 criterion (a) and must-beat-marginal against the evaluation run (A24): just citizens-b4-evaluate --confirm-frozen
+#   --evaluation-run runs/citizens-c2-heldout-eval-v1 --b4-run runs/citizens-c2-b4-plain-interpolating-v1 --b4-run ...
+citizens-b4-evaluate *args:
+    uv run python -m phasespace.citizens.heldout b4-evaluate {{args}}

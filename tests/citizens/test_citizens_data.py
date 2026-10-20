@@ -298,7 +298,16 @@ def test_heldout_identity_residuals_returns_summaries_only(tmp_path: Path) -> No
     processed = _store(tmp_path)
     results = data.heldout_identity_residuals(processed)
     assert results and all(isinstance(r, data.validation.IdentityResult) for r in results)
-    assert {r.name for r in results} == {"pool_transition"}  # no Interpolating games here
+    # No Interpolating games here, so no offer reproduction; the C2 count-only checks
+    # (protocol-validation A29, A30) carry indicator residuals only.
+    assert {r.name for r in results} == {
+        "pool_transition",
+        "action_anomalies",
+        "players_active_identity",
+    }
+    for r in results:
+        if r.name != "pool_transition":
+            assert r.max_abs_residual in (0.0, 1.0) and r.threshold == 0.0
     assert data.heldout_game_counts(processed) == {
         ("RL Agent (M1)", "Exp 1", 0): 1,
         ("RL Agent (M2)", "Exp 4", 2): 1,
