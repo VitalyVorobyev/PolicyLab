@@ -101,3 +101,44 @@ def test_closed_loop_means_match_reference_simulator(name: str) -> None:
     for i, mech in enumerate(("Equal", "Proportional", "Interpolating")):
         z = checks.closed_loop_z(reference, port, mech, 1500, seed=100 + i)
         assert max(z.values()) <= 4.5, (name, mech, z)
+
+
+def test_b1_member_disagreement_matches_numpy_members() -> None:
+    """Mean pairwise TV between members against single-member NumPy ensembles run on
+    the same history (independent: the reference likelihood-form B1 per member)."""
+    rng = np.random.default_rng(21)
+    weights = [random_weights(rng, 0.5) for _ in range(3)]
+    port = rc.B1Port.from_reference(B1GRUEnsemble(weights))
+    streams = checks.random_histories(8, n_games=6, n_rounds=12)
+    g, t_max = 6, 12
+    # Trajectory arrays (G, T, 4) back from the own-first streams (stream 4 g + i).
+    offers = streams.offers[::4, :, :]  # player 0's view is the unrotated vector
+    actions = streams.actions.reshape(g, 4, t_max).transpose(0, 2, 1)
+    pool = streams.pool[::4]
+    traj = rc.Trajectory(twin.f64(offers), twin.f64(actions), twin.f64(pool))
+    got = np.asarray(rc.b1_member_disagreement(port, traj))
+    members = [B1GRUEnsemble([w]) for w in weights]
+    states = [m.initial_state(streams.n_streams, None) for m in members]
+    for t in range(t_max):
+        obs = streams.observation(t)
+        pmfs: list[np.ndarray[tuple[int, ...], np.dtype[np.float64]]] = []
+        for i, m in enumerate(members):
+            p, states[i] = m.step(states[i], obs)
+            pmfs.append(p)
+        pairs = [(0, 1), (0, 2), (1, 2)]
+        tv = np.mean([0.5 * np.abs(pmfs[a] - pmfs[b]).sum(axis=1) for a, b in pairs], axis=0)
+        expected = np.where(obs.own_offer >= 1.0, tv, np.nan).reshape(g, 4)
+        np.testing.assert_allclose(got[:, t], expected, atol=1e-12)
+
+
+def test_b1_identical_members_never_disagree() -> None:
+    w = random_weights(np.random.default_rng(22), 0.5)
+    port = rc.B1Port.from_reference(B1GRUEnsemble([w, w]))
+    streams = checks.random_histories(9, n_games=4, n_rounds=6)
+    traj = rc.Trajectory(
+        twin.f64(streams.offers[::4]),
+        twin.f64(streams.actions.reshape(4, 4, 6).transpose(0, 2, 1)),
+        twin.f64(streams.pool[::4]),
+    )
+    tv = np.asarray(rc.b1_member_disagreement(port, traj))
+    assert np.nanmax(tv) == 0.0

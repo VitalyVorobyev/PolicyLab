@@ -117,9 +117,15 @@ def _sequence_outputs(planner: Planner, features: Array) -> tuple[Array, Array]:
     return mu, v
 
 
-def ppo_loss(planner: Planner, batch: Batch, cfg: PPOConfig) -> tuple[Array, dict[str, Array]]:
+def replay(planner: Planner, batch: Batch) -> tuple[Array, Array]:
+    """Re-run the planner over a batch's games: log-prob of the stored z (T, G) and the
+    critic's values (T, G)."""
     mu, v = _sequence_outputs(planner, batch.features)
-    logp = gaussian_log_prob(batch.z, mu, planner.log_std)
+    return gaussian_log_prob(batch.z, mu, planner.log_std), v
+
+
+def ppo_loss(planner: Planner, batch: Batch, cfg: PPOConfig) -> tuple[Array, dict[str, Array]]:
+    logp, v = replay(planner, batch)
     ratio = jnp.exp(logp - batch.log_prob)
     adv = (batch.advantage - batch.advantage.mean()) / (batch.advantage.std() + 1e-8)
     surrogate = jnp.minimum(ratio * adv, jnp.clip(ratio, 1.0 - cfg.clip, 1.0 + cfg.clip) * adv)
@@ -167,6 +173,32 @@ def init_train_state(planner: Planner, cfg: PPOConfig) -> TrainState:
     return TrainState(params, make_optimizer(cfg).init(params))  # pyright: ignore[reportUnknownMemberType]
 
 
+def collect(
+    planner: Planner, citizen: JaxCitizen, cfg: PPOConfig, k_citizen: Array, k_mech: Array
+) -> tuple[Batch, Array]:
+    """Play `cfg.n_games` games with the sampling policy: the training batch (advantages
+    and returns by GAE) and the (T, G) round surpluses."""
+    traj, extras = rollout(
+        citizen,
+        sampling_step(planner),
+        planner.initial_state(cfg.n_games),
+        k_citizen,
+        k_mech,
+        cfg.n_games,
+        cfg.n_rounds,
+    )
+    ex: PlannerExtras = extras
+    rewards = round_surplus(traj).T  # (T, G)
+    adv, ret = gae(rewards * cfg.reward_scale, ex.value, cfg.gamma, cfg.gae_lambda)
+    return Batch(ex.features, ex.z, ex.log_prob, adv, ret), rewards
+
+
+def minibatch_indices(cfg: PPOConfig, key: Array) -> Array:
+    """(minibatches, G / minibatches) game indices of one epoch (a random permutation)."""
+    mb = cfg.n_games // cfg.minibatches
+    return jax.random.permutation(key, cfg.n_games).reshape(cfg.minibatches, mb)
+
+
 def make_iteration(
     static: Planner, citizen: JaxCitizen, cfg: PPOConfig
 ) -> Callable[[TrainState, Array], tuple[TrainState, dict[str, Array]]]:
@@ -182,23 +214,10 @@ def make_iteration(
     def iteration(state: TrainState, key: Array) -> tuple[TrainState, dict[str, Array]]:
         planner = combine(state.params, frozen)
         k_citizen, k_mech, k_perm = jax.random.split(key, 3)
-        traj, extras = rollout(
-            citizen,
-            sampling_step(planner),
-            planner.initial_state(cfg.n_games),
-            k_citizen,
-            k_mech,
-            cfg.n_games,
-            cfg.n_rounds,
-        )
-        ex: PlannerExtras = extras
-        rewards = round_surplus(traj).T  # (T, G)
-        adv, ret = gae(rewards * cfg.reward_scale, ex.value, cfg.gamma, cfg.gae_lambda)
-        full = Batch(ex.features, ex.z, ex.log_prob, adv, ret)
-        mb = cfg.n_games // cfg.minibatches
+        full, rewards = collect(planner, citizen, cfg, k_citizen, k_mech)
 
         def epoch(carry: tuple[Any, Any], k: Array) -> tuple[tuple[Any, Any], dict[str, Array]]:
-            perm = jax.random.permutation(k, cfg.n_games).reshape(cfg.minibatches, mb)
+            perm = minibatch_indices(cfg, k)
 
             def minibatch(
                 c: tuple[Any, Any], idx: Array

@@ -64,6 +64,13 @@ PPO_CHUNK: Final = 10
 
 # --- G3 ------------------------------------------------------------------------------------
 G3_MODEL: Final = "B1"
+SAMPLED_EVAL_KEY_SEED: Final = 31_003
+"""Planner-noise key of the sampled-policy evaluation (citizen draws: the evaluation key)."""
+FRAC_BINS: Final = 10
+"""Bins of the frac(e) histogram of planner offers with e >= 1 (G3 diagnostic)."""
+DIAGNOSTIC_BASELINES: Final = ("Interpolating k=22", "Interpolating k*", "Proportional")
+REPRODUCTION_ATOL: Final = 1e-9
+"""Re-simulated evaluation games must reproduce the recorded total surpluses (coins)."""
 G3_HOURS_PER_RUN: Final = 24.0
 BOOTSTRAP_RESAMPLES: Final = 10_000
 BOOTSTRAP_SEED: Final = 9001

@@ -50,7 +50,7 @@ from phasespace.citizens.fit import load_fitted, model_block
 from phasespace.citizens.rl import checks, ppo, twin
 from phasespace.citizens.rl import citizens as rc
 from phasespace.citizens.rl import config as c3config
-from phasespace.citizens.rl.planner import Planner, deserialise, serialise
+from phasespace.citizens.rl.planner import Planner, deserialise, sampling_step, serialise
 from phasespace.gravity.export import (
     Check,
     dumps_json,
@@ -578,6 +578,100 @@ def paired_bootstrap(
     return float(diff.mean()), float(lo), float(hi)
 
 
+class RunMismatchError(SystemExit):
+    """Training runs that must not be pooled (G3 refuses)."""
+
+
+def _training_signature(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    t = manifest["citizens"]["training"]
+    return {
+        "model": t["model"],
+        "ppo": t["ppo"],
+        "overrides": t["overrides"],
+        "iterations": t["iterations"],
+        "git_commit": manifest["source"]["git_commit"],
+        "fit_run_manifest_sha256": manifest["citizens"]["fit_run"]["manifest_sha256"],
+        "eval_key": manifest["citizens"]["seeds"]["eval_key"],
+    }
+
+
+def check_poolable(base: Mapping[str, Any], trains: Sequence[Mapping[str, Any]]) -> None:
+    """Refuse unless the training runs are clean, distinct and identical in everything but
+    the seed, were trained against G3_MODEL, and share the baselines run's fit run and
+    evaluation games (the baselines run must be clean too)."""
+    if base["source"]["git_dirty"]:
+        raise RunMismatchError(f"{base['run_id']}: made from a dirty tree")
+    if not trains:
+        raise RunMismatchError("no training runs")
+    first = _training_signature(trains[0])
+    seeds: set[int] = set()
+    for tm in trains:
+        if tm["source"]["git_dirty"]:
+            raise RunMismatchError(f"{tm['run_id']}: made from a dirty tree")
+        sig = _training_signature(tm)
+        differing = sorted(k for k in sig if sig[k] != first[k])
+        if differing:
+            raise RunMismatchError(
+                f"{tm['run_id']}: differs from {trains[0]['run_id']} in {differing}"
+            )
+        seed = int(tm["citizens"]["training"]["seed"])
+        if seed in seeds:
+            raise RunMismatchError(f"{tm['run_id']}: seed {seed} appears twice")
+        seeds.add(seed)
+    if first["model"] != c3config.G3_MODEL:
+        raise RunMismatchError(f"trained against {first['model']}, not {c3config.G3_MODEL}")
+    if first["fit_run_manifest_sha256"] != base["citizens"]["fit_run"]["manifest_sha256"]:
+        raise RunMismatchError("training runs and baselines run use different fit runs")
+    if first["eval_key"] != base["citizens"]["seeds"]["eval_key"]:
+        raise RunMismatchError("training runs and baselines run use different evaluation games")
+
+
+def _per_game(rows: list[list[Any]], model: str, mechanism: str) -> FloatArray:
+    out = np.full(c3config.EVAL_GAMES, np.nan)
+    for row in rows:
+        if row[0] == model and row[1] == mechanism:
+            out[row[2]] = row[3]
+    return out
+
+
+def kept_share(traj: rc.Trajectory) -> FloatArray:
+    """(T,) mean over games of the share kept in the pool, 1 - sum(e) / R, every round."""
+    offers, pool = np.asarray(traj.offers), np.asarray(traj.pool)
+    return (1.0 - offers.sum(axis=-1) / pool).mean(axis=0)
+
+
+def frac_histogram(offers: FloatArray) -> dict[str, Any]:
+    """Histogram of frac(e) = e - floor(e) over offers e >= 1, and a chi-square test
+    against uniform (approximate: offers within a game are not independent)."""
+    from scipy import stats
+
+    e = offers[offers >= 1.0]
+    frac = e - np.floor(e)
+    counts, edges = np.histogram(frac, bins=c3config.FRAC_BINS, range=(0.0, 1.0))
+    test = stats.chisquare(counts)
+    return {
+        "offers": int(e.size),
+        "bin_edges": [float(x) for x in edges],
+        "counts": [int(x) for x in counts],
+        "fractions": [float(x) for x in counts / max(e.size, 1)],
+        "chi2": float(test.statistic),
+        "p_value_uniform": float(test.pvalue),
+        "mean_frac": float(frac.mean()) if e.size else None,
+    }
+
+
+def disagreement(port: rc.B1Port, traj: rc.Trajectory) -> dict[str, float]:
+    """Mean and 90th percentile, over non-forced decisions, of the B1 members' mean
+    pairwise total-variation distance on the trajectory (teacher-forced)."""
+    tv = np.asarray(eqx.filter_jit(rc.b1_member_disagreement)(port, traj))
+    values = tv[np.isfinite(tv)]
+    return {
+        "mean_tv": float(values.mean()),
+        "p90_tv": float(np.quantile(values, 0.9)),
+        "decisions": int(values.size),
+    }
+
+
 def g3_command(args: argparse.Namespace) -> int:
     run_id: str = args.run_id
     validate_run_id(run_id)
@@ -587,104 +681,199 @@ def g3_command(args: argparse.Namespace) -> int:
     base_dir: Path = args.baselines_run
     train_dirs: list[Path] = args.train_run
     model = c3config.G3_MODEL
-    base_manifest_doc = json.loads((base_dir / "manifest.json").read_text("utf-8"))
-    fit_sha = base_manifest_doc["citizens"]["fit_run"]["manifest_sha256"]
-    baseline: dict[str, FloatArray] = {}
-    for row in _rows(base_dir, BASELINE_GAMES_FILE):
-        if row[0] == model:
-            baseline.setdefault(row[1], np.zeros(c3config.EVAL_GAMES))[row[2]] = row[3]
-    planners: list[FloatArray] = []
-    inputs: list[dict[str, Any]] = []
-    hours: list[float] = []
-    for d in train_dirs:
-        tm = json.loads((d / "manifest.json").read_text("utf-8"))
-        if tm["citizens"]["training"]["model"] != model:
-            raise SystemExit(
-                f"{d}: trained against {tm['citizens']['training']['model']}, not {model}"
+    base_doc = json.loads((base_dir / "manifest.json").read_text("utf-8"))
+    train_docs = [json.loads((d / "manifest.json").read_text("utf-8")) for d in train_dirs]
+    check_poolable(base_doc, train_docs)
+    fit_record = base_doc["citizens"]["fit_run"]
+    fit_run = Path(fit_record["path"])
+    if _manifest_sha256(fit_run) != fit_record["manifest_sha256"]:
+        raise SystemExit(f"{fit_run}: manifest differs from the one the runs used")
+    base_rows = _rows(base_dir, BASELINE_GAMES_FILE)
+    summary = {row[1]: row for row in _rows(base_dir, BASELINES_FILE) if row[0] == model}
+    n = c3config.EVAL_GAMES
+    checks_out: list[Check] = []
+    with twin.x64():
+        port = rc.load_citizens(fit_run)[model]
+        if not isinstance(port, rc.B1Port):
+            raise SystemExit("G3 needs the B1 port")
+        key = eval_key()
+        noise_key = jax.random.key(c3config.SAMPLED_EVAL_KEY_SEED)
+
+        @eqx.filter_jit
+        def deterministic(p: Planner) -> tuple[rc.Trajectory, Array]:
+            return ppo.evaluate_planner(p, port, key, n, c3config.ROUNDS)
+
+        @eqx.filter_jit
+        def sampled(p: Planner) -> rc.Trajectory:
+            return rc.rollout(
+                port, sampling_step(p), p.initial_state(n), key, noise_key, n, c3config.ROUNDS
+            )[0]
+
+        det_total: list[FloatArray] = []
+        smp_total: list[FloatArray] = []
+        det_trajs: list[rc.Trajectory] = []
+        smp_trajs: list[rc.Trajectory] = []
+        inputs: list[dict[str, Any]] = []
+        log_std: dict[str, list[float]] = {}
+        worst_repro = 0.0
+        for d, tm in zip(train_dirs, train_docs, strict=True):
+            planner = load_planner(d)
+            traj, _ = deterministic(planner)
+            totals = checks.trajectory_metrics(traj)["total_surplus"]
+            recorded = _per_game(_rows(d, EVAL_GAMES_FILE), model, "Planner")
+            worst_repro = max(worst_repro, float(np.abs(totals - recorded).max()))
+            s_traj = sampled(planner)
+            det_total.append(totals)
+            smp_total.append(checks.trajectory_metrics(s_traj)["total_surplus"])
+            det_trajs.append(traj)
+            smp_trajs.append(s_traj)
+            seed = int(tm["citizens"]["training"]["seed"])
+            log_std[f"seed_{seed}"] = [float(x) for x in np.asarray(planner.log_std)]
+            training = tm["citizens"]["training"]
+            inputs.append(
+                {
+                    "run_id": tm["run_id"],
+                    "manifest_sha256": _manifest_sha256(d),
+                    "seed": seed,
+                    "env_steps": training["env_steps"],
+                    "hours": training["seconds"] / 3600.0,
+                }
             )
-        if tm["citizens"]["fit_run"]["manifest_sha256"] != fit_sha:
-            raise SystemExit(f"{d}: a different fit run than the baselines run")
-        if (
-            tm["citizens"]["seeds"]["eval_key"]
-            != base_manifest_doc["citizens"]["seeds"]["eval_key"]
-        ):
-            raise SystemExit(f"{d}: different evaluation games")
-        values = np.zeros(c3config.EVAL_GAMES)
-        for row in _rows(d, EVAL_GAMES_FILE):
-            values[row[2]] = row[3]
-        planners.append(values)
-        hours.append(tm["citizens"]["training"]["seconds"] / 3600.0)
-        inputs.append(
-            {
-                "run_id": tm["run_id"],
-                "manifest_sha256": _manifest_sha256(d),
-                "seed": tm["citizens"]["training"]["seed"],
-                "env_steps": tm["citizens"]["training"]["env_steps"],
-                "hours": hours[-1],
+        runner = _weight_runner(port, n)
+        base_trajs: dict[str, rc.Trajectory] = {}
+        worst_base = 0.0
+        for mech in c3config.DIAGNOSTIC_BASELINES:
+            k = summary[mech][2]
+            kind, param = (1, float(k)) if k is not None else (0, c3config.FIXED_WEIGHTS[mech])
+            traj = runner(twin.f64(kind), twin.f64(param), key)
+            totals = checks.trajectory_metrics(traj)["total_surplus"]
+            worst_base = max(
+                worst_base, float(np.abs(totals - _per_game(base_rows, model, mech)).max())
+            )
+            base_trajs[mech] = traj
+        diag_disagreement = {
+            "planner_deterministic": [disagreement(port, t) for t in det_trajs],
+            "planner_sampled": [disagreement(port, t) for t in smp_trajs],
+            **{mech: disagreement(port, t) for mech, t in base_trajs.items()},
+        }
+        kept = {
+            "planner_deterministic": np.mean([kept_share(t) for t in det_trajs], axis=0).tolist(),
+            "planner_sampled": np.mean([kept_share(t) for t in smp_trajs], axis=0).tolist(),
+            **{mech: kept_share(t).tolist() for mech, t in base_trajs.items()},
+        }
+        planner_offers = np.concatenate([np.asarray(t.offers).ravel() for t in det_trajs])
+        frac = {
+            "planner_deterministic": frac_histogram(planner_offers),
+            "Interpolating k=22": frac_histogram(
+                np.asarray(base_trajs["Interpolating k=22"].offers).ravel()
+            ),
+        }
+    hours = [x["hours"] for x in inputs]
+    det = np.stack(det_total)
+    smp = np.stack(smp_total)
+    comparisons: dict[str, Any] = {}
+    for policy, values in (("deterministic", det), ("sampled", smp)):
+        for mech in ("Interpolating k=22", "Interpolating k*"):
+            base = _per_game(base_rows, model, mech)
+            mean, lo, hi = paired_bootstrap(
+                values, base, c3config.BOOTSTRAP_RESAMPLES, c3config.BOOTSTRAP_SEED
+            )
+            comparisons[f"{policy} - {mech}"] = {
+                "planner_total_surplus_mean": float(values.mean()),
+                "planner_per_seed": [float(x) for x in values.mean(axis=1)],
+                "baseline_total_surplus_mean": float(base.mean()),
+                "baseline_k": summary[mech][2],
+                "difference_mean": mean,
+                "difference_ci": [lo, hi],
+                "planner_above": lo > 0.0,
             }
-        )
-    p = np.stack(planners)
+            _log(f"{policy:13s} planner - {mech:18s}: {mean:+8.2f} [{lo:+8.2f}, {hi:+8.2f}]")
+    main_cmp = comparisons["deterministic - Interpolating k=22"]
+    g3_pass = bool(main_cmp["planner_above"]) and max(hours) <= c3config.G3_HOURS_PER_RUN
     result: dict[str, Any] = {
         "model": model,
-        "planner_total_surplus_mean": float(p.mean()),
-        "planner_per_seed": [float(x) for x in p.mean(axis=1)],
-        "comparisons": {},
+        "g3_pass": g3_pass,
+        "g3_rule": (
+            "the deterministic planner's mean total surplus against B1 is above Interpolating "
+            "k = 22: the 95 % paired bootstrap CI of the difference (seeds and evaluation games "
+            "resampled) lies above 0, and every training run took <= 24 h. The sampled policy "
+            "and k* are reported, not gating."
+        ),
+        "comparisons": comparisons,
+        "final_log_std": log_std,
+        "training_hours": hours,
+        "diagnostics": {
+            "note": "reported only, not gating",
+            "kept_share_per_round": kept,
+            "frac_offer_histogram": frac,
+            "b1_member_disagreement": diag_disagreement,
+        },
     }
-    checks_out: list[Check] = []
-    for mech in ("Interpolating k=22", "Interpolating k*"):
-        mean, lo, hi = paired_bootstrap(
-            p, baseline[mech], c3config.BOOTSTRAP_RESAMPLES, c3config.BOOTSTRAP_SEED
-        )
-        result["comparisons"][mech] = {
-            "baseline_total_surplus_mean": float(baseline[mech].mean()),
-            "difference_mean": mean,
-            "difference_ci": [lo, hi],
-            "planner_above": lo > 0.0,
-        }
-        _log(f"planner - {mech}: {mean:+.2f} [{lo:+.2f}, {hi:+.2f}]")
-    g3_pass = (
-        bool(result["comparisons"]["Interpolating k=22"]["planner_above"])
-        and max(hours) <= c3config.G3_HOURS_PER_RUN
-    )
-    result["g3_pass"] = g3_pass
-    result["g3_rule"] = (
-        "planner mean total surplus against B1 above Interpolating k = 22: the 95 % "
-        "paired bootstrap CI of the difference (seeds and games resampled) lies above 0, "
-        "and every training run took <= 24 h"
-    )
-    checks_out.append(
+    checks_out += [
         Check(
             "training_hours_max", max(hours), c3config.G3_HOURS_PER_RUN, "longest training run (h)"
-        )
-    )
-    k22 = result["comparisons"]["Interpolating k=22"]
-    checks_out.append(
+        ),
         Check(
-            "planner_minus_interpolating_k22_ci_lower_negated",
-            -k22["difference_ci"][0],
+            "planner_minus_k22_ci_lower_negated",
+            -float(main_cmp["difference_ci"][0]),
             0.0,
-            "minus the lower 95 % CI bound of planner - Interpolating k=22 (passes when the bound is >= 0)",
-        )
-    )
+            "minus the lower 95 % CI bound of deterministic planner - Interpolating k=22",
+        ),
+        Check(
+            "planner_eval_reproduction_max_abs",
+            worst_repro,
+            c3config.REPRODUCTION_ATOL,
+            "re-simulated deterministic planner total surplus vs each run's eval_games.json (coins)",
+        ),
+        Check(
+            "baseline_eval_reproduction_max_abs",
+            worst_base,
+            c3config.REPRODUCTION_ATOL,
+            "re-simulated diagnostic baselines vs baseline_games.json (coins)",
+        ),
+    ]
     manifest = base_manifest(run_id, "g3", None, c3config.BOOTSTRAP_SEED)
     manifest["citizens"]["inputs"] = {
         "baselines_run": {
-            "run_id": base_manifest_doc["run_id"],
+            "run_id": base_doc["run_id"],
             "manifest_sha256": _manifest_sha256(base_dir),
         },
         "train_runs": inputs,
-        "fit_run_manifest_sha256": fit_sha,
+        "fit_run_manifest_sha256": fit_record["manifest_sha256"],
+        "training_signature": _training_signature(train_docs[0]),
     }
-    manifest["citizens"]["g3"] = result
+    manifest["citizens"]["seeds"] = {
+        "eval_key": c3config.EVAL_KEY_SEED,
+        "sampled_noise_key": c3config.SAMPLED_EVAL_KEY_SEED,
+        "bootstrap": c3config.BOOTSTRAP_SEED,
+    }
+    manifest["citizens"]["g3"] = {"g3_pass": g3_pass, "rule": result["g3_rule"]}
     manifest["validation"]["checks"] = [c.to_json() for c in checks_out]
-    manifest["metrics"] = {
-        "planner_total_surplus_mean": _metric(
-            float(p.mean()), "coin", "mean over seeds and evaluation games"
-        ),
-        "planner_minus_k22": _metric(k22["difference_mean"], "coin", "paired mean difference"),
-    }
+    metrics: dict[str, Any] = {}
+    for name, cmp in comparisons.items():
+        key_name = (
+            name.lower()
+            .replace(" - interpolating ", "_minus_")
+            .replace("=", "")
+            .replace("*", "_star")
+        )
+        metrics[f"{key_name}_difference"] = _metric(
+            cmp["difference_mean"], "coin", f"paired mean, {name}"
+        )
+    metrics["planner_deterministic_total_surplus_mean"] = _metric(
+        float(det.mean()), "coin", "mean over seeds and evaluation games"
+    )
+    metrics["planner_sampled_total_surplus_mean"] = _metric(
+        float(smp.mean()), "coin", "sampled policy, mean over seeds and evaluation games"
+    )
+    for seed_key, values in log_std.items():
+        metrics[f"final_log_std_mean_{seed_key}"] = _metric(
+            float(np.mean(values)), "dimensionless", "mean over the 5 logits of the final log sigma"
+        )
+    manifest["metrics"] = metrics
     write_run_directory(out_dir, manifest, [("summary", G3_FILE, dumps_json(result))])
-    _log(f"{out_dir}: G3 {'PASS' if g3_pass else 'FAIL'}")
+    failed = [c.name for c in checks_out if not c.passed]
+    _log(f"{out_dir}: G3 {'PASS' if g3_pass else 'FAIL'}; failed checks {failed or 'none'}")
     return 0
 
 

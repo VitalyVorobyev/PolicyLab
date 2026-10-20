@@ -197,6 +197,47 @@ class B1Port(eqx.Module):
         )
 
 
+def b1_member_disagreement(port: B1Port, traj: Trajectory) -> Array:
+    """(G, T, 4) mean pairwise total-variation distance between the B1 members' pmfs.
+
+    Every member is run, teacher-forced, on the same recorded history (the trajectory's
+    offers, pools and actions), so the members differ only in their weights; TV(p, q) =
+    0.5 sum_c |p(c) - q(c)|, averaged over the M(M - 1)/2 member pairs. NaN for forced
+    decisions (e < 1). A diagnostic of extrapolation: the members agree where the fit
+    data constrain them and can disagree off their training distribution.
+    """
+    g, t_max, _ = traj.offers.shape
+    b = g * N_PLAYERS
+    m = port.n_members
+    scale = config.B1_INPUT_SCALE
+    offers = jnp.swapaxes(traj.offers, 0, 1)
+    actions = jnp.swapaxes(traj.actions, 0, 1)
+    prev = jnp.concatenate([twin.zeros((1, g, N_PLAYERS)), actions[:-1]], axis=0)
+    pools = jnp.swapaxes(traj.pool, 0, 1)
+
+    def body(hidden: Array, inp: tuple[Array, Array, Array]) -> tuple[Array, Array]:
+        e, c_prev, pool = inp
+        e_rot = twin.rotate(e).reshape(b, N_PLAYERS)
+        c_rot = twin.rotate(c_prev).reshape(b, N_PLAYERS)
+        x = jnp.concatenate(
+            [e_rot / scale, c_rot / scale, jnp.repeat(pool, N_PLAYERS)[:, None] / scale], axis=1
+        )
+        new_hidden, logits = jax.vmap(b1_forward, in_axes=(0, 0, None))(port.weights, hidden, x)
+        own = e_rot[:, 0]
+
+        def member_pmf(probs: Array) -> Array:
+            return bins_to_integer_pmf(probs, own, "floor10")
+
+        pmfs = jax.vmap(member_pmf)(_softmax(logits))
+        tv = 0.5 * jnp.abs(pmfs[:, None] - pmfs[None, :]).sum(axis=-1)  # (M, M, B)
+        mean_tv = tv.sum(axis=(0, 1)) / (m * (m - 1))
+        return new_hidden, jnp.where(own >= EXCLUSION_THRESHOLD, mean_tv, jnp.nan)
+
+    h0 = twin.zeros((m, b, config.B1_GRU))
+    _, tv = jax.lax.scan(body, h0, (offers, prev, pools))
+    return jnp.swapaxes(tv.reshape(t_max, g, N_PLAYERS), 0, 1)
+
+
 # --- B2: conditional cooperation ------------------------------------------------------------
 
 

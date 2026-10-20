@@ -119,3 +119,20 @@ def test_planner_is_permutation_equivariant() -> None:
     _, mu_p = planner.policy_step(h0, x[:, perm])
     np.testing.assert_allclose(np.asarray(mu_p[:, :4]), np.asarray(mu[:, perm]), atol=1e-12)
     np.testing.assert_allclose(np.asarray(mu_p[:, 4]), np.asarray(mu[:, 4]), atol=1e-12)
+
+
+@pytest.mark.parametrize("citizen", [rc.FixedFraction(fraction=0.6), rc.QuadraticToy(a=30.0)])
+def test_first_minibatch_ratio_is_one(citizen: rc.JaxCitizen) -> None:
+    """Before any update, replaying the first minibatch of the first epoch gives the
+    log-probabilities recorded during the rollout, so every PPO ratio is 1."""
+    cfg = ppo.PPOConfig(n_games=64, n_rounds=40, minibatches=4)
+    planner = Planner(cfg.hidden, cfg.init_log_std, jax.random.key(11))
+    k_citizen, k_mech, k_perm = jax.random.split(jax.random.key(12), 3)
+    batch, _ = ppo.collect(planner, citizen, cfg, k_citizen, k_mech)
+    idx = ppo.minibatch_indices(cfg, jax.random.split(k_perm, cfg.epochs)[0])[0]
+    first = ppo.Batch(*(a[:, idx] for a in batch))
+    logp, _ = ppo.replay(planner, first)
+    ratio = np.exp(np.asarray(logp) - np.asarray(first.log_prob))
+    deviation = float(np.abs(ratio - 1.0).max())
+    print(f"max |ratio - 1| = {deviation:.3e}")
+    assert deviation <= 1e-12

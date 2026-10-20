@@ -21,7 +21,7 @@ the pool); offers = R * shares[:4]. PPO's ratio uses the Gaussian density of z. 
 evaluation the planner is deterministic: shares = softmax(mu).
 
 **Critic** (training only): the same architecture with its own weights, given also the
-round index t / 40 (the planner itself is not told the horizon; the critic may use
+round index t / ROUNDS (the planner itself is not told the horizon; the critic may use
 privileged information, it is never used to act).
 """
 
@@ -39,6 +39,7 @@ from jax import Array
 from phasespace.citizens.game import MAX_POOL, N_PLAYERS
 from phasespace.citizens.rl import twin
 from phasespace.citizens.rl.citizens import MechObs
+from phasespace.citizens.rl.config import ROUNDS
 
 N_SHARES = N_PLAYERS + 1
 OBS_SCALE = MAX_POOL
@@ -117,7 +118,7 @@ class Planner(eqx.Module):
 
     def value_step(self, h: Array, x: Array, t: Array) -> tuple[Array, Array]:
         """Critic: (G, 4, H), (G, 4, 3), round index -> new hidden, value (G,)."""
-        tt = jnp.broadcast_to(twin.asarray(t, dtype=x.dtype) / 40.0, x.shape[:-1])[..., None]
+        tt = jnp.broadcast_to(twin.asarray(t, dtype=x.dtype) / ROUNDS, x.shape[:-1])[..., None]
         h_new, _, pooled = jax.vmap(self.value)(h, jnp.concatenate([x, tt], axis=-1))
         return h_new, pooled
 
