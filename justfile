@@ -200,3 +200,17 @@ citizens-b4-heldout *args:
 #   --evaluation-run runs/citizens-c2-heldout-eval-v1 --b4-run runs/citizens-c2-b4-plain-interpolating-v1 --b4-run ...
 citizens-b4-evaluate *args:
     uv run python -m phasespace.citizens.heldout b4-evaluate {{args}}
+
+# Model Citizens C3 (RL planner pipeline; pre-protocol pilot). Reads only the frozen fit run
+# (default runs/citizens-c2-fit-v1; another one with --fit-run <dir>).
+# Baselines and k* re-tuning against B1, B2, B3, B23, plus the JAX-port checks: just citizens-c3-baselines citizens-c3-baselines-v1
+citizens-c3-baselines run_id *args:
+    uv run python -m phasespace.citizens.rl.stage --runs-dir runs baselines --run-id {{run_id}} {{args}}
+
+# One PPO planner: just citizens-c3-train citizens-c3-train-b1-s1-v1 B1 1 600 [--set learning_rate=0.001 ...]
+citizens-c3-train run_id model seed iterations *args:
+    uv run python -m phasespace.citizens.rl.stage --runs-dir runs train --run-id {{run_id}} --model {{model}} --seed {{seed}} --iterations {{iterations}} {{args}}
+
+# G3 (planner vs Interpolating k = 22 and k* against B1): just citizens-c3-g3 <run_id> runs/<baselines> runs/<train-1> runs/<train-2> ...
+citizens-c3-g3 run_id baselines_run +train_runs:
+    uv run python -m phasespace.citizens.rl.stage --runs-dir runs g3 --run-id {{run_id}} --baselines-run {{baselines_run}} --train-run {{train_runs}}

@@ -697,4 +697,30 @@ interface CitizensProbeSimulator { // `simulator` of the probe run
 
 **Privacy of B4 call records.** `llm_calls` artifacts hold raw prompts and CLI output, which can contain the operator's account e-mail address (the CLI injects it into the model's environment context). B4 runs are never copied to `web/public/`; a public B4 sample is derived from `games.json` / `rounds.json` (parsed actions) only.
 
+## Model Citizens addendum (C3 planner pipeline)
+
+**Scope (additive; `python -m phasespace.citizens.rl.stage`, `just citizens-c3-baselines`, `just citizens-c3-train`, `just citizens-c3-g3`).** C3 runs follow the C1 and C2 addenda with these differences. They read only a C2 fitted-model run (verified through its manifest's SHA-256 values) and never any human data.
+
+```ts
+type MetricUnit = /* ... */ | "s";      // seconds (training wall time)
+type ArtifactKind = /* ... */
+  | "summary";           // a JSON document of a gate decision (g3.json)
+type CitizensStage = /* ... */ | "c3_baselines" | "c3_train" | "c3_g3";
+
+interface CitizensC3Simulator {   // `simulator` of every C3 run
+  name: "phasespace.citizens.rl.citizens.rollout";
+  pool_rule: string;              // full rule with the 0.01 floor (D33)
+  offer_rule: string;             // deployed rule for the baselines; R * softmax shares for the planner
+  rounds: number;                 // 40
+  precision: string;              // float64 (jax_enable_x64); deployed offers float32
+  citizen_draws: string;
+  common_random_numbers: string;
+}
+```
+
+- **Common fields.** `experiment_id` is `citizens-c3-<stage>-v1`; `citizens` holds `stage`, `pilot_version`, `c3_config_sha256` and `c3_config` (`phasespace.citizens.rl.config`), `c2_config_sha256`, `fit_run` (path, run id, manifest sha256, git commit, C2 config sha256; null for `c3_g3`) and `held_out_access` ("none"). Status is always `computed_unvalidated`: these are pre-protocol pilot runs, and their checks are recorded for inspection.
+- **`c3_baselines`.** `random_seed` is the evaluation key seed. Artifacts (`sample_table`): `baselines.json` (per model and mechanism: k, ln k, games, mean and SD of total surplus and the four protocol-8 metrics), `baseline_games.json` (every evaluation game), `k_grid.json` (mean total surplus of every grid point ln k on the tuning games). `citizens.k_star` holds the re-tuned k* per model. Checks per model: pmf agreement with the NumPy reference (max absolute difference ≤ 1e-6, mass error ≤ 1e-9) and closed-loop agreement (max |z| ≤ 4.5 per mechanism).
+- **`c3_train`.** `random_seed` is the training seed. Artifacts: `planner.eqx` (`model_parameters`), `learning_curve.json`, `eval_games.json` and `eval_shares.json` (`sample_table`). `citizens.training` holds the model, seed, iterations, environment steps, every PPO hyperparameter, explicit overrides and wall times. Check: training hours ≤ 24 (G3 budget).
+- **`c3_g3`.** `random_seed` is the bootstrap seed (9001). `citizens.inputs` lists the baselines run and the training runs with their manifest sha256; each training run must share the baselines run's fit run and evaluation games. Artifact `g3.json` (`summary`): planner mean, per-seed means, paired differences to Interpolating k = 22 and k* with percentile CIs, and the G3 decision.
+
 Prefer schema validation on producer and consumer sides (Python + TypeScript). Avoid generating a complicated cross-language framework before first two consumers exist.
