@@ -10,10 +10,11 @@ This is **not** a toolkit marketing project, an algorithm zoo, a universal RL pl
 
 | Priority | World | Core unknown | First method families | Status |
 |---|---|---|---|---|
-| 1 | Gravity Atlas | Can a diverse archive of Earth–Moon free-return candidates make trajectory selection under changing conditions more robust/useful than conventional multi-start optimization? | Numerical integration, local/multi-start optimization, MAP-Elites | **Active** |
-| 2 | The Last Library | When does a strictly bounded inherited memory allow cumulative improvement across generations on related unseen tasks? | Iterated learning, compact symbolic memory, evolutionary selection | Planned, after Gravity |
-| 3 | Algorithm Forge | When does population-based program search outperform simple structured search under fixed execution budgets? | Genetic programming, beam search, small exhaustive baselines | Planned |
-| 4 | Constitution Machine | Do adaptive shared-resource rules generalize to populations whose behavior changes? | Agent-based simulation, evolutionary game theory, feedback rules | Planned / conditional |
+| 1 | Gravity Atlas | Can a diverse archive of Earth–Moon free-return candidates make trajectory selection under changing conditions more robust/useful than conventional multi-start optimization? | Numerical integration, local/multi-start optimization, MAP-Elites | Closed (D29) |
+| 2 | Model Citizens | Does the mechanism an RL policy designer discovers depend on which validated model of people it is trained against? | Behavioural models fitted to public human data (GRU clone, parametric, learning, LLM citizens), PPO planners | **Active** (D31) |
+| 3 | The Last Library | When does a strictly bounded inherited memory allow cumulative improvement across generations on related unseen tasks? | Iterated learning, compact symbolic memory, evolutionary selection | Planned, after Model Citizens |
+| 4 | Algorithm Forge | When does population-based program search outperform simple structured search under fixed execution budgets? | Genetic programming, beam search, small exhaustive baselines | Planned |
+| Retired | Constitution Machine | Do adaptive shared-resource rules generalize to populations whose behavior changes? | Agent-based simulation, evolutionary game theory, feedback rules | Superseded by Model Citizens (D31) |
 | Archived | Hex Arena | Self-play, search and agent strength in a reproducible game | MCTS, AlphaZero-style learning | Archived on branch `archive/policylab-hex` (D11) |
 
 Not in the initial portfolio: Curious Scientist (weak first hypothesis in its earlier form), Living Matter (interesting but outside the four-study cap), calibration/robotics and distributed community training. They are not forbidden later.

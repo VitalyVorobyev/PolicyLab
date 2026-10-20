@@ -116,6 +116,31 @@
 - **Data.** The page reads only `gravity-m4-demo-atlas-v1` (kinds `atlas` and `error_fan`, added to the website validator). The browser draws stored polylines and interpolates positions between vertices; it recomputes nothing. Scores are the 16-seed summaries; the atlas shows seed 1001.
 - **Catalog.** Study status `complete` added for finished studies; Gravity Atlas is `complete`. The earlier M1–M3 run directories stay published because the validator tests use them as real-data fixtures.
 
+**D31 — Next study: Model Citizens (2026-10-20, owner's choice).**
+- **Brief.** On 2026-10-19 the owner rejected the 2026-10-18 v2 shortlist (fisheries, heat pumps / EVs, insulin, cubature, RealPage, TD vs ANCCR, information engines, RL vs optimal control): RL was peripheral and the fields did not match his interests. New brief: RL central; social behaviour, political-system simulation or algorithm discovery; a real research context anchored to a dataset or disputed regularity; a visualisable result. The search that followed (six literature agents plus a spec extraction) is recorded in [`scouting/2026-10-19-rl-topic-scan.md`](scouting/2026-10-19-rl-topic-scan.md).
+- **Question.** Does the mechanism an RL policy designer discovers depend on which *validated* model of people it is trained against? This is an empirical Lucas critique of AI policy design. Anchor: Koster et al. 2022 (Nature Human Behaviour; arXiv 2201.11441) and Koster et al. 2025 (Nature Communications 16:2824, doi 10.1038/s41467-025-58043-7), whose public trial-level human data (CC-BY 4.0) cover baseline, interpolating and RL-designed mechanisms. Behavioural models are fitted on baseline-mechanism play only and validated on human play under mechanisms they never saw; PPO planners are then trained against each validated model and cross-evaluated. Spec: [`studies/model-citizens/README.md`](studies/model-citizens/README.md).
+- **RL is central.** The designer is a PPO planner in JAX, as the original designer was a deep-RL agent.
+- **LLM citizens.** An LLM-citizen model class (B4) runs through headless `claude -p` on the owner's plan, with no API key. It is a validation and evaluation population only, not a PPO training environment (PPO needs millions of episodes). Model id, prompts and raw responses are archived; sampling cannot be seeded, which is a recorded limitation.
+- **Constitution Machine retired.** Model Citizens supersedes the Constitution Machine v0 spec, which asked a close question (do adaptive resource rules survive a change of the governed population?) with synthetic agents only. The slot is retired; its README is kept as history. The Last Library and Algorithm Forge stay planned, after Model Citizens.
+- **ChatGPT report held.** The owner-provided report [`chatgpt-deep-research.md`](chatgpt-deep-research.md) was audited. Its #1 (local memory vs the information bound) and #2 (causal emergence under memory completion) are on HOLD: the first is trivially true by time-averaging and its resource claim conflicts with Govern & ten Wolde 2014; the second is largely covered by Rosas et al. 2024 and Geiger & Wu 2016, with a definitional residue. Its #3 (dryland patterning) is not pursued.
+- **Gates** (detail in the spec and `roadmap.md`):
+  - **G1, data and game:** every recorded pool transition and baseline offer is reproduced from the CSV, and the published Exp 1–4 statistics are reproduced; otherwise stop and reconcile.
+  - **G2, citizen models:** at least two model classes, at least one not a GRU, are validated on at least one held-out regime under a validation protocol frozen before held-out data are opened; otherwise report and ask the owner. All classes failing everywhere is a publishable null.
+  - **G3, planner pipeline:** against the GRU clone, PPO reproduces the paper's qualitative in-silico result (planner surplus above Interpolating k = 22) within 24 h per training run; otherwise report and ask the owner.
+  - **G4, main comparison:** runs only under a frozen, owner-approved `protocol.md`, from clean trees, within its compute ceiling; H1 and H2 are decided as pre-declared and either outcome is reported.
+
 ## Conditions for revising the plan
 
 A milestone may change only because of observed source state, physical feasibility, research data, runtime limits or a clear user product choice. Document each meaningful change and its reason. Do not enlarge scope simply because implementing another framework sounds elegant.
+
+**D32 — Model Citizens design amendments from the literature scan (2026-10-20, before any held-out data).** These follow `studies/model-citizens/literature.md`.
+1. **Claim restriction.** The prior state is: Koster 2022 validated clones on held-out humans and compared a clone-trained mechanism with a rational-learner-trained one; Tacchetti et al. 2025 framed the Lucas critique. We claim only the empirical multi-model test.
+2. **Negative control.** A payoff-maximising "rational" citizen (B0) is added. The validation check must reject it; if it does not, the check is too weak.
+3. **Fallback model.** A hybrid of conditional cooperation and EWA is kept as a pre-declared fallback, in case B2 or B3 alone fail validation.
+4. **Extrapolation check.** C4 pre-declares a check of whether planners drive play into regions with no training data. The diagnostic is the density of the visited (offer share, pool) states under the training data.
+5. **LLM citizens (B4).** Two variants are pre-registered:
+   - B4-plain: neutral rules prompt;
+   - B4-calibrated: persona or type parameters fitted on baseline games only, after Manning & Horton 2025 and Jackson et al. 2026.
+
+   A memorisation probe for the 2025 paper is logged before any held-out run.
+

@@ -2,7 +2,7 @@
 
 Phase Space is a small public laboratory of computational research studies. Each study has a falsifiable question, credible baselines, validated models, an interactive viewer and a readable report. The quality bar is publishable and literature-aware work.
 
-Active study: Gravity Atlas (planar Earth–Moon CR3BP, trajectory diversity and robustness).
+Active study: Model Citizens (D31): do RL policy designers trained against different validated models of people discover the same mechanism? (Koster et al. 2025 common-pool data). Gravity Atlas is closed (D29).
 
 ## Before changing code
 

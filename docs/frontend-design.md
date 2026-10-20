@@ -6,7 +6,7 @@ The frontend is the primary way to **understand** a research result. Design for 
 
 ## Navigation / pages in the first viewer milestone (M2)
 
-- **Gallery `/`**: short mission statement and curated tiles for Gravity Atlas (active), Last Library, Algorithm Forge, Constitution Machine (planned). Planned pages must not masquerade as live demos.
+- **Gallery `/`**: short mission statement and curated tiles for Model Citizens (active), Gravity Atlas (closed, D29), Last Library and Algorithm Forge (planned); Constitution Machine is superseded by Model Citizens (D31). Planned pages must not masquerade as live demos.
 - **Gravity `/gravity`**: concise question, dominant orbital viewer, controls and physical/data assumptions; subsections for trajectories, robustness and comparisons as data becomes real.
 - **Research article `/gravity/report`**: later, M4; a readable experimental narrative with figures that link back to runs. Before then a clearly labeled forthcoming report is enough, not an invented publication.
 

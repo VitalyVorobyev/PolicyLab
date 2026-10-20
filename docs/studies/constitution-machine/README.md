@@ -1,3 +1,5 @@
+> **Retired (2026-10-20, D31).** This slot is superseded by [Model Citizens](../model-citizens/README.md), which asks a sharper form of this question (does a designed resource-sharing policy survive a change in the model of the governed population?) against models validated on real human play (Koster et al. 2025 data) instead of synthetic behaviour types. The v0 text below is kept as history and is not planned work.
+
 # Constitution Machine — Planned, Conditional Research Specification (v0)
 
 **Theme:** Multi-agent decision-making, resource governance, evolutionary game theory.  
