@@ -11,7 +11,7 @@ This is **not** a toolkit marketing project, an algorithm zoo, a universal RL pl
 | Priority | World | Core unknown | First method families | Status |
 |---|---|---|---|---|
 | 1 | Gravity Atlas | Can a diverse archive of Earth–Moon free-return candidates make trajectory selection under changing conditions more robust/useful than conventional multi-start optimization? | Numerical integration, local/multi-start optimization, MAP-Elites | Closed (D29) |
-| 2 | Model Citizens | Does the mechanism an RL policy designer discovers depend on which validated model of people it is trained against? | Behavioural models fitted to public human data (GRU clone, parametric, learning, LLM citizens), PPO planners | **Active** (D31) |
+| 2 | Model Citizens | Does the mechanism an RL policy designer discovers depend on which model of people it is trained against, when the models pass different held-out tests (next-choice prediction vs whole-game outcomes)? | Behavioural models fitted to public human data (GRU clone, parametric, learning, LLM citizens), PPO planners | **Active** (D31, D35) |
 | 3 | The Last Library | When does a strictly bounded inherited memory allow cumulative improvement across generations on related unseen tasks? | Iterated learning, compact symbolic memory, evolutionary selection | Planned, after Model Citizens |
 | 4 | Algorithm Forge | When does population-based program search outperform simple structured search under fixed execution budgets? | Genetic programming, beam search, small exhaustive baselines | Planned |
 | Retired | Constitution Machine | Do adaptive shared-resource rules generalize to populations whose behavior changes? | Agent-based simulation, evolutionary game theory, feedback rules | Superseded by Model Citizens (D31) |

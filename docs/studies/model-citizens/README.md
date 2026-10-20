@@ -1,7 +1,7 @@
 # Model Citizens — Research Specification (v0)
 
 **Theme:** RL mechanism design, behavioural models of people, social cooperation, model validation.  
-**Status:** spec v0, protocol not frozen. Chosen 2026-10-20 (`docs/decisions.md` D31); supersedes the Constitution Machine slot.  
+**Status:** spec v0, amended after G2 (D35). Chosen 2026-10-20 (`docs/decisions.md` D31); supersedes the Constitution Machine slot. Validation protocol v1 frozen (D34); G2 failed and the C4 scope was reframed (D35); C4 `protocol.md` not yet written.  
 **RL required?** Yes. The policy designer is a PPO planner; RL is the object of the question, not an add-on.
 
 ## Question
@@ -15,6 +15,42 @@ An empirical Lucas critique of AI policy design:
 3. Train PPO planners against each validated model and test whether the planners, and the rules distilled from them, agree.
 
 Both outcomes are publishable: "the discovered policy is robust to the choice of simulator", or "validated simulators disagree, so the data underdetermine the policy".
+
+*Step 3 as written assumed several validated classes. After G2 it is replaced by the reframed C4 question below (D35).*
+
+## Status after G2 (D35)
+
+**G2 failed: only B1 is validated.** The run is `citizens-c2-heldout-eval-v1` (status `validated`; protocol v1 frozen; G1b passed in `citizens-c1-g1b-v1`). Its §9 outcome is "Only B1 validated":
+
+- **B1 (GRU clone).** Validated in closed loop on R-I: 3 of 4 outcome metrics are in range, and its mean normalised W1 (0.26) is below M0-sim's (0.35).
+- **No other class is validated in closed loop.** No other trainable class passes the outcome criterion (a) on any held-out regime.
+- **All four trainable classes (B1, B2, B3, B23) pass the likelihood criterion (b) on all three held-out regimes** (R-I, R-M1, R-M2).
+- **Better next-choice prediction, worse whole games.** B3 and B23 predict the next choice better than B1 on every regime (higher Δℓ). B2 does better than B1 on R-M1 and R-M2, and about the same on R-I. In closed loop, however:
+  - B3 and B23 deplete the pool far too early;
+  - B2 keeps the pool too long on R-I, and its Gini is too low on every regime.
+
+  Several classes also fail the in-sample closed-loop check on training mechanisms; B1 fails it under Equal.
+- **The M1 surrogate failed acceptance on human rows** (median error 1.18 and 1.04 coins, limit 1.0). So R-M1 is one-step only.
+- **B4 (LLM citizens).** The held-out runs are in progress.
+
+Numbers and labels: D35.
+
+**The G2 failure is a reported result, not something to rescue.** There is no refit, no new criterion and no v2 of the validation protocol.
+
+**The owner chose to reframe and continue.**
+
+- Planners are trained against all four trainable classes. Each class keeps its honest label:
+  - B1 is validated in closed loop (R-I) and one-step on all three regimes;
+  - B2, B3 and B23 pass the one-step test on all three regimes but are rejected in closed loop.
+- B4 stays an evaluation-only population.
+
+**Reframed C4 question** (draft; fixed by `protocol.md`):
+
+> Do citizen models that each pass a different held-out test (next-choice prediction vs whole-game outcomes) lead RL planners to the same mechanism, and how do the planners fare in cross-play?
+
+This is an empirical test of whether one-step behavioural validation is enough for policy design (the Lucas critique).
+
+*Disclosure.* This scope was set after the G2 results were seen. It was set before any planner was trained and before any C4 comparison was run.
 
 ## Why it matters
 
@@ -84,10 +120,25 @@ Other **UNSPEC** or contradictory points: the planner's policy-gradient estimato
 - **Published numbers to reproduce** (independent references for G1): Exp 1 equal < proportional surplus z = 5.28, proportional > equal Gini z = 4.76, and the other Exp 1–4 Wilcoxon rank-sum z-values; Exp 3 M2 > interpolating surplus z = 2.35, interpolating < M2 Gini z = 5.64.
 - **Metrics (notebook definitions):** surplus per player-round; Gini = 0.5 · mean|xᵢ − xⱼ| / mean(x) over players' mean rewards; depletion round (first R < 1, else 40); players kept active.
 
-## Hypotheses (provisional; fixed in `protocol.md`)
+## Hypotheses
 
-- **H1 (transfer).** A planner trained on any single validated model beats the re-tuned interpolating rule k* on surplus under every *other* validated model. Any reversal in the cross-play matrix refutes H1.
-- **H2 (robust planner).** A planner trained on a mixture or ensemble of validated models (optionally minimax over models) is never worse than a pre-declared tolerance below the best planner in each column.
+### Current (D35): draft; fixed by `protocol.md`
+
+These hypotheses are not binding. `protocol.md` fixes the final wording, the tolerances, the seeds and the statistics before any C4 evidence run.
+
+**Setting.** There are four training environments: B1, B2, B3 and B23. Each has its D35 label. B1 is the only class validated in closed loop. B4 is evaluated only.
+
+- **H1 (transfer across citizen models).** Each planner beats the re-tuned interpolating rule k\* on surplus under every *other* trainable model, where k\* is tuned for the evaluating model. Any reversal in the cross-play matrix refutes H1.
+- **H2 (is one-step validation enough?).** Evaluate under B1, the only model validated in closed loop, and in addition under B4 if B4 passes its own check. There, the planners trained against the one-step-only models (B2, B3, B23) reach surplus within a pre-declared tolerance of the B1-trained planner. A one-step-only planner that falls below the tolerance refutes H2. That outcome would be evidence that one-step validation is not enough for policy design.
+- **Descriptive comparison (no test).** Do the distilled rules of the four planners agree, for example the w(R) family and the offer trees? Report this together with the extrapolation diagnostic of D32 item 4.
+- **Secondary candidate.** The robust planner (superseded H2 below) may be kept as a secondary analysis. `protocol.md` decides.
+
+### Spec v0 hypotheses: superseded by D35
+
+These are kept as the record. They assumed several validated model classes, and G2 found only one.
+
+- ~~**H1 (transfer).** A planner trained on any single validated model beats the re-tuned interpolating rule k* on surplus under every *other* validated model. Any reversal in the cross-play matrix refutes H1.~~
+- ~~**H2 (robust planner).** A planner trained on a mixture or ensemble of validated models (optionally minimax over models) is never worse than a pre-declared tolerance below the best planner in each column.~~
 
 ## Citizen model classes
 
@@ -119,9 +170,9 @@ All are fitted only on training-mechanism human games, split by game into fit an
   - **G1b**, immediately after the validation protocol freeze: the z-values involving held-out mechanisms, and the root cause of the held-out pool anomaly.
 
   The NumPy–JAX 1e-9 agreement check moves to C3 (D33). *Stop:* any failure halts work until reconciled; a documented approximation needs the owner's approval.
-- **G2 — citizen models (C2).** At least two model classes, at least one not a GRU, are validated on at least one held-out regime. *Stop:* otherwise the cross-model question collapses; report and ask the owner. If every class fails everywhere, that is a publishable null result (no model fitted on baselines predicts behaviour under new institutions); ask the owner before continuing.
+- **G2 — citizen models (C2).** At least two model classes, at least one not a GRU, are validated on at least one held-out regime. *Stop:* otherwise the cross-model question collapses; report and ask the owner. If every class fails everywhere, that is a publishable null result (no model fitted on baselines predicts behaviour under new institutions); ask the owner before continuing. **Outcome: failed (only B1). The owner reframed C4 (D35).**
 - **G3 — planner pipeline (C3).** Against B1, the planner reproduces the paper's qualitative in-silico result (surplus above Interpolating k = 22) within 24 h or less per training run on the M4 Pro. *Stop:* otherwise report and ask the owner whether to scale down or switch to backpropagation through the differentiable clone.
-- **G4 — main comparison (C4).** Runs only under a frozen, owner-approved `protocol.md` (seeds from pilot variance, cross-play matrix, paired episodes with common random numbers, bootstrap CIs over seeds, Holm correction across the H1 family, pre-declared minimum effect, compute ceiling), from clean trees carrying the protocol's config hash. *Stop:* exceeding the compute ceiling triggers only the protocol's pre-declared reductions; H1/H2 are decided as declared and either outcome is reported.
+- **G4 — main comparison (C4).** The cross-play matrix covers the four trainable models with their D35 labels, not just "validated" models. Runs only under a frozen, owner-approved `protocol.md` (seeds from pilot variance, cross-play matrix, paired episodes with common random numbers, bootstrap CIs over seeds, Holm correction across the H1 family, pre-declared minimum effect, compute ceiling), from clean trees carrying the protocol's config hash. *Stop:* exceeding the compute ceiling triggers only the protocol's pre-declared reductions; H1/H2 are decided as declared and either outcome is reported.
 
 ## Non-goals
 
@@ -133,6 +184,7 @@ All are fitted only on training-mechanism human games, split by game into fit an
 
 - **Population.** All human data are UK/US Prolific participants. "Population shift" here means a change of *model*, not of culture.
 - **No new humans.** New planners cannot be tested on new people. Their evaluation is across validated models (and LLM citizens), never against fresh human play.
+- **Only one closed-loop-validated model (D35).** B2, B3 and B23 pass only the one-step test. Cross-play results under them describe planners that face plausible next-choice predictors, not validated simulators of whole games.
 - **Held-out regimes are few.** Three mechanisms, two of them evaluated through a surrogate whose error propagates into validation.
 - **LLM citizens.** Sampling cannot be seeded through the CLI, so runs are stochastic but archived; the model may know the paper (checked with a contamination probe); the owner's plan usage limits cap the number of games.
 - **Unspecified rules.** Every UNSPEC choice above is a modelling decision, documented and tested for sensitivity where it matters.

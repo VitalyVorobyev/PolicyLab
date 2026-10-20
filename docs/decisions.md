@@ -169,3 +169,41 @@ A milestone may change only because of observed source state, physical feasibili
 2. **G1b tolerance as drafted:** |Δz| ≤ 0.005, or ≤ 0.05 for the value printed as 2.9.
 3. **Surrogate acceptance uses the gating experiments only (pre-freeze amendment A34).** Acceptance on held-out human rows is decided by M1 Exp 1 and Exp 2, and by M2 Exp 3, the only experiment of R-M2. M2 Exp 4 numbers are computed and reported as a diagnostic.
 4. **Calibration of record.** The pre-freeze B4 calibration run `citizens-c2-b4-calibration-v2` is accepted as the run of record (weights T1 0.7, T2 0.0, T3 0.3).
+
+**D35 — Model Citizens G2 failed; C4 scope reframed (2026-10-20, owner's decision after the G2 result).**
+- **Evidence.** `citizens-c2-heldout-eval-v1`: status `validated`, commit d249ef0, `git_dirty = false`, protocol v1 frozen, `config_sha256` = `75ed1f96…ac16ee`. Its numbers below come from `criterion_heldout.json`, `criterion_in_sample.json` and `surrogate_fidelity_human.json`. G1b passed first, in `citizens-c1-g1b-v1`:
+  - all 13 published z-values that involve held-out mechanisms were reproduced within tolerance;
+  - the pool anomaly stays within its D33 bound (23 rows, 5 games), and no human game's depletion round changes under it.
+- **§9 outcome: "Only B1 validated". G2 fails** (`g2_passed` = 0).
+  - **B1 is validated (closed-loop) on R-I.** 3 of 4 metrics are in range. The miss is players active: 2.90, against the human 2.24 [1.96, 2.53]. Δℓ = 0.104 nat, 95 % CI [0.075, 0.134]. Its mean normalised W1 is 0.26, below M0-sim's 0.35. The A22 rule did not apply on R-I, because M0-sim passes only 2 of 4 metrics there.
+  - **No other trainable class passes the outcome criterion (a) on any regime.** Metrics in range, R-I / R-M1 / R-M2: B1 3 / 1 / 2, B2 1 / 2 / 2, B3 0 / 0 / 1, B23 0 / 0 / 1.
+  - **All four trainable classes pass the likelihood criterion (b) on all three held-out regimes.** Δℓ in nat, with the 95 % CI lower bound in brackets:
+
+    | Class | R-I | R-M1 | R-M2 |
+    |---|---|---|---|
+    | B1 | 0.104 [0.075] | 0.081 [0.041] | 0.089 [0.037] |
+    | B2 | 0.103 [0.058] | 0.212 [0.154] | 0.175 [0.113] |
+    | B3 | 0.180 [0.143] | 0.301 [0.243] | 0.302 [0.250] |
+    | B23 | 0.174 [0.146] | 0.256 [0.207] | 0.235 [0.179] |
+
+  - **Labels.** On R-M1 all four classes are labelled "validated (one-step)", because the M1 surrogate failed. Only B1's label counts for G2 there, because B1 is validated closed-loop elsewhere (O3). R-I and R-M2 are closed-loop regimes. There, every class except B1 on R-I is "not validated".
+  - **The criterion is not too weak by its control.** B0 fails every regime: 0 metrics in range, Δℓ between −2.88 and −2.63. But criterion (b) alone is a weak bar. The diagnostic persistence baseline P0 also passes it everywhere, with Δℓ 0.116 / 0.223 / 0.231, above B1's.
+- **The pattern.** B3 and B23 have a higher Δℓ than B1 on every regime. B2 has a higher Δℓ than B1 on R-M1 and R-M2, and the same on R-I (0.103 vs 0.104). Yet the classes with the best next-choice likelihood do worst in closed loop:
+  - **B3 and B23 deplete the pool too early.** Their mean depletion round on R-I is 23.4 and 18.5, against the human 35.2 [33.4, 36.9]. On R-M2 it is 31.1 and 25.9, against 36.5 [34.5, 38.3]. Few players stay active.
+  - **B2 errs the other way.** On R-I its pool lasts too long (38.1). Its Gini is too low on every regime: 0.12 / 0.14 / 0.16, against the human 0.18 / 0.26 / 0.29.
+  - **In-sample check** (training mechanisms, non-gating). B1 fails Equal: 1 of 4 metrics, with a simulated depletion round of 23.5 against the human 13.3. B1 passes Mixed and Proportional. B2 passes Proportional only. B3 and B23 pass Equal only.
+- **Surrogates.**
+  - **M1 failed** human-row acceptance on the median error alone: 1.18 coins (Exp 1) and 1.04 coins (Exp 2), against a limit of 1.0. Its p90 errors (4.79, 4.66) and exclusion agreement (0.980, 0.980) were within their limits. So R-M1 is one-step only.
+  - **M2 was accepted** (Exp 3: median 0.39, p90 2.68, agreement 0.990).
+- **B4.** The B4 held-out runs were still running when this entry was written. They never decide G2 (O4) and are reported when they finish.
+- **Owner's decision ("Reframe and continue", asked after the G2 result).**
+  1. **The G2 failure is a reported result, not something to rescue.** There is no refit, no new or relaxed criterion and no v2 of `protocol-validation.md`. The recorded labels stand.
+  2. **C3 and C4 train RL planners against all four trainable classes,** each labelled honestly:
+     - B1: validated (closed-loop) on R-I, and passes (b) on all three held-out regimes;
+     - B2, B3 and B23: pass (b) on all three held-out regimes, but are rejected in closed loop on every regime where the closed-loop tier counts.
+
+     "Validated" is never used for B2, B3 or B23 without the qualifier "one-step".
+  3. **The C4 question becomes:** do citizen models that each pass a different held-out test (next-choice prediction vs whole-game outcomes) lead RL planners to the same mechanism, and how do the planners fare in cross-play? This is an empirical test of whether one-step behavioural validation is enough for policy design (the Lucas critique).
+  4. **B4 stays an evaluation-only population.** Its held-out runs continue to completion under the frozen protocol.
+- **Disclosure.** The C4 scope was set *after* the G2 results were seen. It was set *before* any planner was trained and before any C4 comparison was run.
+- **What fixes C4.** `studies/model-citizens/protocol.md` will fix the hypotheses, seeds and statistics. It is not yet written; it will be frozen with the owner's approval before any C4 evidence run. The hypotheses in the spec are drafts until then. The spec v0 hypotheses are kept there, marked superseded. G3 is unchanged.
