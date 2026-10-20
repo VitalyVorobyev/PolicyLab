@@ -79,11 +79,11 @@ EVAL_SHARES_FILE: Final = "eval_shares.json"
 G3_FILE: Final = "g3.json"
 
 
-def _log(message: str) -> None:
+def log(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
-def _table(
+def table_bytes(
     run_id: str, columns: Sequence[tuple[str, str | None, str]], rows: list[list[Any]]
 ) -> bytes:
     return dumps_json(
@@ -96,15 +96,15 @@ def _table(
     )
 
 
-def _metric(value: float | int, unit: str, definition: str) -> dict[str, Any]:
+def metric_entry(value: float | int, unit: str, definition: str) -> dict[str, Any]:
     return {"value": value, "unit": unit, "definition": definition}
 
 
-def _manifest_sha256(run_dir: Path) -> str:
+def manifest_sha256(run_dir: Path) -> str:
     return hashlib.sha256((run_dir / "manifest.json").read_bytes()).hexdigest()
 
 
-def _read_verified(run_dir: Path, path: str) -> bytes:
+def read_verified(run_dir: Path, path: str) -> bytes:
     """An artifact's bytes after checking its SHA-256 against the run's manifest."""
     manifest = json.loads((run_dir / "manifest.json").read_text("utf-8"))
     expected = next(a["sha256"] for a in manifest["artifacts"] if a["path"] == path)
@@ -114,8 +114,8 @@ def _read_verified(run_dir: Path, path: str) -> bytes:
     return payload
 
 
-def _rows(run_dir: Path, path: str) -> list[list[Any]]:
-    rows: list[list[Any]] = json.loads(_read_verified(run_dir, path))["rows"]
+def table_rows(run_dir: Path, path: str) -> list[list[Any]]:
+    rows: list[list[Any]] = json.loads(read_verified(run_dir, path))["rows"]
     return rows
 
 
@@ -124,7 +124,7 @@ def _fit_run_record(fit_run: Path) -> dict[str, Any]:
     return {
         "path": str(fit_run.resolve()),
         "run_id": manifest["run_id"],
-        "manifest_sha256": _manifest_sha256(fit_run),
+        "manifest_sha256": manifest_sha256(fit_run),
         "git_commit": manifest["source"]["git_commit"],
         "config_sha256": manifest["citizens"]["config_sha256"],
     }
@@ -207,7 +207,7 @@ def eval_key() -> Array:
     return jax.random.key(c3config.EVAL_KEY_SEED)
 
 
-def _weight_runner(
+def weight_runner(
     port: rc.JaxCitizen, n_games: int
 ) -> Callable[[Array, Array, Array], rc.Trajectory]:
     """jit(kind, parameter, key): kind 0 = constant weight w, 1 = Interpolating k."""
@@ -231,8 +231,8 @@ def baselines_for_model(
 ) -> tuple[list[list[Any]], list[list[Any]], list[list[Any]]]:
     """(summary rows, per-game rows, k-grid rows) of one citizen model."""
     f64 = twin.f64
-    run_eval = _weight_runner(port, c3config.EVAL_GAMES)
-    run_tune = _weight_runner(port, c3config.TUNE_GAMES)
+    run_eval = weight_runner(port, c3config.EVAL_GAMES)
+    run_tune = weight_runner(port, c3config.TUNE_GAMES)
     tune_key = jax.random.key(c3config.TUNE_KEY_SEED)
     grid_rows: list[list[Any]] = []
     scores: list[tuple[float, float]] = []
@@ -264,7 +264,7 @@ def baselines_for_model(
         )
         for j in range(c3config.EVAL_GAMES):
             games.append([name, mech, j, *(float(m[metric][j]) for metric in GAME_METRICS)])
-        _log(f"{name:4s} {mech:20s} total surplus {m['total_surplus'].mean():8.2f}")
+        log(f"{name:4s} {mech:20s} total surplus {m['total_surplus'].mean():8.2f}")
     return summary, games, grid_rows
 
 
@@ -363,18 +363,18 @@ def baselines_command(args: argparse.Namespace) -> int:
     }
     for row in summary:
         key = f"{row[0].lower()}_{row[1].lower().replace(' ', '_').replace('=', '').replace('*', '_star')}"
-        manifest["metrics"][f"{key}_total_surplus"] = _metric(
+        manifest["metrics"][f"{key}_total_surplus"] = metric_entry(
             row[5], "coin", "mean total surplus over the evaluation games"
         )
     manifest["citizens"]["seconds"] = time.perf_counter() - start
     files = [
-        ("sample_table", BASELINES_FILE, _table(run_id, SUMMARY_COLUMNS, summary)),
-        ("sample_table", BASELINE_GAMES_FILE, _table(run_id, GAME_COLUMNS, games)),
-        ("sample_table", K_GRID_FILE, _table(run_id, GRID_COLUMNS, grid)),
+        ("sample_table", BASELINES_FILE, table_bytes(run_id, SUMMARY_COLUMNS, summary)),
+        ("sample_table", BASELINE_GAMES_FILE, table_bytes(run_id, GAME_COLUMNS, games)),
+        ("sample_table", K_GRID_FILE, table_bytes(run_id, GRID_COLUMNS, grid)),
     ]
     written = write_run_directory(out_dir, manifest, files)
     failed = [c["name"] for c in written["validation"]["checks"] if not c["passed"]]
-    _log(f"{out_dir}: {len(all_checks)} checks, failed {failed or 'none'}")
+    log(f"{out_dir}: {len(all_checks)} checks, failed {failed or 'none'}")
     return 0 if not failed else 1
 
 
@@ -455,7 +455,7 @@ def train_command(args: argparse.Namespace) -> int:
             iterations,
             chunk=c3config.PPO_CHUNK,
             monitor=lambda p: float(monitor_fn(p)),
-            log=_log,
+            log=log,
         )
         seconds = time.perf_counter() - start
         traj, shares = evaluate(planner)
@@ -496,14 +496,16 @@ def train_command(args: argparse.Namespace) -> int:
         "monitor_key": c3config.MONITOR_KEY_SEED,
     }
     manifest["metrics"] = {
-        "eval_total_surplus_mean": _metric(
+        "eval_total_surplus_mean": metric_entry(
             float(m["total_surplus"].mean()), "coin", "deterministic planner, evaluation games"
         ),
-        "eval_gini_mean": _metric(
+        "eval_gini_mean": metric_entry(
             float(m["gini"].mean()), "dimensionless", "notebook Gini, evaluation games"
         ),
-        "training_seconds": _metric(seconds, "s", "wall time of training (including compilation)"),
-        "seconds_per_million_steps": _metric(
+        "training_seconds": metric_entry(
+            seconds, "s", "wall time of training (including compilation)"
+        ),
+        "seconds_per_million_steps": metric_entry(
             seconds / steps * 1e6, "s", "training wall time per 1e6 planner decisions"
         ),
     }
@@ -517,12 +519,12 @@ def train_command(args: argparse.Namespace) -> int:
     ]
     files = [
         ("model_parameters", PLANNER_FILE, serialise(planner)),
-        ("sample_table", CURVE_FILE, _table(run_id, CURVE_COLUMNS, curve_rows)),
-        ("sample_table", EVAL_GAMES_FILE, _table(run_id, GAME_COLUMNS, game_rows)),
-        ("sample_table", EVAL_SHARES_FILE, _table(run_id, SHARES_COLUMNS, share_rows)),
+        ("sample_table", CURVE_FILE, table_bytes(run_id, CURVE_COLUMNS, curve_rows)),
+        ("sample_table", EVAL_GAMES_FILE, table_bytes(run_id, GAME_COLUMNS, game_rows)),
+        ("sample_table", EVAL_SHARES_FILE, table_bytes(run_id, SHARES_COLUMNS, share_rows)),
     ]
     write_run_directory(out_dir, manifest, files)
-    _log(f"{out_dir}: eval total surplus {m['total_surplus'].mean():.2f}, {seconds:.0f} s")
+    log(f"{out_dir}: eval total surplus {m['total_surplus'].mean():.2f}, {seconds:.0f} s")
     return 0
 
 
@@ -553,7 +555,7 @@ def _share_rows(traj: rc.Trajectory, shares: FloatArray) -> list[list[Any]]:
 def load_planner(run_dir: Path) -> Planner:
     manifest = json.loads((run_dir / "manifest.json").read_text("utf-8"))
     hidden = int(manifest["citizens"]["training"]["ppo"]["hidden"])
-    return deserialise(_read_verified(run_dir, PLANNER_FILE), hidden)
+    return deserialise(read_verified(run_dir, PLANNER_FILE), hidden)
 
 
 # --- G3 -------------------------------------------------------------------------------------
@@ -686,10 +688,10 @@ def g3_command(args: argparse.Namespace) -> int:
     check_poolable(base_doc, train_docs)
     fit_record = base_doc["citizens"]["fit_run"]
     fit_run = Path(fit_record["path"])
-    if _manifest_sha256(fit_run) != fit_record["manifest_sha256"]:
+    if manifest_sha256(fit_run) != fit_record["manifest_sha256"]:
         raise SystemExit(f"{fit_run}: manifest differs from the one the runs used")
-    base_rows = _rows(base_dir, BASELINE_GAMES_FILE)
-    summary = {row[1]: row for row in _rows(base_dir, BASELINES_FILE) if row[0] == model}
+    base_rows = table_rows(base_dir, BASELINE_GAMES_FILE)
+    summary = {row[1]: row for row in table_rows(base_dir, BASELINES_FILE) if row[0] == model}
     n = c3config.EVAL_GAMES
     checks_out: list[Check] = []
     with twin.x64():
@@ -720,7 +722,7 @@ def g3_command(args: argparse.Namespace) -> int:
             planner = load_planner(d)
             traj, _ = deterministic(planner)
             totals = checks.trajectory_metrics(traj)["total_surplus"]
-            recorded = _per_game(_rows(d, EVAL_GAMES_FILE), model, "Planner")
+            recorded = _per_game(table_rows(d, EVAL_GAMES_FILE), model, "Planner")
             worst_repro = max(worst_repro, float(np.abs(totals - recorded).max()))
             s_traj = sampled(planner)
             det_total.append(totals)
@@ -733,13 +735,13 @@ def g3_command(args: argparse.Namespace) -> int:
             inputs.append(
                 {
                     "run_id": tm["run_id"],
-                    "manifest_sha256": _manifest_sha256(d),
+                    "manifest_sha256": manifest_sha256(d),
                     "seed": seed,
                     "env_steps": training["env_steps"],
                     "hours": training["seconds"] / 3600.0,
                 }
             )
-        runner = _weight_runner(port, n)
+        runner = weight_runner(port, n)
         base_trajs: dict[str, rc.Trajectory] = {}
         worst_base = 0.0
         for mech in c3config.DIAGNOSTIC_BASELINES:
@@ -787,7 +789,7 @@ def g3_command(args: argparse.Namespace) -> int:
                 "difference_ci": [lo, hi],
                 "planner_above": lo > 0.0,
             }
-            _log(f"{policy:13s} planner - {mech:18s}: {mean:+8.2f} [{lo:+8.2f}, {hi:+8.2f}]")
+            log(f"{policy:13s} planner - {mech:18s}: {mean:+8.2f} [{lo:+8.2f}, {hi:+8.2f}]")
     main_cmp = comparisons["deterministic - Interpolating k=22"]
     g3_pass = bool(main_cmp["planner_above"]) and max(hours) <= c3config.G3_HOURS_PER_RUN
     result: dict[str, Any] = {
@@ -836,7 +838,7 @@ def g3_command(args: argparse.Namespace) -> int:
     manifest["citizens"]["inputs"] = {
         "baselines_run": {
             "run_id": base_doc["run_id"],
-            "manifest_sha256": _manifest_sha256(base_dir),
+            "manifest_sha256": manifest_sha256(base_dir),
         },
         "train_runs": inputs,
         "fit_run_manifest_sha256": fit_record["manifest_sha256"],
@@ -857,23 +859,23 @@ def g3_command(args: argparse.Namespace) -> int:
             .replace("=", "")
             .replace("*", "_star")
         )
-        metrics[f"{key_name}_difference"] = _metric(
+        metrics[f"{key_name}_difference"] = metric_entry(
             cmp["difference_mean"], "coin", f"paired mean, {name}"
         )
-    metrics["planner_deterministic_total_surplus_mean"] = _metric(
+    metrics["planner_deterministic_total_surplus_mean"] = metric_entry(
         float(det.mean()), "coin", "mean over seeds and evaluation games"
     )
-    metrics["planner_sampled_total_surplus_mean"] = _metric(
+    metrics["planner_sampled_total_surplus_mean"] = metric_entry(
         float(smp.mean()), "coin", "sampled policy, mean over seeds and evaluation games"
     )
     for seed_key, values in log_std.items():
-        metrics[f"final_log_std_mean_{seed_key}"] = _metric(
+        metrics[f"final_log_std_mean_{seed_key}"] = metric_entry(
             float(np.mean(values)), "dimensionless", "mean over the 5 logits of the final log sigma"
         )
     manifest["metrics"] = metrics
     write_run_directory(out_dir, manifest, [("summary", G3_FILE, dumps_json(result))])
     failed = [c.name for c in checks_out if not c.passed]
-    _log(f"{out_dir}: G3 {'PASS' if g3_pass else 'FAIL'}; failed checks {failed or 'none'}")
+    log(f"{out_dir}: G3 {'PASS' if g3_pass else 'FAIL'}; failed checks {failed or 'none'}")
     return 0
 
 
