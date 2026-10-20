@@ -1,8 +1,8 @@
 # Model Citizens C2: citizen-model validation protocol
 
-Status: draft
+Status: frozen
 
-Version v1-draft, written 2026-10-20 for the study owner's review. Only the owner freezes it: the freeze changes the word `draft` above to `frozen` (the single status line the held-out guard `phasespace.citizens.data.load_heldout` reads), and fills in §1. Until then no held-out human game is read. A frozen protocol is never edited in place; changes create v2 with a changelog entry and a reason, and every result states the version it used.
+Version v1, written 2026-10-20 for the study owner's review. Only the owner freezes it: the freeze changes the word `draft` above to `frozen` (the single status line the held-out guard `phasespace.citizens.data.load_heldout` reads), and fills in §1. Until then no held-out human game is read. A frozen protocol is never edited in place; changes create v2 with a changelog entry and a reason, and every result states the version it used.
 
 **Freeze checklist** (recorded in §1 and in a new D-entry, written only on the owner's instruction):
 1. Every pre-freeze task in §10.1 is done and its output recorded (smoke costs, B4 pilot, memorisation probe, `players_kept_active` check, prompt texts).
@@ -15,10 +15,10 @@ Version v1-draft, written 2026-10-20 for the study owner's review. Only the owne
 
 | | |
 |---|---|
-| Protocol version | v1 (draft) |
-| Frozen date | — (owner) |
-| Git commit at freeze | — |
-| Config hash at freeze | — (`config_sha256` of the C2 configuration module) |
+| Protocol version | v1 |
+| Frozen date | 2026-10-20, owner-approved |
+| Git commit at freeze | `f8eb3b5cf1414b2d477c6ff8a608f29e0c728154` (the commit the frozen code lives at) |
+| Config hash at freeze | `75ed1f96fc76ef76ee466c51c7fc553566fe8ed39164ac8465864ad539ac16ee` (`config_sha256` of the C2 configuration module) |
 | Inputs | D31, D32, D33 (`docs/decisions.md`); `README.md` (spec v0); `literature.md`; C1 audit run `citizens-c1-data-audit-v1` and its C2 count-only extension `citizens-c1-data-audit-v1-dev3` (A29, A30); pre-freeze runs `citizens-c2-smoke-v1-dev`, `citizens-c2-surrogates-pre1`, `citizens-c2-b4-pilot-v1`, `citizens-c2-b4-probes-pilot-v1`, `citizens-c2-b4-pilot-v3`, `citizens-c2-b4-calibration-v2` (superseding `citizens-c2-b4-calibration-v1`, A32) (§14) |
 | Scope | Milestone C2 and gate G2 only. The planner comparison (C4) has its own `protocol.md`. |
 
