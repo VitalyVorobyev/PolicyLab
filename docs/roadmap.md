@@ -78,9 +78,12 @@ Spec: `studies/model-citizens/README.md`. Code goes in `src/phasespace/citizens/
 ### C1 — Data and game reimplementation (gate G1)
 
 - Download and checksum the public CSV; parse to typed per-game arrays; publish a data-audit run (games per mechanism and cohort, filters, rounds, post-depletion behaviour).
-- Pure NumPy game and mechanisms, plus a JAX twin that matches it to 1e-9.
+- Pure NumPy game and mechanisms (the JAX twin and its 1e-9 agreement check move to C3; D33).
 
-**G1:** every recorded pool transition and Equal / Mixed / Proportional / Interpolating offer is reproduced within print precision; the published Exp 1–4 z-values are reproduced to two decimals. Otherwise stop and reconcile; a documented approximation needs the owner's approval.
+**G1:** every recorded pool transition and Equal / Mixed / Proportional / Interpolating offer is reproduced within print precision, and the published Exp 1–4 z-values are reproduced to two decimals. Otherwise stop and reconcile; a documented approximation needs the owner's approval. The gate is split (D33):
+
+- **G1a**, now: the training populations, the offer identities and the four training-only Exp 1 z-values.
+- **G1b**, immediately after the `protocol-validation.md` freeze: the z-values involving held-out mechanisms, and the root cause of the bounded held-out pool anomaly.
 
 ### C2 — Citizen models and validation (gate G2)
 
@@ -91,6 +94,7 @@ Spec: `studies/model-citizens/README.md`. Code goes in `src/phasespace/citizens/
 
 ### C3 — RL planner pipeline (gate G3)
 
+- JAX twin of the NumPy game and mechanisms, agreeing to 1e-9 (moved from C1; D33).
 - PPO in JAX with a set-encoder + GRU policy and a 5-share stochastic head; baselines including the re-tuned interpolating k\* per model.
 - Correctness on a toy problem and an analytically solvable citizen; determinism for a fixed seed; measured cost per million steps.
 

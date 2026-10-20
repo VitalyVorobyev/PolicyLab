@@ -52,6 +52,17 @@ Labels: **[S]** stated in the paper or supplement; **[D]** checked against CSV r
 - Interpolating **[S]**: w = (R/200)^k with k = 22, chosen on a grid log k ∈ [−5, 5] in steps of 0.1 against clones (log base **UNSPEC**; natural log gives e^3.1 ≈ 22.2).
 - M1, M2 **[S]**: deterministic GNN policies; softmax over 5 logits (4 players + pool) times R. Weights are **not released**. Excluded players get tiny positive offers **[D]**.
 
+**Resolved from the data in C1 (D33; `phasespace.citizens.validation`, training rows unless noted).**
+
+- **Pool floor.** The recorded software applies R' = max(0.01, min(200, R − Σe + 1.4·Σc)); the pool never falls below 0.01.
+- **Withheld amount.** Deployed baseline offers are round(shareᵢ·(R − 0.001), 4), computed in float32. About 0.001 coins stays in the pool every round, independent of R. `distribute_pool_ratio` is constant (1.0 in human rows, empty in BC rows), so its effect is unidentifiable.
+- **Legacy games.** A frozen list of 7 early Exp 1 Equal/Proportional games drops the remainder R − Σe, so for those games R' = max(0.01, min(200, 1.4·Σc)). Every other game follows the full rule.
+- **Σc = 0.** This happens only at the 0.01 floor; the offer is then an equal split.
+- **Interpolating weight.** The deployed weight is w = round((R/200)^22, 1).
+- **After depletion.** Rows are kept until the game ends (pool 0.01, offers 0.0022, c = 0), and the metrics include them.
+- **Simulated offer rule.** C2–C4 simulate the *deployed* rule above (`mechanisms.baseline_offers`, default `rule="deployed"`), so simulated games face exactly the offers humans experienced. The paper's idealised whole-pool formula stays available as `rule="paper"`; the two differ by at most about 0.0011 coins per player.
+- **Open (G1b).** 23 held-out pool rows in 5 RL Agent (M1) Exp 1 games sit about 0.01 coins below the rule. The anomaly is bounded but not yet diagnosed; it is root-caused only after the validation protocol freeze.
+
 Other **UNSPEC** or contradictory points: the planner's policy-gradient estimator and whether gradients flow through the clones; episodes per update; observation ordering for the clones; the clones' train/validation split; M1 GRU size (16 in Methods, 32 in Table S2); Exp 4 group count (40 "sets" in Methods, 80 groups in Results).
 
 ## Data
@@ -103,7 +114,11 @@ All are fitted only on training-mechanism human games, split by game into fit an
 
 ## Gates
 
-- **G1 — data and game (C1).** Every human and BC row satisfies the pool transition within print precision; Equal, Mixed, Proportional and Interpolating offers are reproduced from recorded reciprocations and pool; the Σc = 0 and residual-pool cases are resolved from data; the published Exp 1–4 z-values are reproduced to two decimals. NumPy reference and JAX twin agree to 1e-9. *Stop:* any failure halts work until reconciled; a documented approximation needs the owner's approval.
+- **G1 — data and game (C1).** Every human and BC row satisfies the pool transition within print precision. Equal, Mixed, Proportional and Interpolating offers are reproduced from the recorded reciprocations and pool. The Σc = 0 and residual-pool cases are resolved from data. The published Exp 1–4 z-values are reproduced to two decimals. G1 is split (D33):
+  - **G1a**, before the freeze: the training populations, the offer identities (including held-out Interpolating rows) and the four training-only Exp 1 z-values.
+  - **G1b**, immediately after the validation protocol freeze: the z-values involving held-out mechanisms, and the root cause of the held-out pool anomaly.
+
+  The NumPy–JAX 1e-9 agreement check moves to C3 (D33). *Stop:* any failure halts work until reconciled; a documented approximation needs the owner's approval.
 - **G2 — citizen models (C2).** At least two model classes, at least one not a GRU, are validated on at least one held-out regime. *Stop:* otherwise the cross-model question collapses; report and ask the owner. If every class fails everywhere, that is a publishable null result (no model fitted on baselines predicts behaviour under new institutions); ask the owner before continuing.
 - **G3 — planner pipeline (C3).** Against B1, the planner reproduces the paper's qualitative in-silico result (surplus above Interpolating k = 22) within 24 h or less per training run on the M4 Pro. *Stop:* otherwise report and ask the owner whether to scale down or switch to backpropagation through the differentiable clone.
 - **G4 — main comparison (C4).** Runs only under a frozen, owner-approved `protocol.md` (seeds from pilot variance, cross-play matrix, paired episodes with common random numbers, bootstrap CIs over seeds, Holm correction across the H1 family, pre-declared minimum effect, compute ceiling), from clean trees carrying the protocol's config hash. *Stop:* exceeding the compute ceiling triggers only the protocol's pre-declared reductions; H1/H2 are decided as declared and either outcome is reported.

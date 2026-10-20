@@ -144,3 +144,22 @@ A milestone may change only because of observed source state, physical feasibili
 
    A memorisation probe for the 2025 paper is logged before any held-out run.
 
+**D33 — Model Citizens G1 split, data-derived game rules and the simulated offer rule (2026-10-20, owner-approved split).** These follow the C1 data audit (`phasespace.citizens.validation`, run `citizens-c1-data-audit-v1-dev2`). Held-out games were touched only through arithmetic-identity residuals and counts.
+1. **G1 is split (the owner approved it on 2026-10-20).**
+   - **G1a, now:** every training-population check (human Equal / Mixed / Proportional games and all BC games); mechanism-offer reproduction, including the held-out Interpolating rows as an identity; and the four training-only Exp 1 z-values (4.58, 5.28, 5.89, 4.76).
+   - **G1b, immediately after `protocol-validation.md` is frozen:** reproduce the published z-values that involve held-out mechanisms, and root-cause the held-out pool anomaly.
+   - A C1 audit run is `validated` for the G1a scope only (the Model Citizens addendum in `data-contract.md`). G1 as a whole is not passed until G1b.
+2. **Deferred anomaly, bounded and not diagnosed.**
+   - In 5 RL Agent (M1) Exp 1 games, 23 held-out pool rows sit about 0.01 coins below the full rule. No other held-out mechanism or cohort fails.
+   - Recorded bound: only RL Agent (M1) Exp 1, at most 23 rows in at most 5 games, |residual| ≤ 0.0100 + 1e-4 coins.
+   - The strict held-out pool identity is an `xfail(strict=True)` test. A separate regression test enforces the bound. Nothing else about those rows is inspected before the freeze. The earlier "0.01 deduction" fit count was removed as premature diagnosis.
+3. **Game rules established from the data (training rows, except where noted).**
+   - **Pool floor:** R' = max(0.01, min(200, R − Σe + 1.4Σc)). The floor is not in the paper; every recorded pool is ≥ 0.01.
+   - **Withheld amount:** deployed baseline offers are round(shareᵢ·(R − 0.001), 4) in float32. Withholding 0, 0.0005, 0.0015 or 0.002 does not reproduce them (as for k).
+   - **Legacy launch_ids:** a frozen list of 7 early Exp 1 games (3 Equal, 4 Proportional) drops the remainder R − Σe: R' = max(0.01, min(200, 1.4Σc)), in every row. Each of the 7 needs this rule, and every other game follows the full rule. Rules are assigned per game, never chosen per row. No held-out game carries a listed id.
+   - **Σc = 0:** this occurs only with the pool at the 0.01 floor, and the offer is then an equal split.
+   - **Interpolating weight:** quantised as w = round((R/200)^22, 1). The unquantised weight, floor rounding, k = 21 or 23, and k = e^3.1 do not reproduce the BC offers. The quantised weight also reproduces the held-out Interpolating offers as an identity.
+   - **Post-depletion rows:** these are kept. Training games record pool 0.01, offers 0.0022 and c = 0 until the game ends. The notebook's metrics include these rows, and so do ours.
+   - **`distribute_pool_ratio`:** unidentifiable. It is 1.0 in every human training row and empty in BC rows; the withholding is absolute, not a ratio.
+4. **Simulated offer rule.** C2–C4 simulate the *deployed* rule, so simulated games face exactly the offers humans experienced: 0.001 withheld, 4-decimal rounding and float32 shares as reverse-engineered. It is the default (`mechanisms.baseline_offers`, `rule="deployed"`). The paper's idealised formula stays available as `rule="paper"` / `paper_offers`; the two differ by at most about 0.0011 coins per player. Simulations use the full pool rule with the 0.01 floor.
+5. **JAX twin moves to C3.** The NumPy reference is the C1 deliverable. The JAX twin, and its 1e-9 agreement check, are built with the PPO pipeline in C3, where they are first needed.

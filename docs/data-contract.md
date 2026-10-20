@@ -508,4 +508,82 @@ interface ErrorFan {  // artifact of kind "error_fan" (fan-<arm>.json, one per a
 
 A fan path is the uncorrected trajectory as the robustness runs judge it: the executed TLI propagated to t_c = 1 d and continued without a burn, ending at the return shell, a collision or T_MAX = 10 d. `survived` may be true for an infeasible path (the MCC rescued it). Its `catalog.json` entry uses kind `"atlas"`; it is added together with the website validator change that accepts the kinds `atlas` and `error_fan` (the validator rejects unknown kinds).
 
+## Model Citizens addendum (C1 data audit)
+
+**Scope (additive; `python -m phasespace.citizens.export`, `just citizens-audit`).** Model Citizens runs are not CR3BP propagations, so their manifests replace the CR3BP-specific fields. Everything else in schema v1 (run directory, `source`, `environment`, `artifacts`, `metrics`, `limitations`, `validation`, `Check`, `SampleTable`, immutability, checksums) applies unchanged. These runs stay local under `runs/` until a curated public sample is chosen; the website validator does not accept them yet.
+
+```ts
+type MetricUnit = /* ... */ | "coin";   // a coin of the Koster et al. (2025) common-pool game
+                                        // (pool, offers, reciprocations, rewards, residuals)
+
+interface CitizensManifest {   // Manifest with these differences:
+  study_id: "model-citizens";
+  model: CitizensModel;        // instead of Cr3bpModel
+  simulator: null;             // instead of `solver` (which is absent): null = the run
+                               // simulates no games (the C1 data audit). The first run that
+                               // simulates games (C2) defines a CitizensSimulator type here,
+                               // in an amendment, before it is emitted.
+  random_seed: number | null;  // null for the data audit (no randomness)
+  citizens: CitizensBlock;     // the one allowed extra block
+  // termination, derived_from and m4 are not used.
+}
+
+interface CitizensModel {      // phasespace.citizens.game / .mechanisms constants
+  name: "koster2025-common-pool";
+  units: "coin";
+  players: 4;
+  max_pool: number;            // 200 (initial pool and cap)
+  growth_factor: number;       // 1.4
+  pool_floor: number;          // 0.01 (data-derived, D33)
+  depletion_threshold: number; // 1
+  exclusion_threshold: number; // 1
+  rounds_exps_1_3: number;     // 40
+  baseline_weights: { equal: number; mixed: number; proportional: number };  // 1, 0.5, 0
+  interpolating_k: number;     // 22
+  interpolating_weight_decimals: number;   // 1: w = round((R/200)^22, 1) (D33)
+  recorded_offer_withheld: number;         // 0.001 coins withheld by the deployed software
+  recorded_offer_decimals: number;         // 4
+  offer_rule: "deployed" | "paper";        // the rule simulations use (D33: "deployed")
+  legacy_remainder_dropped_games: number;  // size of the frozen legacy launch_id list
+}
+
+interface CitizensBlock {
+  stage: "c1_data_audit";
+  gate: {
+    name: "G1a";               // the gate scope the run's validation.checks cover
+    scope: string;             // plain-language list of what the checks cover
+    status_semantics: string;  // restates the rule below
+    deferred: DeferredItem[];  // known items outside the scope, each with a bound
+    deferred_to_g1b: string[]; // work that waits for the validation protocol freeze
+  };
+  dataset: { url: string; size_bytes: number; md5_base64: string; sha256: string;
+             license: string; citation: string; notebook: string };
+  parser_version: string;
+  processed: { training_sha256: string; heldout_sha256: string };  // processed .npz files
+  tolerances: { pool: number; offer: number; offer_exact: number; record: number;
+                z: number };   // coins, except z (dimensionless)
+  validation_protocol: {
+    path: string;              // "docs/studies/model-citizens/protocol-validation.md"
+    held_out_access: string;   // what the run read of held-out games
+    sha256?: string;           // required in any run that read held-out games through
+                               // data.load_heldout: the frozen protocol's sha256
+  };
+  rules: { name: string; rule: string }[];      // game conventions established from data
+  diagnostics: Record<string, unknown>;         // training-only counts behind the rules
+}
+
+interface DeferredItem {
+  name: string;                // e.g. "heldout_pool_anomaly"
+  gate: "G1b";
+  definition: string;
+  observed: Record<string, number | string[]>;  // counts and residual maxima only
+  bound: Record<string, number | string>;       // documented before diagnosis
+  within_bound: boolean;
+}
+```
+
+**Status of a citizens run.** `validated` means: every check in `validation.checks` passed, and every `citizens.gate.deferred` item is `within_bound`. The checks cover only the scope named in `citizens.gate.name`. For the C1 audit that is G1a (D33): training-population identities, mechanism-offer reproduction including held-out Interpolating rows as an arithmetic identity, and the four training-only Exp 1 z-values. A deferred item inside its bound is a known, documented, undiagnosed exception. It is not validated, and the run makes no claim about it beyond the bound. G1 as a whole passes only when a G1b run, made after the validation protocol freeze, records the deferred work as passing checks. Otherwise the status is `computed_unvalidated`.
+
+**Held-out data in citizens runs.** Before the validation protocol freeze, held-out human games (Interpolating, M1, M2 in Exps 1–4) may appear only as game counts and as residual summaries of the arithmetic identities: entries, maximum |residual| in coins, failing entries and failing games. Sample tables give no game lengths or per-game values for them. The only row information is the identity entry counts: row totals per mechanism and cohort.
+
 Prefer schema validation on producer and consumer sides (Python + TypeScript). Avoid generating a complicated cross-language framework before first two consumers exist.

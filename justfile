@@ -136,3 +136,12 @@ web-publish-run run destination:
 # just gravity-m4-demo-export --confirm-frozen --workers 10   (writes gravity-m4-demo-atlas-v1)
 gravity-m4-demo-export *args:
     uv run python -m phasespace.gravity.m4 --runs-dir runs demo-export {{args}}
+
+# Model Citizens C1: download the Koster et al. (2025) CSV once (size + MD5 verified) and parse it into data/processed/.
+citizens-data:
+    uv run python -m phasespace.citizens.data download
+    uv run python -m phasespace.citizens.data parse
+
+# Model Citizens C1 data audit (identity checks, published z-values) as a new run under runs/ (never overwrites).
+citizens-audit run_id="citizens-c1-data-audit-v1":
+    uv run python -m phasespace.citizens.export --runs-dir runs --run-id {{run_id}}
