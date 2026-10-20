@@ -163,3 +163,9 @@ A milestone may change only because of observed source state, physical feasibili
    - **`distribute_pool_ratio`:** unidentifiable. It is 1.0 in every human training row and empty in BC rows; the withholding is absolute, not a ratio.
 4. **Simulated offer rule.** C2–C4 simulate the *deployed* rule, so simulated games face exactly the offers humans experienced: 0.001 withheld, 4-decimal rounding and float32 shares as reverse-engineered. It is the default (`mechanisms.baseline_offers`, `rule="deployed"`). The paper's idealised formula stays available as `rule="paper"` / `paper_offers`; the two differ by at most about 0.0011 coins per player. Simulations use the full pool rule with the 0.01 floor.
 5. **JAX twin moves to C3.** The NumPy reference is the C1 deliverable. The JAX twin, and its 1e-9 agreement check, are built with the PPO pipeline in C3, where they are first needed.
+
+**D34 — Model Citizens C2 validation protocol frozen (2026-10-20, owner-approved).** `studies/model-citizens/protocol-validation.md` v1 is frozen. The freeze commit is `589956d6f289d94041b089dd77db06cffe25e23f`; the frozen code lives at `f8eb3b5cf1414b2d477c6ff8a608f29e0c728154`; `config_sha256` = `75ed1f96fc76ef76ee466c51c7fc553566fe8ed39164ac8465864ad539ac16ee`. Held-out human rows may now be read, only through the post-freeze stages of `phasespace.citizens.heldout`. The owner's decisions, recorded on 2026-10-20:
+1. **Freeze v1 now.**
+2. **G1b tolerance as drafted:** |Δz| ≤ 0.005, or ≤ 0.05 for the value printed as 2.9.
+3. **Surrogate acceptance uses the gating experiments only (pre-freeze amendment A34).** Acceptance on held-out human rows is decided by M1 Exp 1 and Exp 2, and by M2 Exp 3, the only experiment of R-M2. M2 Exp 4 numbers are computed and reported as a diagnostic.
+4. **Calibration of record.** The pre-freeze B4 calibration run `citizens-c2-b4-calibration-v2` is accepted as the run of record (weights T1 0.7, T2 0.0, T3 0.3).
