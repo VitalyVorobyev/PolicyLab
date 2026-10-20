@@ -2,15 +2,15 @@
 
 Status: draft
 
-Version v1, drafted 2026-10-20 for the study owner's review. Only the owner freezes it. The freeze changes the word `draft` above to `frozen`; that is the single status line that the C4 evidence stages (`phasespace.citizens.rl.c4`: `crossplay`, `distill`, `b4`) read. The freeze also fills in §1. A frozen protocol is never edited in place: changes create v2, with a changelog entry and a reason, and every result states the version it used.
+Version v1, drafted 2026-10-20 for the study owner's review. Only the owner freezes it. The freeze changes the word `draft` above to `frozen`; that is the single status line that the C4 stages (`phasespace.citizens.rl.c4`: `crossplay`, `distill`, `b4`, `hypotheses`; and C4 training, `stage train --milestone c4`) read. The freeze also fills in §1. A frozen protocol is never edited in place: changes create v2, with a changelog entry and a reason, and every result states the version it used.
 
 **This text is frozen only after B4's C2 held-out evaluation is complete.** B4's role in C4 (gating or descriptive) is fixed in §9.4 *before* those labels are known. The drafter did not read any B4 held-out outcome.
 
 **Freeze checklist** (recorded in §1 and in a new D-entry, written only on the owner's instruction):
 1. B4's C2 held-out runs and their `b4-evaluate` stage are complete. Each B4 variant's label per regime is recorded in the D-entry and mapped to its C4 role by §9.4, with no other judgement.
-2. Every code prerequisite of §14 is done and `just verify` passes.
-3. The constants of Appendix B are transcribed into `phasespace.citizens.rl.c4_config`. The appendix test (`tests/citizens/test_citizens_c4_protocol.py`) is extended to cover them, and `config_sha256` is printed into §1.
-4. The open decisions of §13 are answered and integrated in the sections they name.
+2. Every code prerequisite of §14 is done and `just verify` passes. (Done 2026-10-20, §14; re-run at the freeze commit.)
+3. The constants of Appendix B are transcribed into `phasespace.citizens.rl.c4_config`. The appendix test (`tests/citizens/test_citizens_c4_protocol.py`) is extended to cover them, and `config_sha256` is printed into §1. (Transcription and test done, P8; the hash is printed at the freeze.)
+4. The open decisions of §13 are answered and integrated in the sections they name. (Answered by the owner on 2026-10-20, §13; integrated in §2, §4, §6.5, §7, §9 and Appendix B.)
 5. The freeze commit changes only the status word and §1, on a clean tree.
 
 ## 1. Header
@@ -38,6 +38,8 @@ Version v1, drafted 2026-10-20 for the study owner's review. Only the owner free
   | B23 | 1266.7 | 587.3 | 601.2 | 530 | 6.2 | 0.81 |
 
   B2's pilot exceeds its own k\* by 12 coins, which is below the minimum effect δ = 16 chosen in §9.1. δ is anchored on C2's surplus tolerance and on the B1 seed SD, not on this pilot (§9.1).
+
+- **After drafting, while implementing §14 (2026-10-20):** a 20-iteration timing of PPO on B1 and on the mixture citizen (test seed 5, not a C4 seed; wall time only, no score read or printed), and the C3 golden test (B1, seed 5, 4 iterations of 64 games; parameter hash only).
 
 **Not seen:**
 - any planner evaluated on a model other than its training model;
@@ -71,7 +73,7 @@ All hypotheses compare total surplus per game (coins; §8) under the determinist
   The fit R² and the surplus of each distilled rule are reported with them.
 - **Secondary analyses (§9.7):**
   - S1, the no-retention ablation: is disagreement driven by retention?
-  - S2, the robust mixture planner, only if the owner chooses it (O1).
+  - S2, the robust mixture planner (owner decision O1 = yes, 2026-10-20).
 
 **Status of the one-step label.** B2, B3 and B23 pass the one-step criterion (b) on every held-out regime. However, the diagnostic persistence baseline P0 passes it too, with a higher Δℓ than B1 (0.116 / 0.223 / 0.231). So "one-step validated" is a weak bar. No C4 statement may lean on it as strong evidence that a model is realistic. H2 asks whether that weak bar is enough for policy design; it does not assume that it is.
 
@@ -104,10 +106,10 @@ All hypotheses compare total surplus per game (coins; §8) under the determinist
 |---|---|---|---|---|
 | Planner[B1], Planner[B2], Planner[B3], Planner[B23] | each model | 5-way (4 players + pool retention) | 1001–1005 | main (H1, H2) |
 | Planner-noret[X], X ∈ {B1, B2, B3, B23} | each model | 4-way softmax, Σe = R − 0.001 | 2001–2003 | secondary S1 (ablation) |
-| Planner[Mix] (**owner choice, O1**) | uniform mixture per game | 5-way | 3001–3003 | secondary S2 |
+| Planner[Mix] (O1 = yes) | uniform mixture per game | 5-way | 3001–3003 | secondary S2 |
 
-- **Excluded seeds and runs.** The C3 B1 planners (`citizens-c3-train-b1-s{1,2,3}-v1`; 500 iterations; already inspected in G3) and the pilots (seeds 901–903) are never C4 inputs. The C4 B1 row is trained fresh, with seeds 1001–1005. The C4 stages refuse pilot runs and reserved seeds (`c4.reserved_seeds`).
-- **Robust mixture planner** (if O1 = yes). Each of the 1,024 training games of an iteration draws its citizen model uniformly and independently from {B1, B2, B3, B23}, with keys derived from the training seed. All four citizens of a game come from that model. Everything else equals the main rows. Monitoring uses its own C3 monitoring games, the same 512 games under each model, with the 4-model mean as the learning curve. *Cost:* about 0.9 h per run (§7), so 2.7 h for 3 seeds. It needs a mixture citizen port (§14, P7).
+- **Excluded seeds and runs.** The C3 B1 planners (`citizens-c3-train-b1-s{1,2,3}-v1`; 500 iterations; already inspected in G3) and the pilots (seeds 901–903) are never C4 inputs. The C4 B1 row is trained fresh, with seeds 1001–1005. The C4 stages refuse C3 runs, pilot runs and reserved seeds (`c4.reserved_seeds`, which includes the C3 seeds 1–3). Training under `--milestone c4` refuses any seed not declared for its row, any iteration count other than 1,000, any `--set` override and an unfrozen protocol (P1).
+- **Robust mixture planner** (O1 = yes). Each of the 1,024 training games of an iteration draws its citizen model uniformly and independently from {B1, B2, B3, B23} (`citizens.MixtureCitizen`). The draw uses the game's citizen key, which is split from the iteration key of the training seed, so it is fixed by the seed. All four citizens of a game come from that model. Everything else equals the main rows. Monitoring uses the C3 monitoring games, the same 512 games under each model, with the 4-model mean as the learning curve; the final score on the C3 evaluation games is likewise the 4-model mean, with each model's score recorded. Planner[Mix] has no single training model, so it is not distilled (§6.4) and has no own-model cell (§9.3). *Cost:* about 1.0 h per run (§7), so 3.0 h for 3 seeds.
 - **Evaluation policy.** The deterministic policy (shares = softmax(μ)) is confirmatory. The sampled policy (one noise key, 41001) is reported for every cell, as is the final log σ of each run.
 
 **Baselines (deployed offer rule, D33):**
@@ -138,7 +140,7 @@ All hypotheses compare total surplus per game (coins; §8) under the determinist
 ## 6. Methods
 
 ### 6.1 Training
-- `just citizens-c4-train <run_id> <model> <seed> 1000 [--no-retention]` (stage `train`, milestone `c4`), from a clean tree at the freeze commit, after the freeze.
+- `just citizens-c4-train <run_id> <model> <seed> 1000 --confirm-frozen [--no-retention]` (stage `train`, milestone `c4`; model `Mix` for the mixture row), from a clean tree at the freeze commit, after the freeze. The command refuses before the freeze, and refuses undeclared seeds, other iteration counts, overrides and other run ids.
 - Run ids:
   - `citizens-c4-train-<model>-s<seed>-v1`;
   - `citizens-c4-train-<model>-noret-s<seed>-v1`;
@@ -185,7 +187,7 @@ All hypotheses compare total surplus per game (coins; §8) under the determinist
 
 ### 6.4 Distillation (C4c)
 - `just citizens-c4-distill citizens-c4-distill-v1 --confirm-frozen --train-run <all planner runs>`.
-- Each planner seed is played on its own training model on the **1,000 distillation games** (key 41002). The fits are:
+- Each planner seed (main and no-retention rows; not Planner[Mix], which has no single training model) is played on its own training model on the **1,000 distillation games** (key 41002). The fits are:
   - the binned w(R) family, with 10 bins of R/200, a weight w and a kept share κ per bin;
   - the one-parameter fit w = (R/200)^k on the paper's ln k grid;
   - a CART tree of depth 3 with at least 200 rows per leaf, on (R/200, own previous fraction, others' previous fraction, own previous share).
@@ -200,8 +202,9 @@ All hypotheses compare total surplus per game (coins; §8) under the determinist
 - **Distilled-rule cross-play.** Each main planner seed's distilled w-rule and distilled k are played on every trainable column on that column's distillation games, next to k\*[Y] and k = 22 on the same games. This shows whether the *mechanism* transfers, not just the network.
 
 ### 6.5 Planner versus B4
-- `just citizens-c4-b4 citizens-c4-b4-<variant>-<row>-v1 --confirm-frozen --train-run <run> --variant <variant> [--calibration-run runs/citizens-c2-b4-calibration-v2]`, with 40 games per row.
-- Rows on B4 under option (i) of O2: Planner[B1], Planner[B2], Planner[B3] and Planner[B23], seed 1001 each, plus k\*[B1] (k = 9.03) (§14, P6).
+- `just citizens-c4-b4 citizens-c4-b4-<variant>-<row>-v1 --confirm-frozen --train-run <run> --crossplay-run runs/citizens-c4-crossplay-v1 --variant <variant> [--calibration-run runs/citizens-c2-b4-calibration-v2]` for a planner row (`<row>` = `b1`, `b2`, `b3`, `b23`), and `--rule "Interpolating k*[B1]"` instead of `--train-run` for the rule row (`<row>` = `kstar-b1`), with 40 games per row.
+- Rows on B4 (O2 = (ii), O3: k\*[B1] is run on B4 for each variant, not reused from C2): Planner[B1], Planner[B2], Planner[B3] and Planner[B23], seed 1001 each, plus k\*[B1] (k = 9.03), each on **both** variants, B4-plain and B4-calibrated: 10 B4 runs (§14, P6).
+- **Guards (P6).** A planner row must be a main row with seed 1001, from a clean tree, not reserved, an input of the cross-play run (made under this protocol, from a clean tree) and identical to its shared training signature, with the baselines run's fit run. The rule row's k must equal the protocol's k\*[B1]. Only the declared variants, game counts (40, or 30 under the reduction) and run ids are accepted.
 - **Seed choice.** The seed is the first main seed, 1001, fixed now. There is no selection on any result.
 - The C2 B4 held-out Interpolating k = 22 run of the same variant (for example `citizens-c2-b4-plain-interpolating-v1`) is shown as a reference row. It is not part of a test.
 - **Statistics.** B4 games cannot be paired across rows (unseeded sampling), so comparisons are unpaired over games (§9.4).
@@ -225,7 +228,8 @@ All hypotheses compare total surplus per game (coins; §8) under the determinist
   - 40 B4 games per (row, variant).
 - **Non-LLM compute.** Measured training costs:
   - 0.806–0.867 h per 1,000-iteration run (the three pilots);
-  - 0.455–0.457 h per 500-iteration B1 run (C3), about 0.91 h per 1,000.
+  - 0.455–0.457 h per 500-iteration B1 run (C3), about 0.91 h per 1,000;
+  - the mixture citizen runs all four models on every stream; a 20-iteration timing with a test seed (5; no evaluation) took 1.09 times as long per iteration as B1, so about 1.0 h per mixture run.
 
   Planned training, run serially:
 
@@ -233,11 +237,11 @@ All hypotheses compare total surplus per game (coins; §8) under the determinist
   |---|---|---|
   | Main | 20 | 18.2 |
   | Ablation | 12 | 10.9 |
-  | Mixture (if O1) | 3 | 2.7 |
-  | Total | 35 | 31.8 |
+  | Mixture (O1 = yes) | 3 | 3.0 |
+  | Total | 35 | about 32 (31.8 at the B1 rate) |
 
-  - The C4 prep estimates about 10 h of wall time with three concurrent runs. This is from the prep record, not from a run file.
-  - Cross-play is estimated at about 0.5 h, also by the C4 prep. Distillation is smaller.
+  - **Parallel runs.** The machine has 8 performance cores (12 cores in all; `sysctl -n hw.perflevel0.physicalcpu hw.ncpu`). One training process uses about 1.4 cores, so **5 training processes run in parallel** (about 7 performance cores), leaving a core for the B4 runs and the system. That is 7 waves of 5 runs, about 6.5 h of wall time if parallel runs do not slow each other; with contention the plan allows up to about 10 h. Each run's own wall time is recorded and checked against the 24 h limit (K1).
+  - Cross-play is estimated at about 0.5 h by the C4 prep. Distillation (with the recovery test and the distilled-rule cross-play) and the hypothesis stage are smaller.
   - **Ceiling: 40 h wall-clock** for all C4 non-LLM work.
 - **LLM calls (separate ceiling; counted apart from C2's 55,000).** One call is made per player-round with an offer of at least 1 coin. The estimate uses each policy's own-model decisions per game (G3 and pilot runs), × 40 games × (1 + 0.020 retry fraction from `citizens-c2-b4-calibration-v2`):
 
@@ -253,13 +257,14 @@ All hypotheses compare total surplus per game (coins; §8) under the determinist
 
   | O2 option | Estimate | Worst case | **Ceiling** |
   |---|---|---|---|
-  | (i) 4 planners + k\*[B1] on one variant | 27,700 | 32,640 | **33,000** |
-  | (ii) the same on both variants | ≤ 55,500 | 65,280 | **66,000** |
+  | (i) 4 planners + k\*[B1] on one variant | 27,700 | 32,640 | 33,000 |
+  | **(ii) the same on both variants (chosen, O2)** | ≤ 55,500 | 65,280 | **66,000** |
   | (iii) none | 0 | 0 | 0 |
 
+  - **Chosen: option (ii)** (owner, 2026-10-20). The estimate is 2 × 27,700 ≈ 55,500 calls for the 10 B4 runs. The **C4 LLM call ceiling is 66,000 calls** (`c4_config.CEILING_LLM_CALLS`): about 19 % above the estimate and above the worst case of 65,280, so only retries beyond the calibration's rate can reach it.
   - The C4 prep estimated about 26k for (i) and 46k for (ii); the table above uses the rates measured in the runs.
-  - Throughput in the calibration was about 6,600 calls/h, so option (i) takes about 4–5 h.
-  - C4 B4 runs start only after the C2 B4 runs have finished.
+  - Throughput in the calibration was about 6,600 calls/h, so option (ii) takes about 8–9 h.
+  - C4 B4 runs start only after the C2 B4 runs have finished, and planner rows only after the cross-play run (their guard reads it, §6.5).
 - **Pre-declared reductions.** These are applied in order, and only if the measured cost projects past a ceiling:
   - *Non-LLM:*
     1. mixture seeds 3 → 2;
@@ -268,7 +273,7 @@ All hypotheses compare total surplus per game (coins; §8) under the determinist
     Main rows are never reduced. If the ceiling is still exceeded, K3 applies.
   - *LLM:*
     1. B4 games per row 40 → 30;
-    2. under (ii), drop the variant that is not closed-loop validated, or B4-calibrated if both have the same label;
+    2. drop the variant that is not closed-loop validated, or B4-calibrated if both have the same label (option (ii) is chosen, so this step applies);
     3. drop the k\*[B1] B4 row, and H2-B4 becomes descriptive against the C2 k = 22 reference.
 
     Below 20 complete games, a row is exploratory.
@@ -348,6 +353,8 @@ Requiring both is conservative in both directions. Per-seed signs are shown so t
   - The verdict is defined as for H2.
   - *Power:* with game SDs of 300–550 coins (`citizens-c3-baselines-v1`) and 40 games per row, the SE of a difference is about 70–120 coins. Only large effects can be confirmed, and an unconfirmed cell is not evidence of no effect.
 - **Otherwise.** All B4 numbers for v are **descriptive**, labelled "B4-v not validated in closed loop (C2)". These are the means and CIs of total surplus, Gini, depletion and players active per row, and the differences.
+- Under O2 = (ii) both variants are run; each is mapped to its role separately, so H2-B4 can be confirmatory for one variant and descriptive for the other. The role is read from C2's `b4-evaluate` run (`counts_as_validated` on R-I or R-M2) by the hypothesis stage.
+- A row with fewer than 20 complete games is exploratory: its cells count in their Holm family but are never confirmed.
 - B4 never enters H1 (it is not a training model) and never changes H1 or H2.
 
 ### 9.5 Possible exploitation (label, own-model gains)
@@ -374,7 +381,7 @@ For the main planners, from the distillation run:
   - The H1 families are recomputed for the Planner-noret rows (each with its own Holm family of 12; 3 seeds; labelled secondary), together with §9.6 among the no-retention planners.
   - Disagreement is called **"attributable to retention"** if the main rows have at least one confirmed H1 reversal and the no-retention rows have none, or if the mean between-model w(R) L1 among the no-retention planners is less than half that among the main planners.
   - *Confound:* the frozen PPO configuration has entropy coefficient 0, so no entropy bonus enters the loss. The 4-way head, however, explores in 4 dimensions instead of 5, and at equal σ its Gaussian entropy is about 20 % smaller. This is stated wherever S1 is reported.
-- **S2, robust mixture planner** (if O1 = yes). Planner[Mix] versus k\*[Y] in every column, with reversal and transfer families of 4, Holm, both tests, labelled secondary. Its regret against Planner[Y] in each column is also reported. This is the v0 H2 question, now descriptive.
+- **S2, robust mixture planner** (O1 = yes). Planner[Mix] versus k\*[Y] in every column, with reversal and transfer families of 4, Holm, both tests, labelled secondary. Its regret against Planner[Y] in each column is also reported. This is the v0 H2 question, now descriptive.
 
 ### 9.8 Reported regardless of outcome
 The following are always reported:
@@ -395,13 +402,13 @@ The run status follows `docs/data-contract.md`.
 4. The Appendix B constants go into `c4_config` and the appendix test is extended.
 5. Freeze commit.
 
-Allowed before the freeze: own-model pilots on reserved seeds only, and code tests on toy citizens. **Not allowed:** any training run with a declared C4 seed, any evaluation on keys 41000 or 41002, and any planner game with B4.
+Allowed before the freeze: own-model pilots on reserved seeds only, code tests on toy citizens, and timing or golden-hash runs of a few iterations on test seeds that read no score. **Not allowed:** any training run with a declared C4 seed, any evaluation on keys 41000 or 41002, and any planner game with B4.
 
 ### 10.2 After the freeze
 6. From a clean tree at the freeze commit: all training runs of §4 (`just citizens-c4-train …`; any order, concurrent runs allowed). Each run is checked against the shared training signature.
 7. `citizens-c4-crossplay-v1` (all planner runs), then `citizens-c4-distill-v1` (all planner runs, including the recovery test and the distilled-rule cross-play).
 8. The B4 runs of the chosen O2 option, resumable, one run per (row, variant).
-9. The hypothesis stage: §9 decisions computed from the recorded runs only.
+9. The hypothesis stage: §9 decisions computed from the recorded runs only (`just citizens-c4-hypotheses citizens-c4-hypotheses-v1 --confirm-frozen --crossplay-run … --distill-run … --train-run <all planner runs> --b4-run <the 10 C4 B4 runs and the C2 k = 22 reference runs> --b4-eval-run <C2 b4-evaluate>`).
 
 Every C4 evidence manifest records:
 - the protocol SHA-256;
@@ -431,35 +438,32 @@ Every C4 evidence manifest records:
 | K6 | The training signature differs between rows | Stop; the cross-play stage refuses; re-train from the freeze commit under new run ids |
 | K7 | H1, H2 or H2-B4 outcomes | Reported as declared, whichever way they fall |
 
-## 13. Open owner decisions
+## 13. Owner decisions (answered 2026-10-20)
 
-- **O1. Robust mixture planner (S2).** Should it be included? It needs 3 seeds, about 2.7 h serial, and new code for a mixture citizen port (P7). *Recommendation: yes.* It is cheap, and it answers the designer's practical follow-up ("what if I train on all of them?"). It is secondary and never decides H1 or H2.
-- **O2. B4 budget.** The options are:
-  - (i) the 4 main planners plus k\*[B1] on one variant, ≈ 27.7k calls (ceiling 33k);
-  - (ii) the same on both variants, ≤ 55.5k calls (ceiling 66k);
-  - (iii) none.
+The owner answered O1–O7 on 2026-10-20. The questions and the drafted recommendations are kept for the record; the answers are integrated in the sections named.
 
-  *Recommendation: (i).* Run it on the variant that C2 labels closed-loop validated; on B4-plain if both or neither is validated. Under (i), H2-B4 is confirmatory only if that variant is validated.
-- **O3. k\* row on B4.** Should k\*[B1] (k = 9.03) be run on B4, for about 5,000 calls and a small code addition (P6)? The alternative is to use the existing C2 k = 22 B4 run as the comparator, at 0 calls, but with a different k, and it is the run that also decides B4's label. *Recommendation: run k\*[B1].*
-- **O4. Minimum effect δ = 16 coins** (0.1 coin per player-round; C2's τ; about one B1 seed SD). It was chosen after the pilots were seen (§1). *Recommendation: accept.*
-- **O5. Confirmation rule.** Should a verdict require both the crossed bootstrap and the seed-level t-test to agree (§9.2)? *Recommendation: accept.* It is conservative; per-seed signs are always shown.
-- **O6. Seeds and length.** 5 main seeds, 3 ablation seeds and 1,000 iterations. *Recommendation: accept.* The pilot plateaus fell at iterations 480–690, and the B1 seed SD is 12–16 coins.
-- **O7. Exploitation thresholds.** TV ratio 1.5 × k = 22's; input support +0.05 for B2 only. *Recommendation: accept.*
+- **O1. Robust mixture planner (S2). Answer: yes**, as a secondary analysis with 3 seeds (3001–3003; §4, §7, §9.7). It needs about 3.0 h serial and the mixture citizen port (P7). It is secondary and never decides H1 or H2.
+- **O2. B4 budget. Answer: option (ii)**, both variants (B4-plain and B4-calibrated), with the drafted estimate of about 55,500 calls, a C4 LLM ceiling of 66,000 calls and the pre-declared reductions of §7 kept. The drafted options were (i) the 4 main planners plus k\*[B1] on one variant, ≈ 27.7k calls (ceiling 33k); (ii) the same on both variants; (iii) none. The drafted recommendation was (i).
+- **O3. k\* row on B4. Answer: k\*[B1] (k = 9.03) is run on B4**, on each variant, not reused from C2 (§6.5, P6). The C2 k = 22 B4 run of the same variant stays a reference row only.
+- **O4. Minimum effect. Answer: accepted as drafted**, δ = 16 coins (0.1 coin per player-round; C2's τ; about one B1 seed SD). It was chosen after the pilots were seen (§1).
+- **O5. Confirmation rule. Answer: accepted as drafted.** A verdict requires both the crossed bootstrap and the seed-level t / Welch test to reject under Holm (§9.2); per-seed signs are always shown.
+- **O6. Seeds and length. Answer: accepted as drafted**: 5 main seeds (1001–1005), 3 ablation seeds (2001–2003) and 1,000 iterations.
+- **O7. Exploitation thresholds. Answer: accepted as drafted**: TV ratio 1.5 × k = 22's; input support +0.05 for B2 only (§9.5).
 
 ## 14. Code prerequisites (before the freeze)
 
-At the time of drafting (HEAD 3a09e93), these are missing or must change. Each needs tests against independent references.
+At the time of drafting (HEAD 3a09e93) these were missing. All are implemented on the branch `model-citizens-c4`, each tested against independent references (analytic cases, NumPy or SciPy references, hand-computed examples); `just verify` passes. The default planner training is bit-identical to C3 (pinned parameter hash `5f6087ee…891394`, `tests/citizens/test_citizens_rl_ppo.py`, commit 61262b5).
 
-| # | Prerequisite | Protocol § |
-|---|---|---|
-| P1 | One training signature across all planner rows: iterations, PPO config, overrides, commit and fit run identical, differing only in model, seed and retention. `check_poolable` currently checks per model only. Training runs refuse undeclared seeds | §4, K6 |
-| P2 | Kept share coin-weighted (Σ kept / Σ R over R ≥ 1) in cross-play, pilots and distillation κ | §6.3, §6.4 |
-| P3 | Distillation:<br>– deployed rules and the distilled k on the same distillation games, through the deployed rounding path;<br>– the recovery test on quantised-rule trajectories;<br>– the distilled-rule cross-play on every column | §6.4, §9.6 |
-| P4 | Hypothesis stage:<br>– δ-shifted one-sided bootstrap p-values;<br>– seed-level t / Welch tests;<br>– per-seed signs;<br>– Holm per family;<br>– the verdicts of §9.3–9.5 and §9.7.<br>`paired_differences` currently gives 95 % CIs only | §9 |
-| P5 | Input-support output labelled "model extrapolation" (B2) or "state novelty" (B3, B23) | §6.3 |
-| P6 | `c4 b4` accepts a deployed rule row (Interpolating k\*[B1]) besides a planner run | §6.5, O3 |
-| P7 | (If O1 = yes) a mixture citizen port for training (per-game model draw) and for monitoring | §4 |
-| P8 | The Appendix B constants in `c4_config`; the appendix test extended to them | Freeze checklist |
+| # | Prerequisite | Protocol § | Implemented |
+|---|---|---|---|
+| P1 | One training signature across all planner rows: iterations, PPO config, overrides, commit, fit run and configuration hashes identical, differing only in model (or mixture), seed and retention (`c4.group_training_runs`, `c4.shared_signature`). C3 runs, pilot runs, reserved seeds, undeclared rows or seeds and incomplete rows are refused. Training under `--milestone c4` refuses undeclared seeds, other iterations, overrides, other run ids and an unfrozen protocol | §4, K6 | 91c14bf |
+| P2 | Kept share coin-weighted (Σ kept / Σ R over R ≥ 1) in cross-play, pilots, G3 (a new field; the C3 field `kept_share_per_round` keeps its mean-of-ratios meaning) and distillation κ | §6.3, §6.4 | 91c14bf, 8b93f13 |
+| P3 | Distillation:<br>– deployed rules and the distilled k on the same distillation games, through the deployed rounding path;<br>– the recovery test on quantised-rule trajectories;<br>– the distilled-rule cross-play on every column;<br>– the in-sample note in the output | §6.4, §9.6 | 8b93f13 |
+| P4 | Hypothesis stage (`rl.hypotheses`, `c4 hypotheses`):<br>– δ-shifted one-sided bootstrap p-values;<br>– seed-level t / Welch tests;<br>– per-seed signs;<br>– Holm per family;<br>– the verdicts of §9.3–9.7 and H2-B4 | §9 | 894ae92 |
+| P5 | Input-support output labelled "input out-of-range" (B2, model extrapolation) or "state novelty" (B3, B23); undefined diagnostics are null with a reason, never NaN | §6.3 | 91c14bf |
+| P6 | `c4 b4` accepts the deployed rule row k\*[B1] beside a planner run, with the guards of §6.5 | §6.5, O3 | 894ae92 |
+| P7 | The mixture citizen (`citizens.MixtureCitizen`; per-game model draw) for training (`--model Mix`) and evaluation, with the 4-model mean for monitoring | §4 | 91c14bf |
+| P8 | The Appendix B constants in `c4_config`; the appendix test extended to them | Freeze checklist | 91c14bf |
 
 ## Appendix A. Key constants (in code; checked by `tests/citizens/test_citizens_c4_protocol.py`)
 
