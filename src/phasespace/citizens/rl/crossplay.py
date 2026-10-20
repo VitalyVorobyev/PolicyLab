@@ -417,6 +417,91 @@ def group_bootstrap(
     return float(a.mean() - b.mean()), float(lo), float(hi)
 
 
+type Claim = Literal["less", "greater"]
+"""A one-sided claim about a difference D: "less" is D < theta, "greater" is D > theta."""
+
+
+def per_seed_differences(a: FloatArray, b: FloatArray) -> FloatArray:
+    """(Sa,) d_s = mean_j (a_{s,j} - mean over b's seeds of b_{.,j}) (protocol §9.2)."""
+    return (a - b.mean(axis=0)[None, :]).mean(axis=1)
+
+
+def seed_level_t(a: FloatArray, b: FloatArray, theta: float, claim: Claim) -> dict[str, Any]:
+    """One-sided seed-level t-test of D against theta (protocol §9.2): for a comparator
+    with one row (a rule), the one-sample t-test of the per-seed differences d_s
+    (df = Sa - 1); for two planner rows, Welch's t on the rows' per-seed means. A zero
+    standard error gives p = 0 if the estimate lies strictly on the claimed side of
+    theta, else 1. Fewer than 2 seeds in a planner row: p is null, with the reason."""
+    from scipy import stats
+
+    sa, sb = a.shape[0], b.shape[0]
+    if sb == 1:
+        d = per_seed_differences(a, b)
+        test = "one-sample t on the per-seed differences"
+        if sa < 2:
+            return {"test": test, "p": None, "null_reason": "fewer than 2 seeds"}
+        estimate = float(d.mean())
+        se = float(d.std(ddof=1) / np.sqrt(sa))
+        df = float(sa - 1)
+    else:
+        ma, mb = a.mean(axis=1), b.mean(axis=1)
+        test = "Welch t on the per-seed means"
+        if sa < 2 or sb < 2:
+            return {"test": test, "p": None, "null_reason": "fewer than 2 seeds in a row"}
+        va, vb = float(ma.var(ddof=1)) / sa, float(mb.var(ddof=1)) / sb
+        estimate = float(ma.mean() - mb.mean())
+        se = float(np.sqrt(va + vb))
+        df = (
+            (va + vb) ** 2 / (va**2 / (sa - 1) + vb**2 / (sb - 1))
+            if se > 0.0
+            else float(sa + sb - 2)
+        )
+    shift = estimate - theta
+    if se == 0.0:
+        on_side = shift < 0.0 if claim == "less" else shift > 0.0
+        return {
+            "test": test,
+            "estimate": estimate,
+            "theta": theta,
+            "se": 0.0,
+            "df": df,
+            "t": None,
+            "p": 0.0 if on_side else 1.0,
+            "note": "zero standard error: p = 0 on the claimed side of theta, else 1",
+        }
+    t = shift / se
+    p = float(stats.t.cdf(t, df)) if claim == "less" else float(stats.t.sf(t, df))
+    return {"test": test, "estimate": estimate, "theta": theta, "se": se, "df": df, "t": t, "p": p}
+
+
+def seed_level_interval(
+    a: FloatArray, b: FloatArray, level: float = c4_config.CI_LEVEL
+) -> dict[str, Any]:
+    """Two-sided t-interval of D at the seed level (the same statistic as `seed_level_t`);
+    null with the reason when there are too few seeds."""
+    from scipy import stats
+
+    sa, sb = a.shape[0], b.shape[0]
+    if sb == 1:
+        if sa < 2:
+            return {"interval": None, "null_reason": "fewer than 2 seeds"}
+        d = per_seed_differences(a, b)
+        est, se, df = float(d.mean()), float(d.std(ddof=1) / np.sqrt(sa)), float(sa - 1)
+    else:
+        if sa < 2 or sb < 2:
+            return {"interval": None, "null_reason": "fewer than 2 seeds in a row"}
+        ma, mb = a.mean(axis=1), b.mean(axis=1)
+        va, vb = float(ma.var(ddof=1)) / sa, float(mb.var(ddof=1)) / sb
+        est, se = float(ma.mean() - mb.mean()), float(np.sqrt(va + vb))
+        df = (
+            (va + vb) ** 2 / (va**2 / (sa - 1) + vb**2 / (sb - 1))
+            if se > 0.0
+            else float(sa + sb - 2)
+        )
+    q = float(stats.t.ppf(0.5 + level / 2.0, df))
+    return {"interval": [est - q * se, est + q * se], "df": df, "level": level}
+
+
 def stack_totals(series: Sequence[Series], policy: str, column: str, mode: Mode) -> FloatArray:
     """(S, J) per-game totals of one policy, column and mode (seeds in input order)."""
     rows = [
@@ -437,7 +522,9 @@ def paired_differences(
     seed: int = c4_config.BOOTSTRAP_SEED,
 ) -> list[dict[str, Any]]:
     """Every planner row (both modes) minus every rule and every other planner row (same
-    mode), per column: paired mean, per-seed differences and the bootstrap CI."""
+    mode), per column: paired mean, per-seed differences and their signs, the crossed
+    bootstrap CI and the seed-level t-interval (descriptive; the tests are in
+    `rl.hypotheses`)."""
     planners = [p for p in policies if p.kind == "planner"]
     rules = [p for p in policies if p.kind == "rule"]
     out: list[dict[str, Any]] = []
@@ -454,6 +541,7 @@ def paired_differences(
                 for other, other_mode in others:
                     b = stack_totals(series, other, column, other_mode)
                     mean, lo, hi = group_bootstrap(a, b, n_resamples, seed)
+                    d = per_seed_differences(a, b)
                     out.append(
                         {
                             "column": column,
@@ -463,9 +551,10 @@ def paired_differences(
                             "versus_mode": other_mode,
                             "difference_mean": mean,
                             "difference_ci": [lo, hi],
-                            "per_seed_difference": [
-                                float(x) for x in (a - b.mean(axis=0)).mean(axis=1)
-                            ],
+                            "per_seed_difference": [float(x) for x in d],
+                            "seeds_positive": int((d > 0.0).sum()),
+                            "seeds_negative": int((d < 0.0).sum()),
+                            "seed_level_t_interval": seed_level_interval(a, b),
                         }
                     )
     return out

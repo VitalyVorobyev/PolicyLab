@@ -23,7 +23,10 @@ evaluation the planner is deterministic: shares = softmax(mu).
 **No-retention ablation** (`retention=False`; C4 review item 1): z in R^4 (the pooled
 logit is not used), offers = (R - 0.001) * softmax(z), so sum e = R - 0.001 exactly as
 under the deployed rules (D33), and the planner cannot keep coins in the pool. The
-default (`retention=True`) is unchanged, parameter for parameter.
+default (`retention=True`) is unchanged, parameter for parameter. Its Gaussian entropy
+sums over 4 dimensions instead of 5, so at equal sigma it is about 20 % smaller; with the
+frozen `entropy_coef = 0` no entropy bonus enters the loss, so only exploration differs
+(protocol §9.7, S1 confound).
 
 **Critic** (training only): the same architecture with its own weights, given also the
 round index t / ROUNDS (the planner itself is not told the horizon; the critic may use

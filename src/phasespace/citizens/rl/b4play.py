@@ -27,6 +27,7 @@ from jax import Array
 from phasespace.citizens.game import N_PLAYERS
 from phasespace.citizens.llm import runner
 from phasespace.citizens.llm.backend import Backend
+from phasespace.citizens.mechanisms import deployed_offers, interpolating_weight
 from phasespace.citizens.rl import c4_config, twin
 from phasespace.citizens.rl.citizens import MechObs
 from phasespace.citizens.rl.planner import Planner, player_features
@@ -82,6 +83,31 @@ class PlannerGameMechanism:
         return out, (t + 1, h_new)
 
 
+@dataclass(frozen=True)
+class InterpolatingRuleMechanism:
+    """A deployed Interpolating rule of exponent k, one game at a time (`GameMechanism`):
+    w = round((R / 200)^k, 1) and the deployed offer rule (float32 shares, 4 decimals,
+    0.001 withheld; equal split in round 1), as `mechanisms.deployed_offers`. The k*[B1]
+    row of C4 on B4 (protocol §6.5, O3)."""
+
+    name: str
+    k: float
+
+    def start(self) -> object:
+        return None
+
+    def offers(
+        self,
+        state: object,
+        pool: float,
+        prev_offers: FloatArray | None,
+        prev_reciprocations: FloatArray | None,
+    ) -> tuple[FloatArray, object]:
+        del prev_offers
+        w = interpolating_weight(np.asarray(pool, dtype=np.float64), self.k)
+        return np.asarray(deployed_offers(pool, prev_reciprocations, w), dtype=np.float64), state
+
+
 def calls_estimate(
     decisions_per_game: float | None = None, games: int = c4_config.B4_PLANNER_GAMES
 ) -> dict[str, float]:
@@ -102,7 +128,7 @@ def calls_estimate(
 
 
 def run_planner_games(
-    mechanism: PlannerGameMechanism,
+    mechanism: runner.GameMechanism,
     backend: Backend,
     runs_dir: Path,
     run_id: str,
@@ -114,7 +140,8 @@ def run_planner_games(
     log: Callable[[str], None] | None = None,
     infra_backoff: tuple[float, ...] = runner.INFRA_BACKOFF_S,
 ) -> tuple[runner.RunConfig, list[runner.GameOutcome]]:
-    """Play `games` resumable B4 games against the planner (the frozen runner and prompts)."""
+    """Play `games` resumable B4 games against a planner or rule row (the frozen runner
+    and prompts)."""
     config = runner.RunConfig(
         run_id=run_id,
         label="c4-planner",
@@ -135,6 +162,16 @@ def run_planner_games(
         )
     )
     return config, outcomes
+
+
+def describe_rule(name: str, k: float, baselines_run: str, manifest_sha256: str) -> dict[str, Any]:
+    return {
+        "rule": name,
+        "k": k,
+        "baselines_run": baselines_run,
+        "baselines_manifest_sha256": manifest_sha256,
+        "offer_rule": "deployed (round((R/200)^k, 1), float32, R - 0.001)",
+    }
 
 
 def describe_planner(run_id: str, manifest_sha256: str, retention: bool) -> dict[str, Any]:

@@ -813,7 +813,7 @@ def test_distillation_recovers_a_known_interpolating_rule() -> None:
         a = 0.25 - rows.q[sel]
         true = float(((rows.pool_frac[sel] ** k) * a * a).sum() / (a * a).sum())
         assert result.w_rule.w[j] == pytest.approx(true, abs=1e-9)
-    assert result.w_rule_r2 > 0.99
+    assert result.w_rule_r2 is not None and result.w_rule_r2 > 0.99
     # the distilled one-parameter rule earns exactly the rule's surplus on the same games
     key = jax.random.key(11)
     rule = distill.total_surplus(distill.interpolating_step(k), None, UniformReturn(), key, 400)
@@ -860,7 +860,7 @@ def test_recovery_on_the_deployed_quantised_rule() -> None:
     traj = _deployed_games(k, UniformReturn())
     rows = distill.trajectory_rows(traj)
     rec = distill.recovery(rows, k)
-    offers, actions, pool = (np.asarray(a) for a in (traj.offers, traj.actions, traj.pool))
+    actions, pool = np.asarray(traj.actions), np.asarray(traj.pool)
     prev_c = np.concatenate([np.zeros_like(actions[:, :1]), actions[:, :-1]], axis=1)
     total = prev_c.sum(axis=-1)
     informative = (np.arange(ROUNDS)[None, :] > 0) & (total > 0)
@@ -1151,3 +1151,209 @@ def test_c4_manifest_labels() -> None:
         stage.base_manifest("x", "train", None, 1, milestone="c5")
     pilot = c4.c4_manifest("citizens-c4-pilot-b2-s901", "pilot", None, 901)
     assert pilot["citizens"]["stage"] == "c4_pilot" and "pilot" in pilot["limitations"][0]
+
+
+# --- B4 rows (P6) -----------------------------------------------------------------------------------
+
+
+def test_deployed_rule_offers_in_llm_games_equal_the_jax_rule() -> None:
+    """k*[B1] on B4: the NumPy deployed rule, one game at a time, equals the JAX twin of
+    the same rule against the same answers (floor(floor(e) / 2))."""
+    k = c4_config.B4_COMPARATOR_K
+    mechanism = b4play.InterpolatingRuleMechanism(c4.B4_RULE_ROW, k)
+    spec = runner.GameSpec(0, ROUNDS, (None, None, None, None))
+
+    async def go() -> runner.GameOutcome:
+        return await runner.play_game(
+            spec, mechanism, FakeBackend(), asyncio.Semaphore(4), lambda r: None
+        )
+
+    outcome = asyncio.run(go())
+    traj, _ = rc.rollout(
+        HalfOfFloor(),
+        rc.weight_rule_step(rc.interpolating(k)),
+        None,
+        jax.random.key(0),
+        jax.random.key(0),
+        1,
+    )
+    offers = np.array([r.offers for r in outcome.rounds])
+    assert np.array_equal(offers, np.asarray(traj.offers)[0])
+    assert np.array_equal(
+        np.array([r.returns for r in outcome.rounds], dtype=np.float64),
+        np.asarray(traj.actions)[0],
+    )
+
+
+def test_b4_run_ids() -> None:
+    assert c4.b4_run_id("plain", "Planner[B2]") == "citizens-c4-b4-plain-b2-v1"
+    assert c4.b4_run_id("calibrated", c4.B4_RULE_ROW) == "citizens-c4-b4-calibrated-kstar-b1-v1"
+    assert c4.B4_RULE_ROW == "Interpolating k*[B1]"
+
+
+PROTOCOL_SHA = "p" * 64
+TRAIN_SHA = "t" * 64
+
+
+def _b4_inputs(model: str = "B2", seed: int = 1001, retention: bool = True) -> tuple[Any, Any]:
+    tm = _train_manifest(stage.c4_train_run_id(model, seed, retention), model, seed, retention)
+    cp = {
+        "run_id": "citizens-c4-crossplay-v1",
+        "source": {"git_dirty": False},
+        "citizens": {
+            "stage": "c4_crossplay",
+            "c4_protocol": {"sha256": PROTOCOL_SHA},
+            "inputs": {
+                "train_runs": [{"manifest_sha256": TRAIN_SHA}],
+                "shared_training_signature": c4.shared_signature(_all_c4_manifests()[0]),
+            },
+        },
+    }
+    return tm, cp
+
+
+def test_b4_planner_row_guards() -> None:
+    tm, cp = _b4_inputs()
+    base = _base_manifest()
+    assert c4.check_b4_planner_row(tm, TRAIN_SHA, base, cp, PROTOCOL_SHA) == "Planner[B2]"
+    refusals: list[tuple[Callable[[Any, Any, Any], None], str]] = [
+        (lambda t, c, b: t["citizens"]["training"].update(seed=1002), "B4 planner seed"),
+        (lambda t, c, b: t["citizens"]["training"].update(seed=901), "reserved"),
+        (lambda t, c, b: t["citizens"].update(stage="c3_train"), "never C4 inputs"),
+        (lambda t, c, b: t["source"].update(git_dirty=True), "dirty"),
+        (lambda t, c, b: t["source"].update(git_commit="d" * 40), "signature differs"),
+        (lambda t, c, b: c["citizens"]["inputs"].update(train_runs=[]), "not an input"),
+        (lambda t, c, b: c["citizens"].update(c4_protocol={"sha256": "x"}), "this protocol"),
+        (lambda t, c, b: c["source"].update(git_dirty=True), "clean C4 cross-play"),
+        (lambda t, c, b: b["citizens"]["fit_run"].update(manifest_sha256="0" * 64), "fit runs"),
+    ]
+    for change, message in refusals:
+        tm, cp = _b4_inputs()
+        base = _base_manifest()
+        change(tm, cp, base)
+        with pytest.raises(stage.RunMismatchError, match=message):
+            c4.check_b4_planner_row(tm, TRAIN_SHA, base, cp, PROTOCOL_SHA)
+    noret, cp = _b4_inputs("B2", 2001, retention=False)
+    with pytest.raises(stage.RunMismatchError, match="main planners"):
+        c4.check_b4_planner_row(noret, TRAIN_SHA, _base_manifest(), cp, PROTOCOL_SHA)
+
+
+def test_b4_rule_row_guards() -> None:
+    base = _base_manifest()
+    base["citizens"]["k_star"]["B1"]["k"] = c4_config.B4_COMPARATOR_K
+    assert c4.check_b4_rule_row(c4.B4_RULE_ROW, base) == c4_config.B4_COMPARATOR_K
+    with pytest.raises(stage.RunMismatchError, match="only rule row"):
+        c4.check_b4_rule_row("Interpolating k=22", base)
+    with pytest.raises(stage.RunMismatchError, match="differs"):
+        c4.check_b4_rule_row(c4.B4_RULE_ROW, _base_manifest())  # k = 9.0
+    base["source"]["git_dirty"] = True
+    with pytest.raises(stage.RunMismatchError, match="dirty"):
+        c4.check_b4_rule_row(c4.B4_RULE_ROW, base)
+
+
+# --- the hypothesis stage's inputs (P4) --------------------------------------------------------------
+
+
+def test_hypotheses_refuse_before_the_freeze(tmp_path: Path) -> None:
+    with pytest.raises(data.ProtocolNotFrozenError):
+        c4.main(
+            [
+                "--runs-dir", str(tmp_path), "hypotheses", "--confirm-frozen",
+                "--crossplay-run", str(tmp_path), "--distill-run", str(tmp_path),
+                "--train-run", str(tmp_path), "--run-id", "x",
+            ]
+        )  # fmt: skip
+
+
+def test_c4_evidence_checks() -> None:
+    good = {
+        "run_id": "r",
+        "source": {"git_dirty": False},
+        "citizens": {
+            "stage": "c4_crossplay",
+            "c4_protocol": {"sha256": PROTOCOL_SHA},
+            "c4_config_sha256": c4_config.config_sha256(),
+        },
+    }
+    c4.check_c4_evidence(good, "crossplay", PROTOCOL_SHA)
+    with pytest.raises(stage.RunMismatchError, match="expected c4_distill"):
+        c4.check_c4_evidence(good, "distill", PROTOCOL_SHA)
+    with pytest.raises(stage.RunMismatchError, match="this protocol"):
+        c4.check_c4_evidence(good, "crossplay", "q" * 64)
+
+
+def test_train_plateaus_read_the_recorded_runs(tmp_path: Path) -> None:
+    from phasespace.gravity.export import write_run_directory
+
+    rows = [[i, 0, 0.0, 0.0, 0.0 if i < 300 else 100.0, 0, 0, 0, 0] for i in range(10, 1010, 10)]
+    manifest = _train_manifest("citizens-c4-train-b1-s1001-v1", "B1", 1001)
+    write_run_directory(
+        tmp_path / manifest["run_id"],
+        manifest,
+        [("sample_table", stage.CURVE_FILE, stage.table_bytes("r", stage.CURVE_COLUMNS, rows))],
+    )
+    run = tmp_path / manifest["run_id"]
+    cp = {"citizens": {"inputs": {"train_runs": [
+        {"run_id": manifest["run_id"], "manifest_sha256": stage.manifest_sha256(run)}
+    ]}}}  # fmt: skip
+    out = c4.train_plateaus(cp, [run])
+    assert out[manifest["run_id"]]["plateau_iteration"] == 340  # the analytic step curve
+    cp["citizens"]["inputs"]["train_runs"][0]["manifest_sha256"] = "0" * 64
+    with pytest.raises(stage.RunMismatchError, match="exactly"):
+        c4.train_plateaus(cp, [run])
+
+
+def _b4_run(tmp_path: Path, run_id: str, citizens: dict[str, Any], surplus: list[float]) -> Path:
+    from phasespace.gravity.export import write_run_directory
+
+    names = [
+        "game", "status", "reason", "types", "rounds", "calls", "invalid_calls", "seconds",
+        "infrastructure_calls", "surplus", "gini", "depletion_round", "players_active_end",
+    ]  # fmt: skip
+    rows = [
+        [i, "complete", None, "[]", 40, 100, 0, 1.0, 0, v, 0.1, 30, 3]
+        for i, v in enumerate(surplus)
+    ]
+    rows.append([len(rows), "discarded", "x", "[]", 3, 10, 3, 1.0, 0, None, None, None, None])
+    table = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "columns": [{"name": n} for n in names],
+        "rows": rows,
+    }
+    manifest = {"run_id": run_id, "source": {"git_dirty": False}, "citizens": citizens}
+    write_run_directory(
+        tmp_path / run_id, manifest, [("sample_table", "games.json", json.dumps(table).encode())]
+    )
+    return tmp_path / run_id
+
+
+def test_b4_rows_from_runs(tmp_path: Path) -> None:
+    c4_run = _b4_run(
+        tmp_path,
+        "citizens-c4-b4-plain-b2-v1",
+        {
+            "stage": c4.B4_PLANNER_STAGE,
+            "config": {"variant": "plain"},
+            "c4_protocol": {"sha256": PROTOCOL_SHA},
+            "c4_row": {"kind": "planner", "name": "Planner[B2]"},
+        },
+        [8.0, 9.0],
+    )
+    reference = _b4_run(
+        tmp_path,
+        "citizens-c2-b4-plain-interpolating-v1",
+        {
+            "stage": "c2_b4_heldout",
+            "config": {"variant": "plain"},
+            "mechanism_key": "Interpolating",
+        },
+        [7.0],
+    )
+    rows = c4.b4_rows_from_runs([c4_run, reference], PROTOCOL_SHA)["plain"]
+    # total surplus = 160 x the per-player-round surplus; the discarded game is dropped
+    assert rows["Planner[B2]"].total_surplus.tolist() == [1280.0, 1440.0]
+    assert rows["Planner[B2]"].discarded == 1
+    assert rows[c4.B4_REFERENCE_ROW].total_surplus.tolist() == [1120.0]
+    with pytest.raises(stage.RunMismatchError, match="this protocol"):
+        c4.b4_rows_from_runs([c4_run], "q" * 64)

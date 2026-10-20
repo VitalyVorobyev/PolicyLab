@@ -5,7 +5,12 @@ Commands::
     python -m phasespace.citizens.rl.c4 pilot --model B2 --seed 901 --run-id citizens-c4-pilot-b2-s901
     python -m phasespace.citizens.rl.c4 crossplay --confirm-frozen --train-run <dir> ... --run-id <id>
     python -m phasespace.citizens.rl.c4 distill --confirm-frozen --train-run <dir> ... --run-id <id>
-    python -m phasespace.citizens.rl.c4 b4 --confirm-frozen --train-run <dir> --variant plain \
+    python -m phasespace.citizens.rl.c4 b4 --confirm-frozen --train-run <dir> \
+        --crossplay-run <dir> --variant plain --run-id citizens-c4-b4-plain-b2-v1
+    python -m phasespace.citizens.rl.c4 b4 --confirm-frozen --rule "Interpolating k*[B1]" \
+        --variant plain --run-id citizens-c4-b4-plain-kstar-b1-v1
+    python -m phasespace.citizens.rl.c4 hypotheses --confirm-frozen --crossplay-run <dir> \
+        --distill-run <dir> --train-run <dir> ... [--b4-run <dir> ... --b4-eval-run <dir>] \
         --run-id <id>
 
 - **pilot** (review item 2): one PPO run with the frozen C3 hyperparameters against a
@@ -29,10 +34,13 @@ Commands::
   through the deployed rule (in-sample; stated in the output); the recovery test on the
   deployed rules' trajectories (method bias); and the distilled rules of the main
   planners played in every column (distilled-rule cross-play).
-- **b4**: LLM citizens (frozen `b4-prompt-v2`, calibrated or plain) against a planner's
-  deterministic policy (`rl.b4play`).
+- **b4**: LLM citizens (frozen `b4-prompt-v2`, calibrated or plain) against a main
+  planner's deterministic policy (seed 1001, an input of the cross-play run with its
+  shared signature) or the deployed k*[B1] rule (`rl.b4play`).
+- **hypotheses** (§9): the tests, Holm families and verdicts (`rl.hypotheses`) from the
+  recorded cross-play, distillation, training and B4 runs; nothing is simulated.
 
-crossplay, distill and b4 produce C4 evidence: they refuse to run unless the C4 protocol
+crossplay, distill, b4 and hypotheses produce C4 evidence: they refuse to run unless the C4 protocol
 (`c4_config.C4_PROTOCOL_PATH`) is frozen, committed and the tree is clean
 (`--confirm-frozen`). Pilots never reach them: pilot runs are refused as inputs.
 
@@ -44,6 +52,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -57,7 +66,17 @@ from jax import Array
 from phasespace.citizens import data, fit
 from phasespace.citizens.fit import load_fitted
 from phasespace.citizens.models.base import streams_from_games
-from phasespace.citizens.rl import b4play, c4_config, checks, crossplay, distill, ppo, stage, twin
+from phasespace.citizens.rl import (
+    b4play,
+    c4_config,
+    checks,
+    crossplay,
+    distill,
+    hypotheses,
+    ppo,
+    stage,
+    twin,
+)
 from phasespace.citizens.rl import citizens as rc
 from phasespace.citizens.rl import config as c3config
 from phasespace.citizens.rl.planner import Planner, sampling_step, serialise
@@ -848,8 +867,80 @@ def distill_command(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- planner (or k*[B1]) versus B4 --------------------------------------------------------------
+
+B4_RULE_ROW: Final = crossplay.k_star_name(c4_config.B4_COMPARATOR_MODEL)
+"""The only deployed-rule row the protocol runs on B4 (O3)."""
+
+
+def b4_row_slug(row: str) -> str:
+    """Run-id part of a B4 row: `b1` for Planner[B1], `kstar-b1` for k*[B1]."""
+    if row == B4_RULE_ROW:
+        return f"kstar-{c4_config.B4_COMPARATOR_MODEL.lower()}"
+    return row.removeprefix("Planner[").removesuffix("]").lower()
+
+
+def b4_run_id(variant: str, row: str, version: int = 1) -> str:
+    """Protocol §6.5 run id of a C4 B4 run."""
+    return f"citizens-c4-b4-{variant}-{b4_row_slug(row)}-v{version}"
+
+
+def check_b4_planner_row(
+    tm: Mapping[str, Any],
+    train_sha256: str,
+    base: Mapping[str, Any],
+    crossplay_manifest: Mapping[str, Any],
+    protocol_sha256: str,
+) -> str:
+    """The guards of a planner row on B4 (raises `stage.RunMismatchError`): the planner
+    run is a C4 training run of a main row with the protocol's B4 seed, clean and
+    unreserved; it is an input of a clean cross-play run made under this protocol, whose
+    shared signature it matches; its fit run and evaluation games are the baselines
+    run's. Returns the row name (Planner[X])."""
+    c = crossplay_manifest["citizens"]
+    if c.get("stage") != "c4_crossplay" or crossplay_manifest["source"]["git_dirty"]:
+        raise stage.RunMismatchError("--crossplay-run must be a clean C4 cross-play run")
+    if c.get("c4_protocol", {}).get("sha256") != protocol_sha256:
+        raise stage.RunMismatchError("the cross-play run was not made under this protocol")
+    row = check_c4_train_run(tm, reserved_seeds(), expected_rows())
+    if not is_main_row(row):
+        raise stage.RunMismatchError(f"{tm['run_id']}: B4 rows are main planners, not {row}")
+    seed = int(tm["citizens"]["training"]["seed"])
+    if seed != c4_config.B4_PLANNER_SEED:
+        raise stage.RunMismatchError(
+            f"{tm['run_id']}: the B4 planner seed is {c4_config.B4_PLANNER_SEED}, not {seed}"
+        )
+    inputs = c["inputs"]
+    if train_sha256 not in {r["manifest_sha256"] for r in inputs["train_runs"]}:
+        raise stage.RunMismatchError(f"{tm['run_id']}: not an input of the cross-play run")
+    signature = shared_signature(tm)
+    if signature != inputs["shared_training_signature"]:
+        raise stage.RunMismatchError(
+            f"{tm['run_id']}: training signature differs from cross-play's"
+        )
+    check_base_matches(base, signature)
+    return crossplay.planner_name(row[0], row[1])
+
+
+def check_b4_rule_row(rule: str, base: Mapping[str, Any]) -> float:
+    """The guards of the deployed-rule row on B4: only k*[B1], with the k of a clean
+    baselines run equal to the protocol's `B4_COMPARATOR_K`. Returns k."""
+    if rule != B4_RULE_ROW:
+        raise stage.RunMismatchError(f"the protocol's only rule row on B4 is {B4_RULE_ROW!r}")
+    if base["source"]["git_dirty"]:
+        raise stage.RunMismatchError(f"{base['run_id']}: made from a dirty tree")
+    k = k_star_of(base, c4_config.B4_COMPARATOR_MODEL)
+    if abs(k - c4_config.B4_COMPARATOR_K) > 1e-12 * c4_config.B4_COMPARATOR_K:
+        raise stage.RunMismatchError(
+            f"k*[B1] = {k} differs from the protocol's {c4_config.B4_COMPARATOR_K}"
+        )
+    return k
+
+
 def b4_command(args: argparse.Namespace) -> int:
-    """Planner versus B4 (never run before the C4 freeze; calls the Claude Code CLI)."""
+    """A planner or k*[B1] versus B4 (never run before the C4 freeze; calls the Claude
+    Code CLI). Guards: `check_b4_planner_row` / `check_b4_rule_row`, the declared variants
+    and game counts, and the run-id convention."""
     from phasespace.citizens import heldout
     from phasespace.citizens.llm import runner
     from phasespace.citizens.llm.backend import ClaudeCLI
@@ -858,17 +949,50 @@ def b4_command(args: argparse.Namespace) -> int:
     validate_run_id(args.run_id)
     if (args.runs_dir / args.run_id).exists():
         raise SystemExit(f"{args.runs_dir / args.run_id} already exists")
-    train_dir: Path = args.train_run
-    tm = json.loads((train_dir / "manifest.json").read_text("utf-8"))
-    if tm["citizens"]["stage"] != C4_TRAIN_STAGE:
-        raise SystemExit(f"{tm['run_id']} is not a training run")
+    if args.variant not in c4_config.B4_VARIANTS:
+        raise SystemExit(f"variants are {c4_config.B4_VARIANTS}")
+    if int(args.games) not in c4_config.B4_GAMES_ALLOWED:
+        raise SystemExit(f"--games: the protocol allows {c4_config.B4_GAMES_ALLOWED}")
+    if (args.train_run is None) == (args.rule is None):
+        raise SystemExit("pass exactly one of --train-run (a planner) and --rule")
+    base_dir: Path = args.baselines_run
+    base = json.loads((base_dir / "manifest.json").read_text("utf-8"))
+    row_record: dict[str, Any]
+    mechanism: runner.GameMechanism
+    if args.train_run is not None:
+        if args.crossplay_run is None:
+            raise SystemExit("--crossplay-run is required for a planner row")
+        train_dir: Path = args.train_run
+        tm = json.loads((train_dir / "manifest.json").read_text("utf-8"))
+        cp = json.loads((args.crossplay_run / "manifest.json").read_text("utf-8"))
+        train_sha = stage.manifest_sha256(train_dir)
+        name = check_b4_planner_row(tm, train_sha, base, cp, protocol.sha256)
+        with twin.x64():
+            mechanism = b4play.PlannerGameMechanism(
+                f"{name} seed {c4_config.B4_PLANNER_SEED}", stage.load_planner(train_dir)
+            )
+        row_record = {
+            "kind": "planner",
+            "name": name,
+            **b4play.describe_planner(tm["run_id"], train_sha, retention_of(tm)),
+            "crossplay_run": cp["run_id"],
+            "crossplay_manifest_sha256": stage.manifest_sha256(args.crossplay_run),
+        }
+    else:
+        name = str(args.rule)
+        k = check_b4_rule_row(name, base)
+        mechanism = b4play.InterpolatingRuleMechanism(name, k)
+        row_record = {
+            "kind": "rule",
+            "name": name,
+            **b4play.describe_rule(name, k, base["run_id"], stage.manifest_sha256(base_dir)),
+        }
+    match = re.fullmatch(r".*-v(\d+)", args.run_id)
+    expected = b4_run_id(args.variant, name, int(match.group(1)) if match else 1)
+    if args.run_id != expected:
+        raise SystemExit(f"C4 B4 run ids are {b4_run_id(args.variant, name)!r} (or -vN)")
     backend = ClaudeCLI()
     heldout.require_cli_version(backend.describe())
-    retention = retention_of(tm)
-    model = tm["citizens"]["training"]["model"]
-    name = f"{crossplay.planner_name(model, retention)} seed {tm['citizens']['training']['seed']}"
-    with twin.x64():
-        mechanism = b4play.PlannerGameMechanism(name, stage.load_planner(train_dir))
     weights_record: dict[str, Any] | None = None
     if args.variant == "calibrated":
         if args.calibration_run is None:
@@ -904,15 +1028,172 @@ def b4_command(args: argparse.Namespace) -> int:
         "c4_protocol": {"path": protocol.path, "sha256": protocol.sha256},
         "c4_config_sha256": c4_config.config_sha256(),
         "git_commit_at_start": commit,
-        "planner": b4play.describe_planner(
-            tm["run_id"], stage.manifest_sha256(train_dir), retention
-        ),
+        "c4_row": row_record,
         "type_weights": weights_record,
     }
     manifest = runner.finalize_games_run(
         args.runs_dir, config, outcomes, wall_s=time.perf_counter() - start, extra=extra
     )
     print(f"{args.runs_dir / args.run_id}: {manifest['status']}")
+    return 0
+
+
+# --- the hypothesis stage (§9) ----------------------------------------------------------------------
+
+HYPOTHESES_FILE: Final = "hypotheses.json"
+B4_PLANNER_STAGE: Final = "c2_b4_c4-planner"
+"""Stage label the LLM runner gives C4 B4 runs (label `c4-planner`)."""
+B4_REFERENCE_ROW: Final = "Interpolating k=22 (C2 held-out B4 run, reference)"
+
+
+def _manifest(run_dir: Path) -> dict[str, Any]:
+    doc: dict[str, Any] = json.loads((run_dir / "manifest.json").read_text("utf-8"))
+    return doc
+
+
+def check_c4_evidence(manifest: Mapping[str, Any], stage_name: str, protocol_sha256: str) -> None:
+    """A C4 evidence run of `stage_name`, clean, made under this protocol and config."""
+    c = manifest["citizens"]
+    problems: list[str] = []
+    if c.get("stage") != f"c4_{stage_name}":
+        problems.append(f"stage {c.get('stage')!r}, expected c4_{stage_name}")
+    if manifest["source"]["git_dirty"]:
+        problems.append("made from a dirty tree")
+    if c.get("c4_protocol", {}).get("sha256") != protocol_sha256:
+        problems.append("not made under this protocol")
+    if c.get("c4_config_sha256") != c4_config.config_sha256():
+        problems.append("c4_config_sha256 differs from the current configuration")
+    if problems:
+        raise stage.RunMismatchError(f"{manifest['run_id']}: " + "; ".join(problems))
+
+
+def train_plateaus(
+    crossplay_manifest: Mapping[str, Any], train_dirs: Sequence[Path]
+) -> dict[str, dict[str, Any]]:
+    """Plateau summaries (`plateau_iteration`) of the cross-play run's training runs,
+    which must be exactly the runs given (checked by manifest SHA-256)."""
+    recorded = {
+        r["manifest_sha256"]: r["run_id"]
+        for r in crossplay_manifest["citizens"]["inputs"]["train_runs"]
+    }
+    given = {stage.manifest_sha256(d): d for d in train_dirs}
+    if set(given) != set(recorded):
+        raise stage.RunMismatchError(
+            "--train-run must be exactly the cross-play run's training runs"
+        )
+    out: dict[str, dict[str, Any]] = {}
+    for sha, d in given.items():
+        rows = stage.table_rows(d, stage.CURVE_FILE)
+        out[recorded[sha]] = plateau_iteration(
+            [int(r[0]) for r in rows], [float(r[4]) for r in rows]
+        )
+    return out
+
+
+def b4_rows_from_runs(
+    runs: Sequence[Path], protocol_sha256: str
+) -> dict[str, dict[str, hypotheses.B4Row]]:
+    """B4 rows per variant: C4 B4 runs made under this protocol (row from `c4_row`), and
+    the C2 held-out k = 22 runs as the reference row."""
+    from phasespace.citizens import heldout
+
+    out: dict[str, dict[str, hypotheses.B4Row]] = {}
+    per_game = 4 * c3config.ROUNDS
+    for run in runs:
+        m = _manifest(run)
+        c = m["citizens"]
+        variant = str(c["config"]["variant"])
+        if c.get("stage") == B4_PLANNER_STAGE:
+            if c.get("c4_protocol", {}).get("sha256") != protocol_sha256:
+                raise stage.RunMismatchError(f"{m['run_id']}: not made under this protocol")
+            name = str(c["c4_row"]["name"])
+        elif c.get("stage") == "c2_b4_heldout" and c.get("mechanism_key") == "Interpolating":
+            name = B4_REFERENCE_ROW
+        else:
+            raise stage.RunMismatchError(f"{m['run_id']}: not a C4 B4 run or a C2 k = 22 reference")
+        values, discarded = heldout.b4_game_metrics(run)
+        rows = out.setdefault(variant, {})
+        if name in rows:
+            raise stage.RunMismatchError(f"two B4 runs for {name} on {variant}")
+        rows[name] = hypotheses.B4Row(
+            name=name,
+            total_surplus=values["surplus"] * per_game,
+            gini=values["gini"],
+            depletion_round=values["depletion_round"],
+            players_active=values["players_active"],
+            discarded=discarded,
+        )
+    return out
+
+
+def hypotheses_command(args: argparse.Namespace) -> int:
+    """§9 from the recorded runs only: cross-play, distillation, the training runs'
+    learning curves and (optional) the B4 runs with C2's b4-evaluate labels."""
+    protocol, _ = require_c4_freeze(bool(args.confirm_frozen))
+    run_id: str = args.run_id
+    validate_run_id(run_id)
+    out_dir: Path = args.runs_dir / run_id
+    if out_dir.exists():
+        raise SystemExit(f"{out_dir} already exists; runs are never overwritten")
+    cp_dir: Path = args.crossplay_run
+    dist_dir: Path = args.distill_run
+    cp, dm = _manifest(cp_dir), _manifest(dist_dir)
+    check_c4_evidence(cp, "crossplay", protocol.sha256)
+    check_c4_evidence(dm, "distill", protocol.sha256)
+    cp_inputs = {r["manifest_sha256"] for r in cp["citizens"]["inputs"]["train_runs"]}
+    if cp_inputs != {r["manifest_sha256"] for r in dm["citizens"]["inputs"]["train_runs"]}:
+        raise stage.RunMismatchError("cross-play and distillation used different training runs")
+    plateaus = train_plateaus(cp, args.train_run)
+    series = json.loads(stage.read_verified(cp_dir, SERIES_FILE))["series"]
+    summary = json.loads(stage.read_verified(cp_dir, CROSSPLAY_FILE))
+    distill_doc = json.loads(stage.read_verified(dist_dir, DISTILL_FILE))
+    result = hypotheses.analyse(series, summary, distill_doc, plateaus)
+    inputs: dict[str, Any] = {
+        "crossplay_run": {"run_id": cp["run_id"], "manifest_sha256": stage.manifest_sha256(cp_dir)},
+        "distill_run": {"run_id": dm["run_id"], "manifest_sha256": stage.manifest_sha256(dist_dir)},
+        "train_runs": sorted(plateaus),
+    }
+    if args.b4_run:
+        if args.b4_eval_run is None:
+            raise SystemExit("--b4-eval-run (C2 b4-evaluate) is required with --b4-run")
+        ev = _manifest(args.b4_eval_run)
+        if ev["citizens"].get("stage") != "c2_b4_eval" or ev["source"]["git_dirty"]:
+            raise stage.RunMismatchError("--b4-eval-run must be a clean C2 b4-evaluate run")
+        cache = hypotheses.BootstrapCache(c4_config.BOOTSTRAP_RESAMPLES, c4_config.BOOTSTRAP_SEED)
+        b4 = b4_rows_from_runs(args.b4_run, protocol.sha256)
+        result["H2_B4"] = {
+            variant: hypotheses.b4_hypotheses(
+                rows,
+                hypotheses.b4_variant_validated(ev["citizens"]["b4"], variant),
+                variant,
+                cache,
+            )
+            for variant, rows in sorted(b4.items())
+        }
+        inputs["b4_eval_run"] = {
+            "run_id": ev["run_id"],
+            "manifest_sha256": stage.manifest_sha256(args.b4_eval_run),
+        }
+        inputs["b4_runs"] = [
+            {"run_id": r.name, "manifest_sha256": stage.manifest_sha256(r)} for r in args.b4_run
+        ]
+    manifest = c4_manifest(run_id, "hypotheses", None, c4_config.BOOTSTRAP_SEED)
+    manifest["citizens"]["c4_protocol"] = {"path": protocol.path, "sha256": protocol.sha256}
+    manifest["citizens"]["inputs"] = inputs
+    manifest["citizens"]["verdicts"] = result["verdicts"]
+    manifest["citizens"]["held_out_access"] = "none (recorded C4 runs and C2 B4 labels only)"
+    write_run_directory(
+        out_dir,
+        manifest,
+        [
+            (
+                "summary",
+                HYPOTHESES_FILE,
+                dumps_json({"schema_version": stage.SCHEMA_VERSION, **result}),
+            )
+        ],
+    )
+    stage.log(f"{out_dir}: {result['verdicts']}")
     return 0
 
 
@@ -936,19 +1217,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         q.add_argument("--run-id", required=True)
     b = sub.add_parser("b4")
     b.add_argument("--confirm-frozen", action="store_true")
-    b.add_argument("--train-run", type=Path, required=True)
-    b.add_argument("--variant", choices=("plain", "calibrated"), required=True)
+    b.add_argument("--train-run", type=Path, help="a main planner run (seed 1001)")
+    b.add_argument("--rule", help=f"a deployed-rule row instead of a planner: {B4_RULE_ROW!r}")
+    b.add_argument("--crossplay-run", type=Path, help="the C4 cross-play run (planner rows)")
+    b.add_argument("--baselines-run", type=Path, default=DEFAULT_BASELINES_RUN)
+    b.add_argument("--variant", choices=c4_config.B4_VARIANTS, required=True)
     b.add_argument("--calibration-run", type=Path)
     b.add_argument("--processed-dir", type=Path, default=data.DEFAULT_PROCESSED_DIR)
     b.add_argument("--games", type=int, default=c4_config.B4_PLANNER_GAMES)
     b.add_argument("--workers", type=int, default=8)
     b.add_argument("--run-id", required=True)
+    h = sub.add_parser("hypotheses")
+    h.add_argument("--confirm-frozen", action="store_true")
+    h.add_argument("--crossplay-run", type=Path, required=True)
+    h.add_argument("--distill-run", type=Path, required=True)
+    h.add_argument("--train-run", type=Path, nargs="+", required=True)
+    h.add_argument("--b4-run", type=Path, nargs="*", default=[])
+    h.add_argument("--b4-eval-run", type=Path, help="the C2 b4-evaluate run (B4 labels)")
+    h.add_argument("--run-id", required=True)
     args = parser.parse_args(argv)
     commands: Mapping[str, Callable[[argparse.Namespace], int]] = {
         "pilot": pilot_command,
         "crossplay": crossplay_command,
         "distill": distill_command,
         "b4": b4_command,
+        "hypotheses": hypotheses_command,
     }
     return commands[str(args.command)](args)
 

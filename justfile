@@ -219,7 +219,9 @@ citizens-c3-g3 run_id baselines_run +train_runs:
 citizens-c4-pilot model seed *args:
     uv run python -m phasespace.citizens.rl.c4 --runs-dir runs pilot --model {{model}} --seed {{seed}} --run-id citizens-c4-pilot-$(echo {{model}} | tr A-Z a-z)-s{{seed}} {{args}}
 
-# One C4 planner (C3 hyperparameters, labelled c4): just citizens-c4-train <run_id> B2 11 <iterations> [--no-retention]
+# One C4 planner (C3 hyperparameters; refuses before the freeze, undeclared seeds and other iterations):
+# just citizens-c4-train citizens-c4-train-b2-s1001-v1 B2 1001 1000 --confirm-frozen [--no-retention]
+# (model Mix: the robust mixture planner, seeds 3001-3003)
 citizens-c4-train run_id model seed iterations *args:
     uv run python -m phasespace.citizens.rl.stage --runs-dir runs train --milestone c4 --run-id {{run_id}} --model {{model}} --seed {{seed}} --iterations {{iterations}} {{args}}
 
@@ -232,6 +234,13 @@ citizens-c4-crossplay run_id *args:
 citizens-c4-distill run_id *args:
     uv run python -m phasespace.citizens.rl.c4 --runs-dir runs distill --run-id {{run_id}} {{args}}
 
-# Planner versus B4 (LLM calls; resumable): just citizens-c4-b4 <run_id> --confirm-frozen --train-run runs/<a> --variant calibrated --calibration-run runs/citizens-c2-b4-calibration-v2
+# Planner (seed 1001) or k*[B1] versus B4 (LLM calls; resumable):
+# just citizens-c4-b4 citizens-c4-b4-calibrated-b2-v1 --confirm-frozen --train-run runs/<b2 s1001> --crossplay-run runs/citizens-c4-crossplay-v1 --variant calibrated --calibration-run runs/citizens-c2-b4-calibration-v2
+# just citizens-c4-b4 citizens-c4-b4-plain-kstar-b1-v1 --confirm-frozen --rule "Interpolating k*[B1]" --variant plain
 citizens-c4-b4 run_id *args:
     uv run python -m phasespace.citizens.rl.c4 --runs-dir runs b4 --run-id {{run_id}} {{args}}
+
+# Hypothesis stage (protocol §9; recorded runs only):
+# just citizens-c4-hypotheses citizens-c4-hypotheses-v1 --confirm-frozen --crossplay-run runs/<cp> --distill-run runs/<d> --train-run runs/<all> [--b4-run ... --b4-eval-run runs/<c2 b4-evaluate>]
+citizens-c4-hypotheses run_id *args:
+    uv run python -m phasespace.citizens.rl.c4 --runs-dir runs hypotheses --run-id {{run_id}} {{args}}
