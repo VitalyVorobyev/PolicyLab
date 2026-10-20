@@ -85,7 +85,16 @@ Spec: `studies/model-citizens/README.md`. Code goes in `src/phasespace/citizens/
 - **G1a**, now: the training populations, the offer identities and the four training-only Exp 1 z-values.
 - **G1b**, immediately after the `protocol-validation.md` freeze: the z-values involving held-out mechanisms, and the root cause of the bounded held-out pool anomaly.
 
-### C2 — Citizen models and validation (gate G2)
+### C2 — Citizen models and validation (gate G2): G2 failed (only B1); scope reframed (D35)
+
+Protocol v1 was frozen (D34). G1b passed (`citizens-c1-g1b-v1`). The held-out evaluation is `citizens-c2-heldout-eval-v1`:
+
+- B1 is validated in closed loop on R-I;
+- all four trainable classes pass the one-step likelihood criterion on R-I, R-M1 and R-M2;
+- no other class passes closed loop anywhere;
+- the M1 surrogate failed human-row acceptance, so R-M1 is one-step only.
+
+The owner chose to reframe and continue (D35). The B4 held-out runs are still in progress; B4 is evaluation-only.
 
 - Freeze `protocol-validation.md` first (training mechanisms, held-out regimes, mechanism surrogate, validation criterion, seeds and budgets, LLM prompt).
 - Fit B1 (GRU clone), B2 (parametric conditional cooperation) and B3 (EWA / Roth–Erev); run B4 (LLM citizens via headless `claude -p`) after a throughput pilot; then evaluate on held-out regimes.
@@ -96,13 +105,20 @@ Spec: `studies/model-citizens/README.md`. Code goes in `src/phasespace/citizens/
 
 - JAX twin of the NumPy game and mechanisms, agreeing to 1e-9 (moved from C1; D33).
 - PPO in JAX with a set-encoder + GRU policy and a 5-share stochastic head; baselines including the re-tuned interpolating k\* per model.
+- Supports all four trainable citizen models as environments: B1, B2, B3 and B23 (D35). Each is used as fitted in `citizens-c2-fit-v1`, with no refit.
 - Correctness on a toy problem and an analytically solvable citizen; determinism for a fixed seed; measured cost per million steps.
 
 **G3:** against B1, the planner's surplus exceeds Interpolating k = 22 (the paper's qualitative in-silico result) within 24 h per training run. Otherwise report and ask the owner (scale down, or backpropagate through the differentiable clone).
 
 ### C4 — Main comparison (gate G4)
 
-- Freeze `protocol.md` with owner approval: seeds, cross-play matrix (planners and baselines × validated citizen models, plus LLM citizens), H1 and H2, statistics (common random numbers, bootstrap, Holm), minimum effect size, compute ceiling.
+- Question (D35): do citizen models that each pass a different held-out test (next-choice prediction vs whole-game outcomes) lead RL planners to the same mechanism, and how do the planners fare in cross-play?
+- Freeze `protocol.md` with owner approval. It fixes:
+  - the seeds;
+  - the cross-play matrix: planners and baselines × the four trainable citizen models, each with its D35 label, plus LLM citizens (B4) for evaluation only;
+  - H1 and H2 (drafts in the spec);
+  - the statistics: common random numbers, bootstrap, Holm;
+  - the minimum effect size and the compute ceiling.
 - Runs from clean trees; distil each planner into closed-form rules and compare them across models.
 
 **G4:** all evidence runs carry the frozen config hash and `git_dirty = false`; H1 and H2 are decided as declared, and either outcome is reported.
