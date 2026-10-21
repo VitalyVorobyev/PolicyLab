@@ -7,7 +7,7 @@ Command::
         --distill-run runs/citizens-c4-distill-v1 --baselines-run runs/citizens-c3-baselines-v1 \\
         --train-run runs/citizens-c4-train-b1-s1001-v1 ... runs/citizens-c4-train-mix-s3001-v1 \\
         [--heldout-eval-run <dir>] [--b4-eval-run <dir>] [--b4-run <dir> ...] \\
-        [--hypotheses-run <dir>] [--e1-run <dir>]
+        [--hypotheses-run <dir>] [--e1-run <dir>] [--crossplay-metrics-run <dir>]
 
 One artifact, `citizens_demo.json` (kind `citizens_demo`, compact JSON), for the public
 page (docs/data-contract.md, "Model Citizens addendum (web demo)"):
@@ -344,34 +344,39 @@ def robustness(
     }
 
 
-EXTRA_METRIC_PREFIXES: Final = ("depletion_round", "players_active")
+CROSSPLAY_METRICS_STAGE: Final = "c4_crossplay_metrics"
+CROSSPLAY_METRICS_FILE: Final = "crossplay_metrics.json"
+# The seed-mean fields of `cells[policy][column]["deterministic"]` in that file
+# (`rl.c4 crossplay-metrics`; definitions in its `definitions` block).
+EXTRA_METRIC_FIELDS: Final = (
+    "depletion_round_mean",
+    "players_active_mean",
+    "depleted_fraction_mean",
+)
 
 
 def crossplay_metrics(
-    run_dir: Path, policies: Sequence[str]
+    run_dir: Path, policies: Sequence[str], columns: Sequence[str]
 ) -> dict[str, dict[str, dict[str, float]]]:
-    """Optional per-cell game metrics (depletion round, players still active) from a
-    supplementary cross-play run: every summary artifact with `cells[policy][column]
-    ["deterministic"]`; numeric fields whose names start with `EXTRA_METRIC_PREFIXES` are
-    copied verbatim. Returns {policy: {column: {field: value}}}."""
-    m = manifest_of(run_dir)
+    """Per-cell game metrics (depletion round, players still active, share of games that
+    ran dry) of the deterministic policy from a supplementary cross-play metrics run
+    (`crossplay_metrics.json`, checked against its manifest), copied verbatim. Every
+    (policy, column) must carry every field of `EXTRA_METRIC_FIELDS`, finite.
+    Returns {policy: {column: {field: value}}}."""
+    cells = _as_dict(_as_dict(read_json(run_dir, CROSSPLAY_METRICS_FILE)).get("cells"))
     out: dict[str, dict[str, dict[str, float]]] = {}
-    for artifact in m["artifacts"]:
-        path = str(artifact["path"])
-        if not path.endswith(".json"):
-            continue
-        cells = _as_dict(_as_dict(read_json(run_dir, path)).get("cells"))
-        for policy in policies:
-            for column, modes in _as_dict(cells.get(policy)).items():
-                det = _as_dict(_as_dict(modes).get("deterministic"))
-                fields: dict[str, float] = {}
-                for k, v in det.items():
-                    if k.startswith(EXTRA_METRIC_PREFIXES) and isinstance(v, int | float):
-                        value = float(v)
-                        if math.isfinite(value):
-                            fields[k] = value
-                if fields:
-                    out.setdefault(policy, {}).setdefault(column, {}).update(fields)
+    for policy in policies:
+        for column in columns:
+            det = _as_dict(_as_dict(_as_dict(cells.get(policy)).get(column)).get("deterministic"))
+            fields: dict[str, float] = {}
+            for name in EXTRA_METRIC_FIELDS:
+                v = det.get(name)
+                if isinstance(v, bool) or not isinstance(v, int | float) or not math.isfinite(v):
+                    raise ValueError(
+                        f"{run_dir}: {policy} x {column}: {name} missing or not finite"
+                    )
+                fields[name] = float(v)
+            out.setdefault(policy, {})[column] = fields
     return out
 
 
@@ -452,6 +457,14 @@ def distilled_curves(doc: Mapping[str, Any], policies: Sequence[str], k22: float
                 "w_per_seed": [[None if np.isnan(v) else float(v) for v in row] for row in w],
                 "r2_per_seed": [p["w_rule"]["r2"] for p in seeds],
                 "fitted_k_per_seed": [float(p["interpolating_k"]["k"]) for p in seeds],
+                # On the distillation games (in sample): the planner's and its w-rule's
+                # mean total surplus minus the deployed k*[own model], per seed.
+                "planner_minus_k_star_per_seed": [
+                    float(p["total_surplus_mean"]["planner_minus_k_star"]) for p in seeds
+                ],
+                "w_rule_minus_k_star_per_seed": [
+                    float(p["total_surplus_mean"]["w_rule_minus_k_star"]) for p in seeds
+                ],
             }
         )
     grid = np.linspace(0.0, 1.0, 201)
@@ -635,6 +648,9 @@ def hypotheses_block(doc: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
+E1_STAGE: Final = "e1_ranking"
+
+
 def e1_block(run_dir: Path) -> dict[str, Any]:
     """An E1 run's sample tables, verbatim (columns and rows), keyed by file name."""
     m = manifest_of(run_dir)
@@ -808,6 +824,14 @@ def export_command(args: argparse.Namespace) -> int:
     if manifest_sha256(fit_run) != base_m["citizens"]["fit_run"]["manifest_sha256"]:
         raise SystemExit(f"{fit_run}: manifest differs from the one the runs used")
     train_dirs = _trace_train_runs(args.train_run, cp_m)
+    if args.crossplay_metrics_run is not None:
+        metrics_m = _require_stage(args.crossplay_metrics_run, CROSSPLAY_METRICS_STAGE)
+        if metrics_m["citizens"]["inputs"]["crossplay_run"]["manifest_sha256"] != manifest_sha256(
+            cp_dir
+        ):
+            raise SystemExit("the cross-play metrics run is not of this cross-play run")
+    if args.e1_run is not None:
+        _require_stage(args.e1_run, E1_STAGE)
 
     cp = read_json(cp_dir, "crossplay.json")
     series = read_json(cp_dir, "crossplay_series.json")["series"]
@@ -928,7 +952,7 @@ def export_command(args: argparse.Namespace) -> int:
     if args.e1_run is not None:
         demo["e1"] = e1_block(args.e1_run)
     if args.crossplay_metrics_run is not None:
-        extra = crossplay_metrics(args.crossplay_metrics_run, summary_policies)
+        extra = crossplay_metrics(args.crossplay_metrics_run, summary_policies, COLUMNS)
         for cell in demo["crossplay"]["cells"]:
             cell["extra_metrics"] = extra.get(cell["policy"], {}).get(cell["column"])
     failed = [c.name for c in checks_list if not c.passed]

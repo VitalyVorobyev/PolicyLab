@@ -255,7 +255,8 @@ citizens-c4-b4 run_id *args:
 #   --distill-run runs/citizens-c4-distill-v1 --baselines-run runs/citizens-c3-baselines-v1
 #   --train-run runs/citizens-c4-train-{b1,b2,b3,b23}-s1001-v1 runs/citizens-c4-train-mix-s3001-v1
 #   --heldout-eval-run runs/citizens-c2-heldout-eval-v1 --b4-eval-run runs/citizens-c2-b4-eval-v1
-#   [--b4-run runs/<B4 runs> ...] [--hypotheses-run runs/<hypotheses>] [--e1-run runs/<E1>]
+#   --e1-run runs/citizens-e1-ranking-v1 --crossplay-metrics-run runs/citizens-c4-crossplay-metrics-v1
+#   [--b4-run runs/<B4 runs> ...] [--hypotheses-run runs/<hypotheses>]
 # Model Citizens public demo: re-simulated traces (must reproduce cross-play within 1e-9) and copied summaries.
 citizens-web-export run_id *args:
     uv run python -m phasespace.citizens.web_export --runs-dir runs --run-id {{run_id}} {{args}}

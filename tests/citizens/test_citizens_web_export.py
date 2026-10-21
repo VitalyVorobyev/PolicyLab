@@ -351,24 +351,79 @@ def test_robustness_is_the_worst_share_of_each_column_s_own_planner() -> None:
     assert out["Rule"]["worst_column"] == "A"
 
 
-def test_optional_cell_metrics_are_copied_from_a_supplementary_run(tmp_path: Path) -> None:
-    doc = {
-        "cells": {
-            "Equal": {
-                "B1": {
-                    "deterministic": {
-                        "depletion_round_mean": 14.5,
-                        "players_active_mean": 1.25,
-                        "total_surplus_mean": 700.0,
-                    },
-                    "sampled": None,
-                }
-            },
-            "Other": {"B1": {"deterministic": {"depletion_round_mean": 3.0}}},
-        }
-    }
-    payload = (json.dumps(doc) + "\n").encode()
+def _metrics_run(tmp_path: Path, cells: dict[str, Any]) -> Path:
+    payload = (json.dumps({"cells": cells}) + "\n").encode()
     run = tmp_path / "metrics-run"
-    write_run_directory(run, {"run_id": "metrics-run"}, [("summary", "cells.json", payload)])
-    out = we.crossplay_metrics(run, ["Equal", "Planner[B1]"])
-    assert out == {"Equal": {"B1": {"depletion_round_mean": 14.5, "players_active_mean": 1.25}}}
+    manifest = {"run_id": "metrics-run", "citizens": {"stage": "c4_crossplay_metrics"}}
+    write_run_directory(run, manifest, [("summary", "crossplay_metrics.json", payload)])
+    return run
+
+
+def _metric_fields(depletion: float) -> dict[str, Any]:
+    return {
+        "seeds": [None],
+        "depletion_round_mean": depletion,
+        "depletion_round_per_seed": [depletion],
+        "players_active_mean": 1.25,
+        "players_active_per_seed": [1.25],
+        "depleted_fraction_mean": 0.5,
+        "depleted_fraction_per_seed": [0.5],
+        "total_surplus_mean": 700.0,
+    }
+
+
+def test_optional_cell_metrics_are_copied_from_a_supplementary_run(tmp_path: Path) -> None:
+    cells = {
+        "Equal": {"B1": {"deterministic": _metric_fields(14.5), "sampled": None}},
+        "Planner[B1]": {
+            "B1": {"deterministic": _metric_fields(30.0), "sampled": _metric_fields(1.0)}
+        },
+        "Other": {"B1": {"deterministic": _metric_fields(3.0)}},
+    }
+    out = we.crossplay_metrics(_metrics_run(tmp_path, cells), ["Equal", "Planner[B1]"], ["B1"])
+    # Seed means of the deterministic mode only; per-seed lists and other fields are dropped.
+    assert out == {
+        "Equal": {
+            "B1": {
+                "depletion_round_mean": 14.5,
+                "players_active_mean": 1.25,
+                "depleted_fraction_mean": 0.5,
+            }
+        },
+        "Planner[B1]": {
+            "B1": {
+                "depletion_round_mean": 30.0,
+                "players_active_mean": 1.25,
+                "depleted_fraction_mean": 0.5,
+            }
+        },
+    }
+
+
+def test_a_missing_cell_metric_fails_the_export(tmp_path: Path) -> None:
+    fields = _metric_fields(14.5)
+    del fields["players_active_mean"]
+    run = _metrics_run(tmp_path, {"Equal": {"B1": {"deterministic": fields}}})
+    with pytest.raises(ValueError, match="players_active_mean"):
+        we.crossplay_metrics(run, ["Equal"], ["B1"])
+    with pytest.raises(ValueError, match="B2"):
+        we.crossplay_metrics(_metrics_run(tmp_path / "x", {}), ["Equal"], ["B2"])
+
+
+def test_distilled_curves_copy_the_recorded_gains_per_seed() -> None:
+    def planner(seed: int, w: list[float | None], gain: float, w_gain: float) -> dict[str, Any]:
+        return {
+            "policy": "Planner[B1]",
+            "seed": seed,
+            "w_rule": {"bins": 2, "w": w, "kept_share": [0.1, 0.2], "r2": 0.7},
+            "interpolating_k": {"k": 22.0},
+            "total_surplus_mean": {"planner_minus_k_star": gain, "w_rule_minus_k_star": w_gain},
+        }
+
+    doc = {"planners": [planner(1, [0.2, None], 100.0, -50.0), planner(2, [0.4, None], 80.0, 10.0)]}
+    out = we.distilled_curves(doc, ["Planner[B1]", "Planner[B2]"], 22.0)
+    (row,) = out["planners"]
+    assert row["w_mean"] == pytest.approx([0.3, None])
+    assert row["planner_minus_k_star_per_seed"] == [100.0, 80.0]
+    assert row["w_rule_minus_k_star_per_seed"] == [-50.0, 10.0]
+    assert out["bin_edges"] == [0.0, 0.5, 1.0]
