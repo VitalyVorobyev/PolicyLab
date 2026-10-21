@@ -8,7 +8,7 @@ const SCORES = "e1_scores.json";
 const SHOWN = ["B1", "B2", "B3", "B23", "M0-sim", "B4-calibrated", "B4-plain"] as const;
 const LEARNERS = ["B3", "B23"];
 
-const NAMES: Record<string, string> = { "M0-sim": "Control: random returns at human rates" };
+const NAMES: Record<string, string> = { "M0-sim": "Control: random returns" };
 
 export interface JudgeScore {
   model: string;
@@ -65,10 +65,11 @@ export function JudgeCheck({ e1 }: { e1: E1 }) {
     `The ${main.excluded} comparisons involving DeepMind's first AI manager are left out (our stand-in for it failed the human check), ` +
     `and ${main.notScorable} more cannot be scored with the stored simulations.` +
     (llm.length > 0 ? ` The LLM players were run only under the held-out rules, so ${llm[0]?.scorable ?? 0} comparisons apply to them.` : "") +
+    (scores.some((s) => s.model === "M0-sim") ? " The random-returns control draws each return from how often people returned each amount, ignoring the game's state." : "") +
     (b0 === undefined ? "" : ` A control that returns nothing (B0) gets ${b0.agreements} of ${b0.scorable}.`);
 
   return (
-    <div className="max-w-[44rem]">
+    <div className="max-w-[36rem]">
       <h3 className="font-serif text-xl">Is the judge credible?</h3>
       <p className="mt-2 text-[0.95rem] text-graphite">
         DeepMind compared its human-tested rules in pairs. Of the{" "}
@@ -82,23 +83,23 @@ export function JudgeCheck({ e1 }: { e1: E1 }) {
             const color = r.model.startsWith("B") && !r.model.startsWith("B4") ? modelColor(r.model) : "var(--color-graphite)";
             return (
               <tr key={r.model} className="border-b border-rule">
-                <th scope="row" className="py-1.5 pr-3 text-left font-normal whitespace-nowrap">
+                <th scope="row" className="py-1.5 pr-3 text-left font-normal">
                   {r.model.startsWith("M0") ? "" : <span className="mr-1.5 font-medium">{r.model.replace(/^B4-.*/, "B4")}</span>}
                   <span className="text-graphite">{NAMES[r.model] ?? info?.name ?? r.model}</span>
                 </th>
-                <td className="w-full py-1.5" aria-hidden="true">
+                <td className="numeric py-1.5 pr-4 text-right whitespace-nowrap">
+                  {r.agreements} / {r.scorable}
+                </td>
+                <td className="py-1.5" aria-hidden="true">
                   <span className="flex gap-[3px]">
                     {Array.from({ length: r.scorable }, (_, i) => (
                       <span
                         key={i}
-                        className="inline-block size-2.5 rounded-[2px]"
+                        className="inline-block size-2.5 shrink-0 rounded-[2px]"
                         style={i < r.agreements ? { background: color } : { boxShadow: `inset 0 0 0 1.5px ${color}` }}
                       />
                     ))}
                   </span>
-                </td>
-                <td className="numeric py-1.5 pl-3 text-right whitespace-nowrap">
-                  {r.agreements} / {r.scorable}
                 </td>
               </tr>
             );

@@ -39,7 +39,7 @@ export const STUDIES: readonly StudySummary[] = [
     question:
       "When does a strictly bounded inherited memory, at most 256 bytes passed between otherwise fresh agents, enable cumulative improvement on unseen but related tasks?",
     status: "planned",
-    progress: "Planned. Specification only; it follows Model Citizens.",
+    progress: "Specification only. It follows Model Citizens.",
     specPath: "docs/studies/last-library/README.md",
   },
   {

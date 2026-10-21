@@ -77,7 +77,7 @@ describe("Model Citizens page", () => {
     const row = (name: RegExp): HTMLElement => within(panel).getByRole("row", { name });
     expect(within(row(/Neural clone/)).getByText("8 / 8")).toBeInTheDocument();
     expect(within(row(/Conditional cooperators/)).getByText("7 / 8")).toBeInTheDocument();
-    expect(within(row(/random returns/)).getByText("5 / 8")).toBeInTheDocument();
+    expect(within(row(/Control: random returns/)).getByText("5 / 8")).toBeInTheDocument();
     expect(within(row(/LLM players/)).getByText("2 / 2")).toBeInTheDocument();
     expect(within(row(/LLM, uncalibrated/)).getByText("1 / 2")).toBeInTheDocument();
     expect(within(panel).getByText(/but so do the learner models \(B3 and B23\), so this check says B1 is a sound judge/)).toBeInTheDocument();
