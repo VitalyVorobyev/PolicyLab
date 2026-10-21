@@ -8,10 +8,11 @@ import { docUrl, REPOSITORY_URL } from "../../lib/links";
 import { Link } from "../../lib/router";
 import { usePageTitle } from "../../lib/usePageTitle";
 import { CrossplayHeatmap, Verdicts } from "./Crossplay";
-import { crossplayFindings, narrowPass, wholeGameModels } from "./findings";
+import { crossplayFindings, distillCaveat, narrowPass, wholeGameModels } from "./findings";
 import { Exams, examsHeadline } from "./Exams";
 import { DEFAULT_SELECTION, GameDemo, validSelection, type Selection } from "./GameDemo";
 import { GameExplainer } from "./GameExplainer";
+import { JudgeCheck } from "./JudgeCheck";
 import { prefersReducedMotion } from "./hooks";
 import { LlmCitizens } from "./LlmCitizens";
 import { MechanismChart } from "./MechanismChart";
@@ -98,6 +99,7 @@ function Content({ run }: { run: LoadedCitizensRun }) {
     document.getElementById("demo")?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
   };
   const findings = crossplayFindings(demo);
+  const distill = distillCaveat(demo.distilled);
   const examLine = demo.exams === null ? null : examsHeadline(demo.exams);
   const hasModels = MODEL_KEYS.every((m) => CITIZENS.some((c) => c.key === m));
 
@@ -171,6 +173,12 @@ function Content({ run }: { run: LoadedCitizensRun }) {
               Described with the simple rule&apos;s own ingredients, the four AI governors split the pool in visibly different ways.
             </p>
             <MechanismChart distilled={demo.distilled} maxPool={demo.game.max_pool} />
+            {distill !== null && (
+              <p className="mt-3 border-l-2 border-caution pl-3 text-[0.9rem] text-graphite">
+                <Term tip={distill.tip}>But these curves explain the AI governors poorly</Term>: they recover little or none of the governors&apos; gain over the simple
+                rule, so the governors do something the curves don&apos;t capture.
+              </p>
+            )}
           </div>
         </div>
         {findings.length > 0 && (
@@ -204,13 +212,12 @@ function Content({ run }: { run: LoadedCitizensRun }) {
         </Section>
       )}
 
-      {demo.e1 !== null && (
-        <Section id="e1" title="Additional experiment">
-          <E1Tables demo={demo} />
-        </Section>
-      )}
-
       <Section id="limits" title="What this does and doesn’t show">
+        {demo.e1 !== null && (
+          <div className="mb-10">
+            <JudgeCheck e1={demo.e1} />
+          </div>
+        )}
         <ul className="grid gap-x-10 gap-y-6 sm:grid-cols-2">
           {caveats(demo).map((c) => (
             <li key={c.title} className="border-t border-rule-strong pt-3">
@@ -247,41 +254,6 @@ function Content({ run }: { run: LoadedCitizensRun }) {
         </p>
       </footer>
     </>
-  );
-}
-
-function E1Tables({ demo }: { demo: CitizensDemo }) {
-  if (demo.e1 === null) return null;
-  return (
-    <div className="space-y-8">
-      {Object.entries(demo.e1.tables).map(([name, table]) => (
-        <div key={name} className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <caption className="mb-2 text-left text-xs text-graphite">{name}</caption>
-            <thead>
-              <tr className="border-b border-rule-strong text-xs text-graphite">
-                {table.columns.map((c) => (
-                  <th key={c.name} scope="col" className="py-1.5 pr-4 font-medium">
-                    <Term tip={c.definition}>{c.name}</Term>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {table.rows.map((row, i) => (
-                <tr key={i} className="border-b border-rule">
-                  {row.map((v, j) => (
-                    <td key={j} className="numeric py-1.5 pr-4">
-                      {v === null ? "–" : typeof v === "number" ? v.toLocaleString("en-US", { maximumFractionDigits: 3 }) : v}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ))}
-    </div>
   );
 }
 

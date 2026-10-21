@@ -7,6 +7,8 @@ import { citizenInfo, coins, kLabel, MODEL_KEYS, modelColor } from "./model";
 
 const M = { left: 48, right: 64, top: 16, bottom: 36 };
 const K_TICKS = [0.01, 0.1, 1, 10, 100];
+/** Width of the slider thumb in px (`.k-slider` in index.css). */
+const THUMB = 18;
 
 function nearestIndex(lnK: number[], target: number): number {
   let best = 0;
@@ -93,7 +95,9 @@ export function TuneRule({ tuning }: { tuning: KTuning }) {
             ))}
           </svg>
         </div>
-        <label className="mt-2 flex items-center gap-4 pl-[48px] pr-[64px]">
+        {/* The thumb's centre travels from half a thumb inside each end of the track; pad by
+            the chart margins less half a thumb so it sits on the chart's k marker. */}
+        <label className="mt-2 flex items-center" style={{ paddingLeft: M.left - THUMB / 2, paddingRight: M.right - THUMB / 2 }}>
           <span className="sr-only">Setting k of the simple rule</span>
           <input
             type="range"

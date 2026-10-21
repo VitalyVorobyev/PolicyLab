@@ -161,8 +161,10 @@
     height: 2px;
     background: var(--color-rule-strong);
   }
+  /* Thumb 18px wide, border included (THUMB in TuneRule.tsx aligns it with the chart). */
   .k-slider::-webkit-slider-thumb {
     appearance: none;
+    box-sizing: border-box;
     width: 18px;
     height: 18px;
     margin-top: -8px;
@@ -172,8 +174,9 @@
     box-shadow: 0 0 0 1px var(--color-accent-ink);
   }
   .k-slider::-moz-range-thumb {
-    width: 16px;
-    height: 16px;
+    box-sizing: border-box;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
     background: var(--color-accent);
     border: 2px solid var(--color-sheet);

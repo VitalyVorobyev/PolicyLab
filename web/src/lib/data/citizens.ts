@@ -130,6 +130,11 @@ export interface DistilledPlanner {
   seeds: number[];
   w_mean: (number | null)[];
   fitted_k_per_seed: number[];
+  /** R² of each seed's binned w(R) fit. */
+  r2_per_seed: (number | null)[];
+  /** On the distillation games (in sample): planner and its w(R) rule minus the deployed k* of its own model, per seed. */
+  planner_minus_k_star_per_seed: number[];
+  w_rule_minus_k_star_per_seed: number[];
 }
 
 export interface Distilled {
@@ -425,6 +430,9 @@ function parseDistilled(r: Reader): Distilled {
       seeds: numbers(p, "seeds"),
       w_mean: nullableNumbers(p, "w_mean", bins),
       fitted_k_per_seed: numbers(p, "fitted_k_per_seed"),
+      r2_per_seed: nullableNumbers(p, "r2_per_seed", p.array("seeds").length),
+      planner_minus_k_star_per_seed: numbers(p, "planner_minus_k_star_per_seed", p.array("seeds").length),
+      w_rule_minus_k_star_per_seed: numbers(p, "w_rule_minus_k_star_per_seed", p.array("seeds").length),
     })),
     reference: { rule: ref.string("rule"), pool_fraction: fraction, w: numbers(ref, "w", fraction.length) },
   };

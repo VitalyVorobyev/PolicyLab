@@ -69,4 +69,23 @@ describe("Model Citizens page", () => {
     expect(screen.getByText(/the pre-registered verdicts are being computed/)).toBeInTheDocument();
     expect(screen.getByText(/All four models pass the next-move exam, but only B1 passes the whole-game exam/)).toBeInTheDocument();
   });
+
+  it("shows how often each model orders the published human comparisons right, read from the E1 run", async () => {
+    render(<CitizensPage />);
+    await screen.findByRole("region", { name: "Interactive demonstration" });
+    const panel = screen.getByRole("heading", { name: "Is the judge credible?" }).parentElement as HTMLElement;
+    const row = (name: RegExp): HTMLElement => within(panel).getByRole("row", { name });
+    expect(within(row(/Neural clone/)).getByText("8 / 8")).toBeInTheDocument();
+    expect(within(row(/Conditional cooperators/)).getByText("7 / 8")).toBeInTheDocument();
+    expect(within(row(/random returns/)).getByText("5 / 8")).toBeInTheDocument();
+    expect(within(row(/LLM players/)).getByText("2 / 2")).toBeInTheDocument();
+    expect(within(row(/LLM, uncalibrated/)).getByText("1 / 2")).toBeInTheDocument();
+    expect(within(panel).getByText(/but so do the learner models \(B3 and B23\), so this check says B1 is a sound judge/)).toBeInTheDocument();
+  });
+
+  it("warns that the one-weight curves do not explain the AI governors", async () => {
+    render(<CitizensPage />);
+    await screen.findByRole("region", { name: "Interactive demonstration" });
+    expect(screen.getByText("But these curves explain the AI governors poorly")).toBeInTheDocument();
+  });
 });

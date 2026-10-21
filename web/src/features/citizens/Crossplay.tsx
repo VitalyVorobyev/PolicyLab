@@ -44,10 +44,13 @@ function cellTip(cell: CrossplayCell, kStar: number, games: number): string {
   if (d.ci !== null) text += ` 95 % interval ${signedCoins(d.ci[0])} to ${signedCoins(d.ci[1])} coins.`;
   if (d.seeds_positive !== null && d.seeds_negative !== null && seeds > 1) text += ` ${d.seeds_positive} of ${seeds} seeds above, ${d.seeds_negative} below.`;
   const extra = cell.extra_metrics ?? {};
-  const depletion = Object.entries(extra).find(([k]) => k.startsWith("depletion_round"))?.[1];
-  const active = Object.entries(extra).find(([k]) => k.startsWith("players_active"))?.[1];
-  if (depletion !== undefined) text += ` Pool runs dry around round ${fixed(depletion, 1)} on average.`;
-  if (active !== undefined) text += ` Players still active at the end: ${fixed(active, 2)}.`;
+  const depleted = extra.depleted_fraction_mean;
+  const depletion = extra.depletion_round_mean;
+  const active = extra.players_active_mean;
+  if (depleted !== undefined) text += ` The pool ran dry in ${Math.round(depleted * 100)} % of games`;
+  if (depletion !== undefined) text += `${depleted === undefined ? " Depletion round" : "; depletion round"} ${fixed(depletion, 1)} on average (40 if never)`;
+  if (depleted !== undefined || depletion !== undefined) text += ".";
+  if (active !== undefined) text += ` Players offered at least one coin in the last round: ${fixed(active, 1)} of 4.`;
   return text;
 }
 

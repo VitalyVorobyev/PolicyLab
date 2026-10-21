@@ -3,7 +3,7 @@
  * sentences is read from the run's cells (descriptive); a sentence whose premise does not hold in
  * the data is left out rather than reworded.
  */
-import type { CitizensDemo, CrossplayCell, Exams } from "../../lib/data/citizens";
+import type { CitizensDemo, CrossplayCell, Distilled, Exams } from "../../lib/data/citizens";
 import { cellOf, MODEL_KEYS, signedCoins, SIMPLE_RULE } from "./model";
 
 export interface Finding {
@@ -157,5 +157,29 @@ export function narrowPass(exams: Exams | null, model: string, regime = "R-I"): 
   if (viaTolerance.length > 0) parts.push(`${list(viaTolerance)} sits just outside the human range and counts as inside only through the pre-set tolerance`);
   if (outside.length > 0) parts.push(`${list(outside)} is outside it`);
   return parts.length === 0 ? null : `${parts.join("; ")}.`;
+}
+
+/**
+ * Whether the one-weight curves explain the AI governors: per planner (seed means, on its own model's
+ * distillation games, in sample) the planner's and its curve's surplus minus the tuned simple rule.
+ * The caveat is returned only when no curve keeps half of its governor's gain.
+ */
+export function distillCaveat(distilled: Distilled): { tip: string } | null {
+  const mean = (v: number[]): number => v.reduce((s, x) => s + x, 0) / Math.max(1, v.length);
+  const rows = distilled.planners.map((p) => ({
+    model: p.policy.replace(/^Planner\[(.*)\]$/, "$1"),
+    planner: mean(p.planner_minus_k_star_per_seed),
+    curve: mean(p.w_rule_minus_k_star_per_seed),
+    r2: p.r2_per_seed.filter((v): v is number => v !== null),
+  }));
+  if (rows.length === 0 || rows.some((r) => r.planner > 0 && r.curve >= 0.5 * r.planner)) return null;
+  const r2 = rows.flatMap((r) => r.r2);
+  const fmt = (v: number): string => `${v >= 0 ? "+" : "−"}${Math.round(Math.abs(v)).toLocaleString("en-US")}`;
+  const parts = rows.map((r) => `AI · ${r.model}: governor ${fmt(r.planner)}, its curve ${fmt(r.curve)}`);
+  return {
+    tip:
+      `Coins per game against the simple rule tuned for the governor's own model, on the games the curves were fitted to (seed means): ${parts.join("; ")}. ` +
+      (r2.length > 0 ? `The curves match the individual offers only moderately (R² ${Math.min(...r2).toFixed(2)}–${Math.max(...r2).toFixed(2)}).` : ""),
+  };
 }
 
