@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Layout } from "./components/Layout";
+import { CitizensPage } from "./features/citizens/CitizensPage";
 import { GalleryPage } from "./features/gallery/GalleryPage";
 import { GravityPage } from "./features/gravity/GravityPage";
 import { NotFoundPage } from "./features/NotFoundPage";
@@ -12,6 +13,8 @@ function Route({ path }: { path: string }) {
       return <GalleryPage />;
     case "/gravity":
       return <GravityPage />;
+    case "/citizens":
+      return <CitizensPage />;
     default:
       return <NotFoundPage />;
   }

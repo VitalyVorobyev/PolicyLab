@@ -14,6 +14,16 @@ export interface StudySummary {
 
 export const STUDIES: readonly StudySummary[] = [
   {
+    study_id: "model-citizens",
+    title: "Model Citizens",
+    question: "Do AI governors trained against different models of people discover the same rule for sharing a common pool?",
+    status: "active",
+    progress:
+      "Running. Four models of people were built from a published experiment and an AI governor was trained against each; every governor was then played against every model. The pre-registered verdicts are being computed. Explore the games in the demonstration.",
+    specPath: "docs/studies/model-citizens/README.md",
+    route: "/citizens",
+  },
+  {
     study_id: "gravity-atlas",
     title: "Gravity Atlas",
     question: "Which search method finds the free returns to the Moon that survive a bad launch?",

@@ -61,9 +61,9 @@ const CONSISTENCY_RTOL = 1e-12;
 /** Absolute tolerance (km) for return_shell.altitude_km = radius_km - Earth radius (float subtraction). */
 const SHELL_ALTITUDE_ATOL_KM = 1e-9;
 
-const RUN_ID = /^[a-z0-9][a-z0-9._-]{0,127}$/;
-const SNAKE_KEY = /^[a-z0-9_]+$/;
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+export const RUN_ID = /^[a-z0-9][a-z0-9._-]{0,127}$/;
+export const SNAKE_KEY = /^[a-z0-9_]+$/;
+export const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const GIT_COMMIT = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -81,7 +81,7 @@ class Described {
 }
 
 /** Short description of a received value for error messages. */
-function describe(value: unknown): string {
+export function describe(value: unknown): string {
   if (value instanceof Described) return value.text;
   if (value === undefined) return "nothing (the field is missing)";
   if (value === null) return "null";
@@ -93,7 +93,7 @@ function describe(value: unknown): string {
 }
 
 /** Field-level checks that report a dotted path (e.g. `model.mu`) and the received value in every error. */
-class Reader {
+export class Reader {
   constructor(
     private readonly source: string,
     private readonly prefix: string,
@@ -227,7 +227,7 @@ class Reader {
   }
 }
 
-function root(source: string, value: unknown, what: string): Reader {
+export function root(source: string, value: unknown, what: string): Reader {
   if (!isObject(value)) throw new DataError("invalid", source, `The ${what} is not a JSON object.`);
   const version = value.schema_version;
   if (version !== SUPPORTED_SCHEMA_VERSION) {
@@ -264,7 +264,7 @@ export function parseCatalog(value: unknown, source = "catalog.json"): Catalog {
   return { schema_version: 1, studies };
 }
 
-function parseSource(r: Reader): Source {
+export function parseSource(r: Reader): Source {
   return {
     repository: r.matching("repository", REPOSITORY, 'a repository as "owner/name"'),
     git_commit: r.matching("git_commit", GIT_COMMIT, "a full 40-character lowercase commit SHA"),
@@ -274,7 +274,7 @@ function parseSource(r: Reader): Source {
   };
 }
 
-function parseEnvironment(r: Reader): Environment {
+export function parseEnvironment(r: Reader): Environment {
   return {
     python: r.string("python"),
     python_implementation: r.string("python_implementation"),
@@ -384,7 +384,7 @@ function parseSolver(r: Reader): Solver {
   };
 }
 
-function parseArtifact(a: Reader): Artifact {
+export function parseArtifact(a: Reader): Artifact {
   return {
     kind: a.oneOf("kind", ARTIFACT_KINDS),
     // Artifacts live directly in the run directory: a plain file name, no "/" segments.
@@ -393,7 +393,7 @@ function parseArtifact(a: Reader): Artifact {
   };
 }
 
-function parseMetrics(r: Reader): Record<string, Metric> {
+export function parseMetrics(r: Reader): Record<string, Metric> {
   const metrics: Record<string, Metric> = {};
   for (const key of r.keys()) {
     if (!SNAKE_KEY.test(key)) r.fail(key, "a metric key of lowercase letters, digits and underscores", key);
@@ -438,7 +438,7 @@ function parseReference(r: Reader): CatalogReference {
   };
 }
 
-function parseValidation(r: Reader): Validation {
+export function parseValidation(r: Reader): Validation {
   return {
     checks: r.objects("checks", 1).map(parseCheck),
     validated_by: r.string("validated_by"),
@@ -589,7 +589,7 @@ export function parseTrajectory(value: unknown, manifest: Manifest, source = "tr
   return { schema_version: 1, run_id: runId, frame, time_unit: timeUnit, state_order: order, t, x, y, vx, vy, length: n, events };
 }
 
-function checkRunId(r: Reader, manifest: Manifest, source: string): string {
+export function checkRunId(r: Reader, manifest: { run_id: string }, source: string): string {
   const runId = r.string("run_id");
   if (runId !== manifest.run_id) {
     throw new DataError("invalid", source, `run_id "${runId}" does not match the manifest's run_id "${manifest.run_id}".`);

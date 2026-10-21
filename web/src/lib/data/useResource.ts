@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { loadAtlasRun, loadCatalog, loadErrorFan, loadGridRun, loadRun, loadTableRun } from "./load";
+import type { LoadedCitizensRun } from "./citizens";
+import { loadAtlasRun, loadCatalog, loadCitizensRun, loadErrorFan, loadGridRun, loadRun, loadTableRun } from "./load";
 import type { Catalog, ErrorFan, LoadedAtlasRun, LoadedGridRun, LoadedRun, LoadedTableRun } from "./types";
 import { checkFanMatchesArm } from "./validate";
 
@@ -84,6 +85,13 @@ export function useTableRun(runId: string, path: string): Resource<LoadedTableRu
 
 export function useGridRun(runId: string, path: string): Resource<LoadedGridRun> {
   return useResource(`outcome_grid:${runId}@${path}`, gridLoader);
+}
+
+const citizensLoader = keyed(loadCitizensRun);
+
+/** The Model Citizens web demo run (manifest, verified artifact and parsed demo data). */
+export function useCitizensRun(runId: string, path: string): Resource<LoadedCitizensRun> {
+  return useResource(`citizens_demo:${runId}@${path}`, citizensLoader);
 }
 
 const atlasLoader = keyed(loadAtlasRun);

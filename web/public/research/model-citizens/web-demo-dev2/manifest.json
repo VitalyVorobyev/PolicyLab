@@ -1,0 +1,450 @@
+{
+  "schema_version": 1,
+  "run_id": "citizens-web-demo-dev2",
+  "study_id": "model-citizens",
+  "experiment_id": "citizens-web-demo-v1",
+  "status": "computed_unvalidated",
+  "created_at": "2026-10-21T07:20:26Z",
+  "source": {
+    "repository": "VitalyVorobyev/PolicyLab",
+    "git_commit": "3fd8473b4b55539a08044e49ec29c0f931c79ff2",
+    "git_dirty": false,
+    "generator": "phasespace.citizens.web_export",
+    "generator_version": "0.1.0"
+  },
+  "environment": {
+    "python": "3.12.12",
+    "python_implementation": "CPython",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "jax": "0.12.0",
+    "jaxlib": "0.12.0",
+    "equinox": "0.13.8",
+    "optax": "0.2.8",
+    "jax_backend": "cpu",
+    "jax_devices": "cpu:0"
+  },
+  "model": {
+    "name": "koster2025-common-pool",
+    "units": "coin",
+    "players": 4,
+    "max_pool": 200.0,
+    "growth_factor": 1.4,
+    "pool_floor": 0.01,
+    "depletion_threshold": 1.0,
+    "exclusion_threshold": 1.0,
+    "rounds_exps_1_3": 40,
+    "baseline_weights": {
+      "equal": 1.0,
+      "mixed": 0.5,
+      "proportional": 0.0
+    },
+    "interpolating_k": 22.0,
+    "interpolating_weight_decimals": 1,
+    "recorded_offer_withheld": 0.001,
+    "recorded_offer_decimals": 4,
+    "offer_rule": "deployed",
+    "legacy_remainder_dropped_games": 7
+  },
+  "simulator": {
+    "name": "phasespace.citizens.rl.citizens.rollout",
+    "pool_rule": "full: R' = max(0.01, min(200, R - sum e + 1.4 sum c))",
+    "offer_rule": "deployed for the baselines (D33); R * softmax shares for the planner",
+    "rounds": 40,
+    "precision": "float64 (jax_enable_x64); deployed offers float32 as deployed",
+    "citizen_draws": "B1: one member per player at game start; uniforms per round and player",
+    "common_random_numbers": "every mechanism faces the same citizen draws for a game key"
+  },
+  "random_seed": 41000,
+  "artifacts": [
+    {
+      "kind": "citizens_demo",
+      "path": "citizens_demo.json",
+      "sha256": "f9a03ac8cece6f2f17dcbf7bedb1d5cd793e3ab4a5de8a4721e3af8dca04ce7c"
+    }
+  ],
+  "metrics": {},
+  "limitations": [
+    "Curated public sample: three games per cell (games 0-2, fixed in advance), deterministic planner policy, one training seed per planner row (1001; Mix 3001); every other number is copied from the recorded runs listed in citizens.inputs.",
+    "Citizen models keep their C2 validation labels (D35): only B1 is closed-loop validated; every planner is judged by simulated citizens, not by new human players.",
+    "Coin values in traces are rounded to 2 decimals after the reproduction check."
+  ],
+  "validation": {
+    "checks": [
+      {
+        "name": "trace_totals_reproduce_crossplay",
+        "observed": 0.0,
+        "threshold": 1e-09,
+        "passed": true,
+        "definition": "max |re-simulated - recorded| per-game total surplus (coins) over all 1,000 evaluation games of every traced (governor, citizen model) cell"
+      },
+      {
+        "name": "trace_pool_update_residual",
+        "observed": 5.684341886080802e-14,
+        "threshold": 1e-09,
+        "passed": true,
+        "definition": "max |R_{t+1} - max(0.01, min(200, R_t - sum e + 1.4 sum c))| over the traced games"
+      },
+      {
+        "name": "trace_offers_above_pool",
+        "observed": 0.0,
+        "threshold": 1e-09,
+        "passed": true,
+        "definition": "max (sum e - R) over the traced rounds (0 when every round offers at most the pool)"
+      },
+      {
+        "name": "trace_returns_outside_offer",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "max over traced decisions of (c - e) and of -c (0 when 0 <= c <= e)"
+      },
+      {
+        "name": "b4_totals_match_games",
+        "observed": 2.2737367544323206e-13,
+        "threshold": 1e-06,
+        "passed": true,
+        "definition": "max |sum of parsed (offer - return) - 160 x games.json surplus| per complete B4 game"
+      }
+    ],
+    "validated_by": "phasespace.citizens.web_export automated checks (pass: observed <= threshold)",
+    "validated_at": "2026-10-21T07:20:26Z"
+  },
+  "citizens": {
+    "stage": "web_export",
+    "pilot_version": "c3-pilot-v1",
+    "c3_config_sha256": "4a312211d02c3b5a2f6c98f2cac4d2a5d7db44143f9341babc7c165f971a1dde",
+    "c3_config": {
+      "bootstrap_resamples": 10000,
+      "bootstrap_seed": 9001,
+      "check_mechanisms": [
+        "Equal",
+        "Proportional",
+        "Interpolating"
+      ],
+      "check_pmf_atol": 1e-06,
+      "check_sim_games": 1000,
+      "check_sim_seed": 31100,
+      "check_z_max": 4.5,
+      "ci_level": 0.95,
+      "diagnostic_baselines": [
+        "Interpolating k=22",
+        "Interpolating k*",
+        "Proportional"
+      ],
+      "eval_games": 1000,
+      "eval_key_seed": 31000,
+      "fixed_weights": {
+        "Equal": 1.0,
+        "Mixed": 0.5,
+        "Proportional": 0.0
+      },
+      "frac_bins": 10,
+      "g3_hours_per_run": 24.0,
+      "g3_model": "B1",
+      "k_published": 22.0,
+      "k_tie_rule": "smallest ln k among grid points with the maximal mean surplus",
+      "ln_k_max": 5.0,
+      "ln_k_min": -5.0,
+      "ln_k_step": 0.1,
+      "monitor_games": 512,
+      "monitor_key_seed": 31002,
+      "pilot_iterations": 500,
+      "pilot_train_seeds": [
+        1,
+        2,
+        3
+      ],
+      "pilot_version": "c3-pilot-v1",
+      "ppo_chunk": 10,
+      "ppo_clip": 0.2,
+      "ppo_entropy_coef": 0.0,
+      "ppo_epochs": 4,
+      "ppo_gae_lambda": 0.95,
+      "ppo_gamma": 1.0,
+      "ppo_hidden": 32,
+      "ppo_init_log_std": -0.5,
+      "ppo_learning_rate": 0.001,
+      "ppo_max_grad_norm": 0.5,
+      "ppo_minibatches": 8,
+      "ppo_n_games": 1024,
+      "ppo_n_rounds": 40,
+      "ppo_reward_scale": 0.005,
+      "ppo_value_coef": 0.5,
+      "reproduction_atol": 1e-09,
+      "rounds": 40,
+      "sampled_eval_key_seed": 31003,
+      "tune_games": 1000,
+      "tune_key_seed": 31001
+    },
+    "c2_config_sha256": "75ed1f96fc76ef76ee466c51c7fc553566fe8ed39164ac8465864ad539ac16ee",
+    "fit_run": {
+      "path": "/Users/vitalyvorobyev/nonvision/policylab/runs/citizens-c2-fit-v1",
+      "run_id": "citizens-c2-fit-v1",
+      "manifest_sha256": "1b630d0589e20d0d993f2b6b56c45db0c4c6c59968348058d7c1b571923208ab",
+      "git_commit": "d249ef045a85f70bfd9fa43d105f7cb6c66e458a",
+      "config_sha256": "75ed1f96fc76ef76ee466c51c7fc553566fe8ed39164ac8465864ad539ac16ee"
+    },
+    "held_out_access": "data.load_heldout(confirm_frozen=True) under docs/studies/model-citizens/protocol-validation.md (sha256 75aa5bd6c228329c14d234326ea6026ec11ab2a464660db1a2b8cc04edcd6654): 4 held-out human games copied for display",
+    "c4_version": "c4-v1",
+    "c4_config_sha256": "47ebefeb6e2d69fc0672963c6b7dd29ac2aeb95b145234d7c9b8a451921ed4b8",
+    "c4_config": {
+      "ablation_flag": "no_retention",
+      "agreement_l1_floor": 0.1,
+      "agreement_min_rows": 200,
+      "agreement_within_factor": 2.0,
+      "alpha": 0.05,
+      "b4_calls_per_game_calibration": 106.11666666666666,
+      "b4_comparator_k": 9.025013499434122,
+      "b4_comparator_model": "B1",
+      "b4_games_allowed": [
+        40,
+        30
+      ],
+      "b4_gating_regimes": [
+        "R-I",
+        "R-M2"
+      ],
+      "b4_min_complete_games": 20,
+      "b4_planner_games": 40,
+      "b4_planner_seed": 1001,
+      "b4_retry_fraction_calibration": 0.020025632809996797,
+      "b4_variants": [
+        "plain",
+        "calibrated"
+      ],
+      "bootstrap_resamples": 10000,
+      "bootstrap_seed": 9101,
+      "c4_protocol_path": "docs/studies/model-citizens/protocol.md",
+      "c4_version": "c4-v1",
+      "ceiling_llm_calls": 66000,
+      "ceiling_non_llm_hours": 40.0,
+      "ci_level": 0.95,
+      "convergence_max_plateau_iteration": 900,
+      "convergence_max_tail_slope": 16.0,
+      "delta": 16.0,
+      "distill_features": [
+        "pool_frac",
+        "own_prev_fraction",
+        "others_prev_fraction",
+        "own_prev_share"
+      ],
+      "distill_games": 1000,
+      "distill_key_seed": 41002,
+      "distill_tree_depth": 3,
+      "distill_tree_min_leaf": 200,
+      "distill_w_bins": 10,
+      "eval_games": 1000,
+      "eval_key_seed": 41000,
+      "exploit_support_margin": 0.05,
+      "exploit_support_models": [
+        "B2"
+      ],
+      "exploit_tv_ratio": 1.5,
+      "family_sizes": {
+        "H1-reversal": 12,
+        "H1-transfer": 12,
+        "H2a-loss": 3,
+        "H2a-noninferior": 3,
+        "H2b-loss": 3,
+        "own-model-limited": 4,
+        "own-model-gain": 4,
+        "H2-B4": 3,
+        "S1-reversal": 12,
+        "S1-transfer": 12,
+        "S2-reversal": 4,
+        "S2-transfer": 4
+      },
+      "fidelity_min_r2": 0.5,
+      "fixed_rules": [
+        "Equal",
+        "Mixed",
+        "Proportional"
+      ],
+      "k_published_rule": "Interpolating k=22",
+      "k_star_rule": "Interpolating k*",
+      "last_rounds": [
+        38,
+        39
+      ],
+      "main_seeds": [
+        1001,
+        1002,
+        1003,
+        1004,
+        1005
+      ],
+      "mixture_model": "Mix",
+      "mixture_seeds": [
+        3001,
+        3002,
+        3003
+      ],
+      "no_retention_seeds": [
+        2001,
+        2002,
+        2003
+      ],
+      "ood_features": {
+        "B2": [
+          "x1",
+          "x2",
+          "x3",
+          "x4"
+        ],
+        "B3": [
+          "own_offer",
+          "own_prev_offer"
+        ],
+        "B23": [
+          "own_offer",
+          "own_prev_offer",
+          "x3"
+        ]
+      },
+      "ood_grid_bins": 20,
+      "ood_models": [
+        "B2",
+        "B3",
+        "B23"
+      ],
+      "pilot_iterations": 1000,
+      "pilot_sampled_noise_key_seed": 41010,
+      "pilot_seeds": {
+        "B2": 901,
+        "B3": 902,
+        "B23": 903
+      },
+      "plateau_final_points": 10,
+      "plateau_smooth_points": 5,
+      "plateau_tol_fraction": 0.02,
+      "retention_l1_ratio": 0.5,
+      "sampled_noise_key_seed": 41001,
+      "secondary_reduced_seeds": 2,
+      "train_iterations": 1000
+    },
+    "inputs": {
+      "crossplay_run": {
+        "run_id": "citizens-c4-crossplay-v1",
+        "manifest_sha256": "87a1dc8ed0160ca9dd252f4f6ed17bd894572fff01811c09fb55caa7236be4ad",
+        "git_commit": "4b1f1dd9b07760b44b831874d10a40f98b2a7678",
+        "git_dirty": false,
+        "status": "computed_unvalidated"
+      },
+      "distill_run": {
+        "run_id": "citizens-c4-distill-v1",
+        "manifest_sha256": "9be7a5c6da9d6652d60577184510ff1a41777b5361f07f9a9db532eed29ad816",
+        "git_commit": "4b1f1dd9b07760b44b831874d10a40f98b2a7678",
+        "git_dirty": false,
+        "status": "computed_unvalidated"
+      },
+      "baselines_run": {
+        "run_id": "citizens-c3-baselines-v1",
+        "manifest_sha256": "f71b80e26cb10be1e551df6d6c994d9d7233c94f0b95104ae196a00f902c5229",
+        "git_commit": "4cf989b9af1249b579eedf4c54cdeb40e6fbff6c",
+        "git_dirty": false,
+        "status": "computed_unvalidated"
+      },
+      "fit_run": {
+        "run_id": "citizens-c2-fit-v1",
+        "manifest_sha256": "1b630d0589e20d0d993f2b6b56c45db0c4c6c59968348058d7c1b571923208ab",
+        "git_commit": "d249ef045a85f70bfd9fa43d105f7cb6c66e458a",
+        "git_dirty": false,
+        "status": "computed_unvalidated"
+      },
+      "train_runs": [
+        {
+          "run_id": "citizens-c4-train-b1-s1001-v1",
+          "manifest_sha256": "7a1d0a2d2140b51cc84f991120f5de32e4eff795d3eb736f377d7aabdbfb9c0f",
+          "git_commit": "4b1f1dd9b07760b44b831874d10a40f98b2a7678",
+          "git_dirty": false,
+          "status": "computed_unvalidated",
+          "model": "B1",
+          "seed": 1001
+        },
+        {
+          "run_id": "citizens-c4-train-b2-s1001-v1",
+          "manifest_sha256": "d59db248f6a83ecec71b24850b15e64524ee3ecd32415adbdb6181a2588a7087",
+          "git_commit": "4b1f1dd9b07760b44b831874d10a40f98b2a7678",
+          "git_dirty": false,
+          "status": "computed_unvalidated",
+          "model": "B2",
+          "seed": 1001
+        },
+        {
+          "run_id": "citizens-c4-train-b3-s1001-v1",
+          "manifest_sha256": "1e6062140271fe9f899042325f6a15645af4104867fc20f1f7c3433b9eb41e41",
+          "git_commit": "4b1f1dd9b07760b44b831874d10a40f98b2a7678",
+          "git_dirty": false,
+          "status": "computed_unvalidated",
+          "model": "B3",
+          "seed": 1001
+        },
+        {
+          "run_id": "citizens-c4-train-b23-s1001-v1",
+          "manifest_sha256": "dc1cf9d2f51e14e02ac03007642938abae02a7cff85b2adb47863cf3a14eafbb",
+          "git_commit": "4b1f1dd9b07760b44b831874d10a40f98b2a7678",
+          "git_dirty": false,
+          "status": "computed_unvalidated",
+          "model": "B23",
+          "seed": 1001
+        },
+        {
+          "run_id": "citizens-c4-train-mix-s3001-v1",
+          "manifest_sha256": "ac68a9c9ce825aaafd16d352d27096916cbdfd3053efceb287332098d31b755e",
+          "git_commit": "4b1f1dd9b07760b44b831874d10a40f98b2a7678",
+          "git_dirty": false,
+          "status": "computed_unvalidated",
+          "model": "Mix",
+          "seed": 3001
+        }
+      ],
+      "heldout_eval_run": {
+        "run_id": "citizens-c2-heldout-eval-v1",
+        "manifest_sha256": "da9989cf3def26f65d7183a44d8ebe1111b336cd4a8ba5b67fba4d89122a02b5",
+        "git_commit": "d249ef045a85f70bfd9fa43d105f7cb6c66e458a",
+        "git_dirty": false,
+        "status": "validated"
+      },
+      "b4_eval_run": {
+        "run_id": "citizens-c2-b4-eval-v1",
+        "manifest_sha256": "1428cadbeec478accb58c974e9ac0dab7c97dcb5bda5b811c7ddb130709704f7",
+        "git_commit": "d249ef045a85f70bfd9fa43d105f7cb6c66e458a",
+        "git_dirty": false,
+        "status": "validated"
+      },
+      "b4_runs": [
+        {
+          "run_id": "citizens-c2-b4-calibrated-interpolating-v1",
+          "manifest_sha256": "eb368f49cd5962eb09dd091a520169d3963bca712d678f1b5061e3933ff906b3",
+          "git_commit": "d249ef045a85f70bfd9fa43d105f7cb6c66e458a",
+          "git_dirty": false,
+          "status": "computed_unvalidated"
+        },
+        {
+          "run_id": "citizens-c2-b4-plain-interpolating-v1",
+          "manifest_sha256": "5723f762fed6d4d7ef97f602c08fe672fbc047d53afa31b682817f1eda7a2c53",
+          "git_commit": "d249ef045a85f70bfd9fa43d105f7cb6c66e458a",
+          "git_dirty": false,
+          "status": "computed_unvalidated"
+        }
+      ]
+    },
+    "c4_protocol": {
+      "path": "docs/studies/model-citizens/protocol.md",
+      "sha256": "319587d286b39d253d554a4c46f1bf69832751baae07967941478b0137cf11d0"
+    },
+    "seeds": {
+      "eval_key": 41000,
+      "traced_games": [
+        0,
+        1,
+        2
+      ]
+    },
+    "human_selection_rule": "the first two by (launch id, CSV row) among the human games of Exps 1-3 of the mechanism with exactly 40 recorded rounds and all four players present in every round",
+    "data_attribution": "Koster, R. et al. (2025), Nature Communications 16:2824, doi:10.1038/s41467-025-58043-7; data CC BY 4.0"
+  }
+}

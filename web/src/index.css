@@ -42,6 +42,29 @@
   --color-danger: #a12b2b;
 }
 
+/* Emitted even when no utility class uses them: charts read these through inline var(). */
+@theme static {
+  /* Model Citizens. The four citizen models: categorical slots in fixed order (validated
+   * adjacent-pair palette; lines always carry direct labels and their own dash pattern). */
+  --color-model-b1: #2a78d6;
+  --color-model-b2: #eb6834;
+  --color-model-b3: #1baf7a;
+  --color-model-b23: #c98500;
+  /* Coins in the game demo (on the canvas): returned to the pool / kept by the player. */
+  --color-returned: #4fd1b0;
+  --color-kept: #f0bb4f;
+  /* Diverging scale against the simple rule: blue = more surplus, red = less, grey = about equal. */
+  --color-better-1: #cde2fb;
+  --color-better-2: #86b6ef;
+  --color-better-3: #3987e5;
+  --color-better-4: #1c5cab;
+  --color-worse-1: #fbd9d5;
+  --color-worse-2: #f2a49c;
+  --color-worse-3: #df5d55;
+  --color-worse-4: #a92b2b;
+  --color-even: #e3e6e9;
+}
+
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
@@ -122,6 +145,39 @@
     border-radius: 50%;
     background: var(--color-accent);
     border: 2px solid var(--color-canvas);
+  }
+  /* k slider on paper: hairline track, amber thumb. */
+  .k-slider {
+    appearance: none;
+    background: transparent;
+    height: 2rem;
+    cursor: pointer;
+  }
+  .k-slider::-webkit-slider-runnable-track {
+    height: 2px;
+    background: var(--color-rule-strong);
+  }
+  .k-slider::-moz-range-track {
+    height: 2px;
+    background: var(--color-rule-strong);
+  }
+  .k-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    margin-top: -8px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    border: 2px solid var(--color-sheet);
+    box-shadow: 0 0 0 1px var(--color-accent-ink);
+  }
+  .k-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    border: 2px solid var(--color-sheet);
+    box-shadow: 0 0 0 1px var(--color-accent-ink);
   }
   .time-slider::-moz-range-thumb {
     width: 12px;
