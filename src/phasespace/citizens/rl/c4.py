@@ -4,6 +4,8 @@ Commands::
 
     python -m phasespace.citizens.rl.c4 pilot --model B2 --seed 901 --run-id citizens-c4-pilot-b2-s901
     python -m phasespace.citizens.rl.c4 crossplay --confirm-frozen --train-run <dir> ... --run-id <id>
+    python -m phasespace.citizens.rl.c4 crossplay-metrics --confirm-frozen \
+        --crossplay-run <dir> --run-id <id>
     python -m phasespace.citizens.rl.c4 distill --confirm-frozen --train-run <dir> ... --run-id <id>
     python -m phasespace.citizens.rl.c4 b4 --confirm-frozen --train-run <dir> \
         --crossplay-run <dir> --variant plain --run-id citizens-c4-b4-plain-b2-v1
@@ -28,6 +30,11 @@ Commands::
   per-seed values, paired differences and the extrapolation diagnostics
   (`rl.crossplay`). The input-range diagnostic reads the fit-split human training rows
   of the C2 fit (`data.load_training` and the fit run's split); never held-out rows.
+- **crossplay-metrics** (supplementary to a cross-play run): the depletion round and
+  players active of every series (protocol §8, §9.8), from the cross-play run's own
+  inputs (resolved by run id in `--runs-dir`, checked by manifest SHA-256) on the same
+  games; every re-simulated series must reproduce the recorded per-game total surplus
+  and Gini (within 1e-9) or the stage writes nothing.
 - **distill** (C4c): closed-form rules fitted to each planner's trajectories on its own
   training model (`rl.distill`) on the distillation games, with the surplus each
   distilled rule earns there next to the deployed k*, k = 22 and the distilled k played
@@ -40,7 +47,7 @@ Commands::
 - **hypotheses** (§9): the tests, Holm families and verdicts (`rl.hypotheses`) from the
   recorded cross-play, distillation, training and B4 runs; nothing is simulated.
 
-crossplay, distill, b4 and hypotheses produce C4 evidence: they refuse to run unless the C4 protocol
+crossplay, crossplay-metrics, distill, b4 and hypotheses produce C4 evidence: they refuse to run unless the C4 protocol
 (`c4_config.C4_PROTOCOL_PATH`) is frozen, committed and the tree is clean
 (`--confirm-frozen`). Pilots never reach them: pilot runs are refused as inputs.
 
@@ -652,6 +659,152 @@ def crossplay_command(args: argparse.Namespace) -> int:
     return 0
 
 
+CROSSPLAY_METRICS_FILE: Final = "crossplay_metrics.json"
+CROSSPLAY_METRICS_SERIES_FILE: Final = "crossplay_metrics_series.json"
+CROSSPLAY_METRICS_ATOL: Final = 1e-9
+SUPPLEMENTARY_NOTE: Final = (
+    "supplementary: adds the §8/§9.8 metrics omitted from citizens-c4-crossplay-v1; "
+    "changes no verdict"
+)
+
+
+def crossplay_inputs(
+    cp: Mapping[str, Any], runs_dir: Path
+) -> tuple[Path, dict[str, Any], list[Path], list[dict[str, Any]], Path]:
+    """The cross-play run's own inputs (baselines run, training runs in its recorded
+    order, fit run), resolved by run id in `runs_dir` and refused unless every manifest
+    SHA-256 equals the one the cross-play run recorded."""
+    inputs = cp["citizens"]["inputs"]
+    base_dir = runs_dir / inputs["baselines_run"]["run_id"]
+    pairs = [(base_dir, inputs["baselines_run"]["manifest_sha256"])]
+    train_dirs = [runs_dir / r["run_id"] for r in inputs["train_runs"]]
+    pairs += [
+        (d, r["manifest_sha256"]) for d, r in zip(train_dirs, inputs["train_runs"], strict=True)
+    ]
+    for d, sha in pairs:
+        if stage.manifest_sha256(d) != sha:
+            raise stage.RunMismatchError(f"{d}: manifest differs from the one the cross-play used")
+    base = _manifest(base_dir)
+    trains = [_manifest(d) for d in train_dirs]
+    fit_run = Path(base["citizens"]["fit_run"]["path"])
+    if stage.manifest_sha256(fit_run) != base["citizens"]["fit_run"]["manifest_sha256"]:
+        raise stage.RunMismatchError(f"{fit_run}: manifest differs from the one the runs used")
+    if (
+        cp["citizens"]["fit_run"]["manifest_sha256"]
+        != base["citizens"]["fit_run"]["manifest_sha256"]
+    ):
+        raise stage.RunMismatchError("the cross-play and its baselines run use different fit runs")
+    return base_dir, base, train_dirs, trains, fit_run
+
+
+def crossplay_metrics_command(args: argparse.Namespace) -> int:
+    """Supplementary to a cross-play run: re-simulates every series of the matrix (same
+    inputs, keys, games and order) and records the depletion round and players active
+    (protocol §8, §9.8), after checking that every re-simulated series' per-game total
+    surplus and Gini equal the recorded ones (`crossplay.check_against_recorded`; any
+    mismatch aborts with no output). Diagnostics are not recomputed."""
+    protocol, _ = require_c4_freeze(bool(args.confirm_frozen))
+    run_id: str = args.run_id
+    validate_run_id(run_id)
+    out_dir: Path = args.runs_dir / run_id
+    if out_dir.exists():
+        raise SystemExit(f"{out_dir} already exists; runs are never overwritten")
+    cp_dir: Path = args.crossplay_run
+    cp = _manifest(cp_dir)
+    check_c4_evidence(cp, "crossplay", protocol.sha256)
+    for name, current in (
+        ("c3_config_sha256", c3config.config_sha256()),
+        ("c2_config_sha256", c2config.config_sha256()),
+    ):
+        if cp["citizens"].get(name) != current:
+            raise stage.RunMismatchError(f"{cp['run_id']}: {name} differs from the current one")
+    if cp["citizens"]["seeds"]["eval_key"] != c4_config.EVAL_KEY_SEED or (
+        cp["citizens"]["seeds"]["sampled_noise_key"] != c4_config.SAMPLED_NOISE_KEY_SEED
+    ):
+        raise stage.RunMismatchError(f"{cp['run_id']}: other evaluation keys")
+    recorded = json.loads(stage.read_verified(cp_dir, SERIES_FILE))["series"]
+    base_dir, base, train_dirs, trains, fit_run = crossplay_inputs(cp, args.runs_dir)
+    start = time.perf_counter()
+    with twin.x64():
+        policies = load_policies(base, train_dirs, trains)
+        ports = rc.load_citizens(fit_run)
+        citizen_key, noise_key = crossplay.eval_keys()
+        outcomes: list[crossplay.OutcomeSeries] = []
+        for column in rc.TRAINABLE_MODELS:
+            outcomes += crossplay.evaluate_column_outcomes(
+                policies, column, ports[column], citizen_key, noise_key, c4_config.EVAL_GAMES
+            )
+            stage.log(f"column {column}: {len(outcomes)} series")
+    consistency = crossplay.check_against_recorded(outcomes, recorded, CROSSPLAY_METRICS_ATOL)
+    stage.log(f"consistency with {cp['run_id']}: {consistency}")
+    columns = list(rc.TRAINABLE_MODELS)
+    summary = crossplay.summarise_outcomes(policies, columns, outcomes)
+    summary["definitions"] = {
+        "depletion_round": (
+            "1-based first round whose pool before allocation is below 1, else 40 "
+            "(metrics.depletion_round; protocol-validation.md §8)"
+        ),
+        "players_active": (
+            "#{i : e_i >= 1} in the game's last round (metrics.last_players_active; "
+            "protocol-validation.md §8, A30)"
+        ),
+        "depleted_fraction": "fraction of games whose pool fell below 1 in some round",
+    }
+    summary["consistency"] = consistency
+    manifest = c4_manifest(run_id, "crossplay_metrics", fit_run, c4_config.EVAL_KEY_SEED)
+    manifest["experiment_id"] = "citizens-c4-crossplay-metrics-v1"
+    manifest["limitations"].append(SUPPLEMENTARY_NOTE)
+    manifest["validation"]["checks"] = [
+        Check(
+            name="crossplay_series_reproduced",
+            observed=max(consistency["max_abs_difference"].values()),
+            threshold=CROSSPLAY_METRICS_ATOL,
+            definition=(
+                f"max over the {consistency['series']} series and games of |re-simulated - "
+                f"recorded| total surplus and Gini ({cp['run_id']}/{SERIES_FILE}); the "
+                "stage aborts on any mismatch"
+            ),
+        ).to_json()
+    ]
+    manifest["citizens"]["supplementary"] = SUPPLEMENTARY_NOTE
+    manifest["citizens"]["c4_protocol"] = {"path": protocol.path, "sha256": protocol.sha256}
+    manifest["citizens"]["inputs"] = {
+        "crossplay_run": {
+            "run_id": cp["run_id"],
+            "manifest_sha256": stage.manifest_sha256(cp_dir),
+            "git_commit": cp["source"]["git_commit"],
+            "c3_config_sha256": cp["citizens"]["c3_config_sha256"],
+            "c4_config_sha256": cp["citizens"]["c4_config_sha256"],
+            "c2_config_sha256": cp["citizens"]["c2_config_sha256"],
+            "c4_protocol_sha256": cp["citizens"]["c4_protocol"]["sha256"],
+        },
+        **_inputs_record(base_dir, base, train_dirs, trains),
+    }
+    manifest["citizens"]["seeds"] = {
+        "eval_key": c4_config.EVAL_KEY_SEED,
+        "sampled_noise_key": c4_config.SAMPLED_NOISE_KEY_SEED,
+    }
+    manifest["citizens"]["consistency"] = consistency
+    manifest["citizens"]["held_out_access"] = "none (recorded C4 runs and the fitted models only)"
+    manifest["citizens"]["seconds"] = time.perf_counter() - start
+    files = [
+        ("summary", CROSSPLAY_METRICS_FILE, dumps_json(summary)),
+        (
+            "summary",
+            CROSSPLAY_METRICS_SERIES_FILE,
+            dumps_json(
+                {
+                    "schema_version": stage.SCHEMA_VERSION,
+                    "series": crossplay.outcomes_document(outcomes),
+                }
+            ),
+        ),
+    ]
+    write_run_directory(out_dir, manifest, files)
+    stage.log(f"{out_dir}: {len(outcomes)} series")
+    return 0
+
+
 IN_SAMPLE_NOTE: Final = (
     "in-sample: the distilled rules are scored on the distillation games they were fitted "
     "on (key 41002); the deployed rules are scored on the same games"
@@ -1258,6 +1411,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         q.add_argument("--train-run", type=Path, nargs="+", required=True)
         q.add_argument("--processed-dir", type=Path, default=data.DEFAULT_PROCESSED_DIR)
         q.add_argument("--run-id", required=True)
+    cm = sub.add_parser("crossplay-metrics")
+    cm.add_argument("--confirm-frozen", action="store_true")
+    cm.add_argument("--crossplay-run", type=Path, required=True)
+    cm.add_argument("--run-id", required=True)
     b = sub.add_parser("b4")
     b.add_argument("--confirm-frozen", action="store_true")
     b.add_argument("--train-run", type=Path, help="a main planner run (seed 1001)")
@@ -1287,6 +1444,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands: Mapping[str, Callable[[argparse.Namespace], int]] = {
         "pilot": pilot_command,
         "crossplay": crossplay_command,
+        "crossplay-metrics": crossplay_metrics_command,
         "distill": distill_command,
         "b4": b4_command,
         "hypotheses": hypotheses_command,

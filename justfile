@@ -230,6 +230,11 @@ citizens-c4-train run_id model seed iterations *args:
 citizens-c4-crossplay run_id *args:
     uv run python -m phasespace.citizens.rl.c4 --runs-dir runs crossplay --run-id {{run_id}} {{args}}
 
+# Depletion round and players active of every cross-play series (supplementary; re-simulates and checks the recorded series):
+# just citizens-c4-crossplay-metrics citizens-c4-crossplay-metrics-v1 --confirm-frozen --crossplay-run runs/citizens-c4-crossplay-v1
+citizens-c4-crossplay-metrics run_id *args:
+    uv run python -m phasespace.citizens.rl.c4 --runs-dir runs crossplay-metrics --run-id {{run_id}} {{args}}
+
 # Distillation of each planner on its own model: just citizens-c4-distill <run_id> --confirm-frozen --train-run ...
 citizens-c4-distill run_id *args:
     uv run python -m phasespace.citizens.rl.c4 --runs-dir runs distill --run-id {{run_id}} {{args}}
