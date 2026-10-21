@@ -36,8 +36,8 @@ export function GameExplainer({ game }: { game: CitizensGame }) {
       body: (
         <>
           A governor is judged by the{" "}
-          <Term tip="Surplus: the coins kept, summed over the four players and all rounds of the game.">total surplus</Term>. Generosity drains the
-          pool; stinginess makes players stop returning.
+          <Term tip="Surplus: the coins kept, summed over the four players and all rounds of the game.">total surplus</Term>. Coins can only be
+          kept while the pool lasts, so generous offers now compete with a pool that keeps paying later.
         </>
       ),
     },
