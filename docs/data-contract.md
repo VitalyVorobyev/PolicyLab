@@ -760,4 +760,68 @@ type CitizensStage = /* ... */ | "c4_pilot" | "c4_train" | "c4_crossplay" | "c4_
   - the mean total surplus of the planner and of each distilled rule on the same games.
 - **Planner versus B4.** The run follows the C2 B4 run layout (`finalize_games_run`, label `c4-planner`), with frozen prompts and flags (`b4-prompt-v2`). The offers come from a planner's deterministic policy. `citizens` adds `c4_protocol`, `c4_config_sha256`, `planner` (run id, manifest sha256, policy, retention) and `type_weights` (calibrated variant).
 
+## Model Citizens addendum (web demo)
+
+**Scope (additive; `python -m phasespace.citizens.web_export`, `just citizens-web-export`).** One curated, published run, `citizens-web-demo-v1` (`web/public/research/model-citizens/<run-id>/`, catalog kind `"citizens_demo"`), for the public page `/citizens`. It follows the C4 addendum's manifest (`experiment_id` `citizens-web-demo-v1`, `citizens.stage` `"web_export"`, `random_seed` the C4 evaluation key 41000) and reads recorded runs only: the cross-play, distillation and C3 baselines runs, the pre-declared training runs (Planner[B1], [B2], [B3], [B23] seed 1001 and Planner[Mix] seed 3001; each must be an input of the cross-play run), and optionally the C2 held-out evaluation, C2 B4 evaluation, B4 game runs, the hypothesis run and an E1 run. `citizens.inputs` lists each with its manifest sha256, commit and dirty flag.
+
+- **Traces.** The cross-play run stores per-game totals only, so every traced (governor, citizen model) cell is re-simulated on the full C4 evaluation batch (`crossplay.deterministic_trajectories`, the same rollouts as `evaluate_column`). The export fails, writing nothing, unless every re-simulated per-game total surplus equals `crossplay_series.json` within 1e-9 coins (all 1,000 games of every cell). Kept games: 0, 1 and 2 (fixed in advance), deterministic policy; governors Equal, Proportional, Interpolating k = 22 and the five planners above.
+- **Human games** are read through `data.load_training` and `data.load_heldout(confirm_frozen=True)` (`--confirm-frozen`; `citizens.held_out_access` records the protocol sha256). Selection: per mechanism (Equal, Proportional, Interpolating, M2) the first two by (launch id, CSV row) among the human games of Exps 1–3 with exactly 40 recorded rounds and all four players present in every round. Attribution: Koster et al. (2025), doi 10.1038/s41467-025-58043-7, CC BY 4.0.
+- **LLM games** (`--b4-run`): the first three complete games of each B4 run, from `rounds.json` (parsed actions only; call records are never read or published). Their totals are checked against `games.json`.
+- Checks (`validation.checks`, status stays `computed_unvalidated`): `trace_totals_reproduce_crossplay` (≤ 1e-9), `trace_pool_update_residual` (≤ 1e-9), `trace_offers_above_pool` (≤ 1e-9), `trace_returns_outside_offer` (0) and, with B4 runs, `b4_totals_match_games` (≤ 1e-6).
+
+```ts
+type ArtifactKind = /* ... */ | "citizens_demo";   // citizens_demo.json, compact JSON
+
+interface CitizensDemo {
+  schema_version: 1; run_id: string;
+  game: { players: 4; rounds: 40; max_pool: 200; growth_factor: 1.4; pool_floor: 0.01; pool_rule: string };
+  trace_games: number[];                       // [0, 1, 2]
+  traces: GameTrace[];                         // model citizens (seed set) and LLM citizens (source set)
+  human_games: (GameRecord & { governor: string; mechanism: string; cohort: string;
+                               game_id: string; split: "training" | "heldout" })[];
+  human_selection_rule: string; data_attribution: string;
+  crossplay: { columns: string[]; policies: string[]; mode: "deterministic"; games: number;
+               k_star: Record<string, number>;
+               cells: { policy: string; column: string; total_surplus_mean: number;
+                        total_surplus_per_seed: number[]; seeds: (number | null)[]; gini_mean: number;
+                        vs_k_star: Difference; vs_k22: Difference }[] };
+  k_tuning: { ln_k: number[]; curves: Record<string, number[]>;     // per model, one per ln k
+              k_star: Record<string, { k: number; ln_k: number }>; k_published: number;
+              games: number; key_seed: number; definition: string };
+  distilled: { bins: number; bin_edges: number[]; definition: string;
+               planners: { policy: string; seeds: number[]; w_mean: (number | null)[];
+                           kept_share_mean: (number | null)[]; w_per_seed: (number | null)[][];
+                           r2_per_seed: (number | null)[]; fitted_k_per_seed: number[] }[];
+               reference: { rule: string; pool_fraction: number[]; w: number[] } };
+  exams: null | { regimes: string[]; closed_loop_tier: Record<string, boolean>;
+                  rows: { regime: string; model: string; delta_ell: number; delta_ci: [number, number];
+                          pass_likelihood: boolean; metrics_in_range: number; pass_outcomes: boolean;
+                          mean_normalised_w1: number; label: string; units: number }[];
+                  metrics: object[]; rule_likelihood: string; rule_outcomes: string };
+  b4_c2: null | { records: object[]; metrics: object[] };          // C2 b4-evaluate, verbatim fields
+  b4_rows: null | { governor: string; variant: string; source: "c2" | "c4"; games_complete: number;
+                    games_discarded: number; total_surplus_mean: number | null;
+                    total_surplus_sd: number | null; cli_version: string | null }[];
+  hypotheses: null | { verdicts: object; confirmed: Record<string, string[]>; rows: object;
+                       delta: number; h2_b4?: object };
+  e1: null | { run_id: string; experiment_id: string; tables: Record<string, { columns: object[]; rows: unknown[][] }> };
+}
+interface GameRecord {          // coin values rounded to 2 decimals after the checks
+  rounds: number;
+  pool: number[];               // rounds + 1: before each round, then after the last
+  offers: number[][]; returns: number[][]; kept: number[][];   // rounds x 4; kept = offers - returns
+  cumulative_surplus: number[]; // running sum of kept over players, per round
+  total_surplus: number;        // the exact per-game total, rounded
+}
+interface GameTrace extends GameRecord {
+  governor: string; citizens: string;    // "B1" | "B2" | "B3" | "B23" | "B4-<variant>"
+  game: number; seed?: number | null; source?: "c2" | "c4";
+}
+interface Difference {          // against the column's k* or k = 22, same games
+  versus: string; difference: number; relative: number;
+  ci: [number, number] | null;  // the cross-play paired record (planners); null for rules
+  seeds_positive: number | null; seeds_negative: number | null;
+}
+```
+
 Prefer schema validation on producer and consumer sides (Python + TypeScript). Avoid generating a complicated cross-language framework before first two consumers exist.
