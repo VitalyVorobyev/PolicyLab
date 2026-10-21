@@ -201,6 +201,11 @@ citizens-b4-heldout *args:
 citizens-b4-evaluate *args:
     uv run python -m phasespace.citizens.heldout b4-evaluate {{args}}
 
+# E1 (exploratory; cannot change a C4 verdict): does each simulator rank the human-tested mechanisms as humans did?
+# Reads stored runs and the training games only (clean tree required): just citizens-e1 [run_id] [--audit-run runs/<...>]
+citizens-e1 run_id="citizens-e1-ranking-v1" *args:
+    uv run python -m phasespace.citizens.e1_stage --runs-dir runs --run-id {{run_id}} {{args}}
+
 # Model Citizens C3 (RL planner pipeline; pre-protocol pilot). Reads only the frozen fit run
 # (default runs/citizens-c2-fit-v1; another one with --fit-run <dir>).
 # Baselines and k* re-tuning against B1, B2, B3, B23, plus the JAX-port checks: just citizens-c3-baselines citizens-c3-baselines-v1
