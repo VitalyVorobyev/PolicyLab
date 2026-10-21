@@ -383,6 +383,16 @@ def test_cli_version_is_pinned() -> None:
             heldout.require_cli_version({"cli_version": found})
 
 
+def test_cli_version_accepts_only_an_explicit_deviation() -> None:
+    heldout.require_cli_version({"cli_version": "2.1.306 (Claude Code)"}, accepted="2.1.306")
+    for found in ("2.1.304 (Claude Code)", "2.1.307 (Claude Code)", None):
+        with pytest.raises(SystemExit, match=r"accepts only 2\.1\.306"):
+            heldout.require_cli_version({"cli_version": found}, accepted="2.1.306")
+    heldout.require_cli_version({"cli_version": "2.1.304 (Claude Code)"}, accepted="2.1.304")
+    with pytest.raises(SystemExit, match=r"pins Claude Code 2\.1\.304"):
+        heldout.require_cli_version({"cli_version": "2.1.306 (Claude Code)"}, accepted="2.1.304")
+
+
 def test_b4_game_counts_are_the_protocol_values() -> None:
     assert heldout.allowed_b4_games("Interpolating") == (40, 30)
     assert heldout.allowed_b4_games("M1") == heldout.allowed_b4_games("M2") == (40, 30, 20)

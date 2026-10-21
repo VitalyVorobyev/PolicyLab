@@ -1199,13 +1199,20 @@ def allowed_b4_games(mechanism: str) -> tuple[int, ...]:
     return (full, reduced) if mechanism == "Interpolating" else (full, reduced, m1m2)
 
 
-def require_cli_version(info: Mapping[str, Any]) -> None:
-    """A26: the installed Claude Code CLI must be the pinned version."""
+def require_cli_version(info: Mapping[str, Any], accepted: str | None = None) -> None:
+    """A26: the installed Claude Code CLI must be the pinned version, or exactly the
+    `accepted` version of an explicit, recorded deviation (the C4 B4 arm, D37)."""
     found = cli_version_number(info.get("cli_version"))
-    if found != config.B4_CLI_VERSION:
+    if accepted is None or accepted == config.B4_CLI_VERSION:
+        if found != config.B4_CLI_VERSION:
+            raise SystemExit(
+                f"claude --version reports {info.get('cli_version')!r}; the frozen protocol "
+                f"pins Claude Code {config.B4_CLI_VERSION} (A26)"
+            )
+    elif found != accepted:
         raise SystemExit(
-            f"claude --version reports {info.get('cli_version')!r}; the frozen protocol "
-            f"pins Claude Code {config.B4_CLI_VERSION} (A26)"
+            f"claude --version reports {info.get('cli_version')!r}; the declared deviation "
+            f"from the pinned {config.B4_CLI_VERSION} accepts only {accepted} (D37)"
         )
 
 

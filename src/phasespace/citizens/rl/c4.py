@@ -63,6 +63,7 @@ import jax
 import numpy as np
 from jax import Array
 
+from phasespace.citizens import config as c2config
 from phasespace.citizens import data, fit
 from phasespace.citizens.fit import load_fitted
 from phasespace.citizens.models.base import streams_from_games
@@ -937,6 +938,23 @@ def check_b4_rule_row(rule: str, base: Mapping[str, Any]) -> float:
     return k
 
 
+def b4_cli_check(info: Mapping[str, Any], deviation: str | None) -> dict[str, Any] | None:
+    """The C4 B4 version guard: the pinned Claude Code CLI (A26), or, with an explicit
+    `--cli-version-deviation`, exactly that version (D37). Returns the manifest record of
+    the deviation (None without one)."""
+    from phasespace.citizens import heldout
+
+    if deviation is None:
+        heldout.require_cli_version(info)
+        return None
+    if deviation == c2config.B4_CLI_VERSION:
+        raise SystemExit(
+            f"--cli-version-deviation {deviation} is the pinned version; omit the flag"
+        )
+    heldout.require_cli_version(info, accepted=deviation)
+    return {"pinned": c2config.B4_CLI_VERSION, "used": info.get("cli_version"), "decision": "D37"}
+
+
 def b4_command(args: argparse.Namespace) -> int:
     """A planner or k*[B1] versus B4 (never run before the C4 freeze; calls the Claude
     Code CLI). Guards: `check_b4_planner_row` / `check_b4_rule_row`, the declared variants
@@ -992,7 +1010,7 @@ def b4_command(args: argparse.Namespace) -> int:
     if args.run_id != expected:
         raise SystemExit(f"C4 B4 run ids are {b4_run_id(args.variant, name)!r} (or -vN)")
     backend = ClaudeCLI()
-    heldout.require_cli_version(backend.describe())
+    deviation_record = b4_cli_check(backend.describe(), args.cli_version_deviation)
     weights_record: dict[str, Any] | None = None
     if args.variant == "calibrated":
         if args.calibration_run is None:
@@ -1030,6 +1048,7 @@ def b4_command(args: argparse.Namespace) -> int:
         "git_commit_at_start": commit,
         "c4_row": row_record,
         "type_weights": weights_record,
+        "cli_version_deviation": deviation_record,
     }
     manifest = runner.finalize_games_run(
         args.runs_dir, config, outcomes, wall_s=time.perf_counter() - start, extra=extra
@@ -1090,6 +1109,37 @@ def train_plateaus(
     return out
 
 
+def b4_run_row(manifest: Mapping[str, Any], protocol_sha256: str) -> tuple[str, str]:
+    """(variant, row name) of a C4 B4 run made under this protocol (row from `c4_row`)
+    or of a C2 held-out k = 22 run (the reference row)."""
+    c = manifest["citizens"]
+    variant = str(c["config"]["variant"])
+    if c.get("stage") == B4_PLANNER_STAGE:
+        if c.get("c4_protocol", {}).get("sha256") != protocol_sha256:
+            raise stage.RunMismatchError(f"{manifest['run_id']}: not made under this protocol")
+        return variant, str(c["c4_row"]["name"])
+    if c.get("stage") == "c2_b4_heldout" and c.get("mechanism_key") == "Interpolating":
+        return variant, B4_REFERENCE_ROW
+    raise stage.RunMismatchError(f"{manifest['run_id']}: not a C4 B4 run or a C2 k = 22 reference")
+
+
+def b4_run_record(run: Path, protocol_sha256: str) -> dict[str, Any]:
+    """A B4 input as the hypothesis stage reports it: identity, row, and the Claude Code
+    CLI version it ran on with its recorded deviation from the pinned one (D37; None for
+    runs on the pinned version and for runs made before D37)."""
+    m = _manifest(run)
+    variant, name = b4_run_row(m, protocol_sha256)
+    c = m["citizens"]
+    return {
+        "run_id": run.name,
+        "manifest_sha256": stage.manifest_sha256(run),
+        "variant": variant,
+        "row": name,
+        "cli_version": c["config"].get("backend", {}).get("cli_version"),
+        "cli_version_deviation": c.get("cli_version_deviation"),
+    }
+
+
 def b4_rows_from_runs(
     runs: Sequence[Path], protocol_sha256: str
 ) -> dict[str, dict[str, hypotheses.B4Row]]:
@@ -1100,17 +1150,7 @@ def b4_rows_from_runs(
     out: dict[str, dict[str, hypotheses.B4Row]] = {}
     per_game = 4 * c3config.ROUNDS
     for run in runs:
-        m = _manifest(run)
-        c = m["citizens"]
-        variant = str(c["config"]["variant"])
-        if c.get("stage") == B4_PLANNER_STAGE:
-            if c.get("c4_protocol", {}).get("sha256") != protocol_sha256:
-                raise stage.RunMismatchError(f"{m['run_id']}: not made under this protocol")
-            name = str(c["c4_row"]["name"])
-        elif c.get("stage") == "c2_b4_heldout" and c.get("mechanism_key") == "Interpolating":
-            name = B4_REFERENCE_ROW
-        else:
-            raise stage.RunMismatchError(f"{m['run_id']}: not a C4 B4 run or a C2 k = 22 reference")
+        variant, name = b4_run_row(_manifest(run), protocol_sha256)
         values, discarded = heldout.b4_game_metrics(run)
         rows = out.setdefault(variant, {})
         if name in rows:
@@ -1174,9 +1214,12 @@ def hypotheses_command(args: argparse.Namespace) -> int:
             "run_id": ev["run_id"],
             "manifest_sha256": stage.manifest_sha256(args.b4_eval_run),
         }
-        inputs["b4_runs"] = [
-            {"run_id": r.name, "manifest_sha256": stage.manifest_sha256(r)} for r in args.b4_run
-        ]
+        inputs["b4_runs"] = [b4_run_record(r, protocol.sha256) for r in args.b4_run]
+        for record in inputs["b4_runs"]:
+            result["H2_B4"][record["variant"]].setdefault("cli_versions", {})[record["row"]] = {
+                "cli_version": record["cli_version"],
+                "cli_version_deviation": record["cli_version_deviation"],
+            }
     manifest = c4_manifest(run_id, "hypotheses", None, c4_config.BOOTSTRAP_SEED)
     manifest["citizens"]["c4_protocol"] = {"path": protocol.path, "sha256": protocol.sha256}
     manifest["citizens"]["inputs"] = inputs
@@ -1226,6 +1269,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     b.add_argument("--processed-dir", type=Path, default=data.DEFAULT_PROCESSED_DIR)
     b.add_argument("--games", type=int, default=c4_config.B4_PLANNER_GAMES)
     b.add_argument("--workers", type=int, default=8)
+    b.add_argument(
+        "--cli-version-deviation",
+        metavar="VERSION",
+        help="accept exactly this Claude Code CLI version instead of the pinned one (D37)",
+    )
     b.add_argument("--run-id", required=True)
     h = sub.add_parser("hypotheses")
     h.add_argument("--confirm-frozen", action="store_true")

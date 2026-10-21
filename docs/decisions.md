@@ -227,3 +227,14 @@ A milestone may change only because of observed source state, physical feasibili
   1. Freeze now: `protocol.md` v1 frozen at 6917485. The code lives at 67f31a2, `c4_config_sha256` = `47ebefeb…21ed4b8`, C3 `config_sha256` = `4a312211…a1dde`.
   2. Keep both B4 variants (O2 option (ii)), as decided before the labels were known. The descriptive plain arm is not dropped, so the B4 budget is free of selection on the labels.
 - **Disclosure.** The B4 labels were read after §9.4 had fixed their mapping, and before any C4 training or evaluation run.
+
+**D37 — Model Citizens C4 B4 arm runs on the current Claude Code CLI (2026-10-21, owner-approved).**
+- **What happened.** The Claude Code CLI auto-updated from 2.1.304, pinned by the C2 protocol (A26), to 2.1.306 by about 04:00 on 2026-10-21. The first C4 B4 run, `citizens-c4-b4-calibrated-b1-v1`, was refused by the A26 guard at 03:48 after 4 s, before any call. No `runs/_work` directory was created.
+- **Owner's decision (2026-10-21).** Run the C4 B4 arm on the current CLI and disclose it ("people also change with time").
+- **What changes.** Only the version guard of the C4 `b4` stage, through the explicit flag `--cli-version-deviation <version>`. With the flag, the stage accepts exactly that version and nothing else; without it, the stage still requires 2.1.304. The run manifest records `cli_version_deviation` (pinned, used, D37), and the hypothesis stage reports each B4 run's CLI version and deviation. The model check (each response must report exactly `claude-haiku-5-5`), prompts, CLI flags, calibration weights, game counts, seeds and both protocol documents are unchanged. The frozen hashes are unchanged. The C2 stages keep the pin.
+- **Consequences.**
+  - The C2 B4 labels (D36), which set B4's C4 role under §9.4, were obtained under 2.1.304.
+  - All C4 B4 rows, including the re-run k*[B1] comparator row (O3), run under the deviation, so the within-C4 comparisons share one CLI generation. Each run records its CLI version.
+  - If the CLI changes during a run, the resume is refused (the stored backend description includes the version). This is reported, not worked around.
+  - The C2 k = 22 rows (2.1.304) are shown as reference only (§6.5), as before.
+- **Disclosure.** Decided after the cross-play and distillation results were seen, and before any C4 B4 result. It changes no hypothesis, threshold or row.
