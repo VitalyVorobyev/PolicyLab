@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "run_id": "citizens-web-demo-dev2",
+  "run_id": "citizens-web-demo-dev3",
   "study_id": "model-citizens",
   "experiment_id": "citizens-web-demo-v1",
   "status": "computed_unvalidated",
-  "created_at": "2026-10-21T07:20:26Z",
+  "created_at": "2026-10-21T07:42:23Z",
   "source": {
     "repository": "VitalyVorobyev/PolicyLab",
-    "git_commit": "3fd8473b4b55539a08044e49ec29c0f931c79ff2",
+    "git_commit": "9bd6bb6ab914f32bbf75405984d4ef9589c5aeb0",
     "git_dirty": false,
     "generator": "phasespace.citizens.web_export",
     "generator_version": "0.1.0"
@@ -62,7 +62,7 @@
     {
       "kind": "citizens_demo",
       "path": "citizens_demo.json",
-      "sha256": "f9a03ac8cece6f2f17dcbf7bedb1d5cd793e3ab4a5de8a4721e3af8dca04ce7c"
+      "sha256": "432571283b53de1bb1b2882851fed0cd82e5f811c01310a0c5d0de32beccd0c4"
     }
   ],
   "metrics": {},
@@ -110,7 +110,7 @@
       }
     ],
     "validated_by": "phasespace.citizens.web_export automated checks (pass: observed <= threshold)",
-    "validated_at": "2026-10-21T07:20:26Z"
+    "validated_at": "2026-10-21T07:42:23Z"
   },
   "citizens": {
     "stage": "web_export",
@@ -414,6 +414,20 @@
         "git_commit": "d249ef045a85f70bfd9fa43d105f7cb6c66e458a",
         "git_dirty": false,
         "status": "validated"
+      },
+      "e1_run": {
+        "run_id": "citizens-e1-ranking-v1",
+        "manifest_sha256": "b025e9be21b71be6705dd103bf31869e034e43442c048c59252214634b5a9e85",
+        "git_commit": "43439b7aebc996c5b479c07f7b16ff9f53fa9b27",
+        "git_dirty": false,
+        "status": "computed_unvalidated"
+      },
+      "crossplay_metrics_run": {
+        "run_id": "citizens-c4-crossplay-metrics-v1",
+        "manifest_sha256": "a1af1a5a7c632c8d9a77432cc013d5396dc65add4c1844e33a50744abdf672ca",
+        "git_commit": "cd73850cc57459ccfd028b21ec0ebd74008874cd",
+        "git_dirty": false,
+        "status": "computed_unvalidated"
       },
       "b4_runs": [
         {

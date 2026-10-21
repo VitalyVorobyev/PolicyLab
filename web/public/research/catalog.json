@@ -7,8 +7,8 @@
       "status": "active",
       "runs": [
         {
-          "run_id": "citizens-web-demo-dev2",
-          "path": "model-citizens/web-demo-dev2",
+          "run_id": "citizens-web-demo-dev3",
+          "path": "model-citizens/web-demo-dev3",
           "kind": "citizens_demo",
           "label": "Governors versus citizen models: traced games and summaries (development export)"
         }
