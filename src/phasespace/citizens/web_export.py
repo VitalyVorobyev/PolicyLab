@@ -48,7 +48,7 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, cast
 
 import numpy as np
 
@@ -319,7 +319,65 @@ def crossplay_summary(cp: Mapping[str, Any], policies: Sequence[str]) -> dict[st
         "mode": "deterministic",
         "k_star": k_star,
         "cells": cells,
+        "robustness": robustness(cells, policies, list(cp["columns"])),
     }
+
+
+def robustness(
+    cells: Sequence[Mapping[str, Any]], policies: Sequence[str], columns: Sequence[str]
+) -> dict[str, Any]:
+    """Per policy, the mean total surplus in each column as a fraction of that column's
+    own planner (Planner[column] on column), and the worst column (descriptive)."""
+    mean = {(c["policy"], c["column"]): float(c["total_surplus_mean"]) for c in cells}
+    out: dict[str, Any] = {}
+    homes = {col: mean.get((f"Planner[{col}]", col)) for col in columns}
+    if any(v is None or v <= 0.0 for v in homes.values()):
+        return {}
+    for policy in policies:
+        ratios = {col: mean[(policy, col)] / float(homes[col] or 1.0) for col in columns}
+        worst = min(columns, key=lambda col: ratios[col])
+        out[policy] = {"ratios": ratios, "worst_ratio": ratios[worst], "worst_column": worst}
+    return {
+        "definition": "mean total surplus in a column / the mean of that column's own planner "
+        "(Planner[column] on its training model); worst_ratio is the minimum over columns",
+        "policies": out,
+    }
+
+
+EXTRA_METRIC_PREFIXES: Final = ("depletion_round", "players_active")
+
+
+def crossplay_metrics(
+    run_dir: Path, policies: Sequence[str]
+) -> dict[str, dict[str, dict[str, float]]]:
+    """Optional per-cell game metrics (depletion round, players still active) from a
+    supplementary cross-play run: every summary artifact with `cells[policy][column]
+    ["deterministic"]`; numeric fields whose names start with `EXTRA_METRIC_PREFIXES` are
+    copied verbatim. Returns {policy: {column: {field: value}}}."""
+    m = manifest_of(run_dir)
+    out: dict[str, dict[str, dict[str, float]]] = {}
+    for artifact in m["artifacts"]:
+        path = str(artifact["path"])
+        if not path.endswith(".json"):
+            continue
+        cells = _as_dict(_as_dict(read_json(run_dir, path)).get("cells"))
+        for policy in policies:
+            for column, modes in _as_dict(cells.get(policy)).items():
+                det = _as_dict(_as_dict(modes).get("deterministic"))
+                fields: dict[str, float] = {}
+                for k, v in det.items():
+                    if k.startswith(EXTRA_METRIC_PREFIXES) and isinstance(v, int | float):
+                        value = float(v)
+                        if math.isfinite(value):
+                            fields[k] = value
+                if fields:
+                    out.setdefault(policy, {}).setdefault(column, {}).update(fields)
+    return out
+
+
+def _as_dict(value: object) -> dict[str, Any]:
+    """`value` if it is a JSON object, else an empty dict."""
+    return cast(dict[str, Any], value) if isinstance(value, dict) else {}
 
 
 def k_tuning(k_grid: Mapping[str, Any], base_manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -694,6 +752,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--b4-run", type=Path, nargs="*", default=[])
     p.add_argument("--hypotheses-run", type=Path)
     p.add_argument("--e1-run", type=Path)
+    p.add_argument(
+        "--crossplay-metrics-run",
+        type=Path,
+        help="supplementary per-cell game metrics (depletion round, players active)",
+    )
     return p
 
 
@@ -815,6 +878,7 @@ def export_command(args: argparse.Namespace) -> int:
         ("b4_eval_run", args.b4_eval_run),
         ("hypotheses_run", args.hypotheses_run),
         ("e1_run", args.e1_run),
+        ("crossplay_metrics_run", args.crossplay_metrics_run),
     ):
         if path is not None:
             inputs[key] = _input(path)
@@ -863,6 +927,10 @@ def export_command(args: argparse.Namespace) -> int:
         demo["hypotheses"] = hypotheses_block(read_json(args.hypotheses_run, "hypotheses.json"))
     if args.e1_run is not None:
         demo["e1"] = e1_block(args.e1_run)
+    if args.crossplay_metrics_run is not None:
+        extra = crossplay_metrics(args.crossplay_metrics_run, summary_policies)
+        for cell in demo["crossplay"]["cells"]:
+            cell["extra_metrics"] = extra.get(cell["policy"], {}).get(cell["column"])
     failed = [c.name for c in checks_list if not c.passed]
     if failed:
         raise ReproductionError(f"checks failed: {failed}")

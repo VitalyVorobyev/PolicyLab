@@ -762,7 +762,7 @@ type CitizensStage = /* ... */ | "c4_pilot" | "c4_train" | "c4_crossplay" | "c4_
 
 ## Model Citizens addendum (web demo)
 
-**Scope (additive; `python -m phasespace.citizens.web_export`, `just citizens-web-export`).** One curated, published run, `citizens-web-demo-v1` (`web/public/research/model-citizens/<run-id>/`, catalog kind `"citizens_demo"`), for the public page `/citizens`. It follows the C4 addendum's manifest (`experiment_id` `citizens-web-demo-v1`, `citizens.stage` `"web_export"`, `random_seed` the C4 evaluation key 41000) and reads recorded runs only: the cross-play, distillation and C3 baselines runs, the pre-declared training runs (Planner[B1], [B2], [B3], [B23] seed 1001 and Planner[Mix] seed 3001; each must be an input of the cross-play run), and optionally the C2 held-out evaluation, C2 B4 evaluation, B4 game runs, the hypothesis run and an E1 run. `citizens.inputs` lists each with its manifest sha256, commit and dirty flag.
+**Scope (additive; `python -m phasespace.citizens.web_export`, `just citizens-web-export`).** One curated, published run, `citizens-web-demo-v1` (`web/public/research/model-citizens/<run-id>/`, catalog kind `"citizens_demo"`), for the public page `/citizens`. It follows the C4 addendum's manifest (`experiment_id` `citizens-web-demo-v1`, `citizens.stage` `"web_export"`, `random_seed` the C4 evaluation key 41000) and reads recorded runs only: the cross-play, distillation and C3 baselines runs, the pre-declared training runs (Planner[B1], [B2], [B3], [B23] seed 1001 and Planner[Mix] seed 3001; each must be an input of the cross-play run), and optionally the C2 held-out evaluation, C2 B4 evaluation, B4 game runs, the hypothesis run, an E1 run and a supplementary cross-play metrics run (`--crossplay-metrics-run`: numeric `depletion_round*` and `players_active*` fields of `cells[policy][column].deterministic` in its JSON artifacts are copied into each cell's `extra_metrics`; field names are provisional until that run exists). `citizens.inputs` lists each with its manifest sha256, commit and dirty flag.
 
 - **Traces.** The cross-play run stores per-game totals only, so every traced (governor, citizen model) cell is re-simulated on the full C4 evaluation batch (`crossplay.deterministic_trajectories`, the same rollouts as `evaluate_column`). The export fails, writing nothing, unless every re-simulated per-game total surplus equals `crossplay_series.json` within 1e-9 coins (all 1,000 games of every cell). Kept games: 0, 1 and 2 (fixed in advance), deterministic policy; governors Equal, Proportional, Interpolating k = 22 and the five planners above.
 - **Human games** are read through `data.load_training` and `data.load_heldout(confirm_frozen=True)` (`--confirm-frozen`; `citizens.held_out_access` records the protocol sha256). Selection: per mechanism (Equal, Proportional, Interpolating, M2) the first two by (launch id, CSV row) among the human games of Exps 1–3 with exactly 40 recorded rounds and all four players present in every round. Attribution: Koster et al. (2025), doi 10.1038/s41467-025-58043-7, CC BY 4.0.
@@ -784,7 +784,11 @@ interface CitizensDemo {
                k_star: Record<string, number>;
                cells: { policy: string; column: string; total_surplus_mean: number;
                         total_surplus_per_seed: number[]; seeds: (number | null)[]; gini_mean: number;
-                        vs_k_star: Difference; vs_k22: Difference }[] };
+                        vs_k_star: Difference; vs_k22: Difference;
+                        extra_metrics?: Record<string, number> | null }[];
+               robustness: {} | { definition: string;          // {} without every home planner
+                 policies: Record<string, { ratios: Record<string, number>;   // mean / Planner[col]@col mean
+                                            worst_ratio: number; worst_column: string }> } };
   k_tuning: { ln_k: number[]; curves: Record<string, number[]>;     // per model, one per ln k
               k_star: Record<string, { k: number; ln_k: number }>; k_published: number;
               games: number; key_seed: number; definition: string };

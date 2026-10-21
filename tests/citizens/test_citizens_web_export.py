@@ -7,7 +7,9 @@ Toy citizens and synthetic games only: no fitted model, no human data, no record
 from __future__ import annotations
 
 import dataclasses
+import json
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import equinox as eqx
@@ -23,6 +25,7 @@ from phasespace.citizens.records import Games
 from phasespace.citizens.rl import checks, crossplay, twin
 from phasespace.citizens.rl import citizens as rc
 from phasespace.citizens.rl.planner import Planner
+from phasespace.gravity.export import write_run_directory
 
 # The game rule, written out from Koster et al. (2025) and D33, independently of the code:
 # pool cap 200, growth 1.4 of returned coins, floor 0.01.
@@ -326,3 +329,46 @@ def test_reference_weight_is_the_deployed_interpolating_rule() -> None:
     fractions = np.array([0.0, 0.5, 0.9, 0.97, 1.0])
     # round((R/200)^22, 1): 0.9^22 = 0.098 -> 0.1; 0.97^22 = 0.512 -> 0.5
     assert we.interpolating_weight(fractions, 22.0).tolist() == [0.0, 0.0, 0.1, 0.5, 1.0]
+
+
+def test_robustness_is_the_worst_share_of_each_column_s_own_planner() -> None:
+    def cell(policy: str, column: str, mean: float) -> dict[str, Any]:
+        return {"policy": policy, "column": column, "total_surplus_mean": mean}
+
+    cells = [
+        cell("Planner[A]", "A", 1000.0),
+        cell("Planner[A]", "B", 300.0),
+        cell("Planner[B]", "A", 500.0),
+        cell("Planner[B]", "B", 600.0),
+        cell("Rule", "A", 800.0),
+        cell("Rule", "B", 540.0),
+    ]
+    out = we.robustness(cells, ["Planner[A]", "Planner[B]", "Rule"], ["A", "B"])["policies"]
+    assert out["Planner[A]"]["worst_column"] == "B"
+    assert out["Planner[A]"]["worst_ratio"] == pytest.approx(0.5)
+    assert out["Planner[B]"]["worst_ratio"] == pytest.approx(0.5)
+    assert out["Rule"]["ratios"] == pytest.approx({"A": 0.8, "B": 0.9})
+    assert out["Rule"]["worst_column"] == "A"
+
+
+def test_optional_cell_metrics_are_copied_from_a_supplementary_run(tmp_path: Path) -> None:
+    doc = {
+        "cells": {
+            "Equal": {
+                "B1": {
+                    "deterministic": {
+                        "depletion_round_mean": 14.5,
+                        "players_active_mean": 1.25,
+                        "total_surplus_mean": 700.0,
+                    },
+                    "sampled": None,
+                }
+            },
+            "Other": {"B1": {"deterministic": {"depletion_round_mean": 3.0}}},
+        }
+    }
+    payload = (json.dumps(doc) + "\n").encode()
+    run = tmp_path / "metrics-run"
+    write_run_directory(run, {"run_id": "metrics-run"}, [("summary", "cells.json", payload)])
+    out = we.crossplay_metrics(run, ["Equal", "Planner[B1]"])
+    assert out == {"Equal": {"B1": {"depletion_round_mean": 14.5, "players_active_mean": 1.25}}}
