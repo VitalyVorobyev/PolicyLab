@@ -231,6 +231,34 @@ The H2b-loss cells are the column-B1 regrets of Planner[B2], [B3] and [B23]: 591
   - The training mechanisms never retain coins, so retention is off the training distribution for every model (`protocol.md` §6.3).
 - **Decisions per game**, which drive the number of B4 calls, range from 51 to 156 in the main cells.
 
+### 6.5a Depletion round and players active (supplementary run)
+
+`protocol.md` §8 and §9.8 list the depletion round and the players active for every cell, but `citizens-c4-crossplay-v1` did not record them (§10). The supplementary run `citizens-c4-crossplay-metrics-v1` fixes this omission by exact re-simulation. It re-runs all 312 series (policy, column, mode, seed) of `citizens-c4-crossplay-v1` from that run's own inputs, checked by manifest SHA-256, on the same games. The stage writes nothing unless every per-game total surplus and Gini reproduces `crossplay_series.json` within 1e-9. Observed: maximum difference 0.0 for both, so the totals are bit-identical. The run is supplementary: it adds descriptive metrics and changes no test or verdict.
+
+Definitions (from the run): the depletion round is the first round whose pool before allocation is below 1, else 40; players active counts the players offered at least 1 coin in the game's last round (of 4); "ran dry" is the share of games whose pool fell below 1 in some round.
+
+Deterministic policy; seed means of depletion round / players active / share of games that ran dry:
+
+| Row | B1 | B2 | B3 | B23 |
+|---|---|---|---|---|
+| Planner[B1] | **37.8 / 3.48 / 10 %** | 34.9 / 2.65 / 28 % | 20.3 / 0.51 / 86 % | 16.9 / 0.21 / 94 % |
+| Planner[B2] | 29.5 / 2.20 / 44 % | **39.3 / 3.75 / 5 %** | 21.5 / 0.10 / 97 % | 17.5 / 0.01 / 100 % |
+| Planner[B3] | 28.8 / 1.72 / 52 % | 31.3 / 1.65 / 52 % | **36.4 / 2.66 / 22 %** | 31.9 / 1.69 / 51 % |
+| Planner[B23] | 28.1 / 1.70 / 56 % | 32.9 / 2.19 / 42 % | 35.6 / 2.87 / 26 % | **33.8 / 2.39 / 37 %** |
+| Planner[Mix] (S2) | 33.9 / 2.88 / 27 % | 37.3 / 3.29 / 16 % | 34.2 / 2.64 / 29 % | 30.8 / 1.77 / 52 % |
+| Equal | 23.2 / 1.06 / 73 % | 37.6 / 3.31 / 16 % | 12.8 / 0.00 / 100 % | 13.8 / 0.00 / 100 % |
+| Mixed | 27.3 / 1.66 / 57 % | 38.7 / 3.03 / 11 % | 14.7 / 0.00 / 100 % | 14.7 / 0.00 / 100 % |
+| Proportional | 35.4 / 1.02 / 27 % | 36.1 / 0.94 / 30 % | 27.6 / 0.53 / 48 % | 23.9 / 0.42 / 63 % |
+| Interpolating k = 22 | 36.8 / 2.90 / 17 % | 38.3 / 2.78 / 11 % | 23.4 / 0.34 / 84 % | 18.0 / 0.08 / 97 % |
+| k\*[B1] = k\*[B2] (k = 9.03) | 36.7 / 2.90 / 18 % | 38.6 / 3.09 / 8 % | 22.2 / 0.33 / 87 % | 17.3 / 0.04 / 98 % |
+| k\*[B3] (k = 27.1) | 36.8 / 2.91 / 17 % | 38.2 / 2.73 / 12 % | 23.5 / 0.36 / 83 % | 18.1 / 0.07 / 97 % |
+| k\*[B23] (k = 99.5) | 36.7 / 2.87 / 18 % | 38.1 / 2.54 / 13 % | 23.6 / 0.36 / 83 % | 18.4 / 0.08 / 96 % |
+
+Descriptive reading:
+- Under B1, the planners trained on B2, B3 and B23 let the pool run dry in 44–56 % of games, against 10 % for Planner[B1] and 17–18 % for the Interpolating rules. Their surplus losses in §6.3 come with earlier collapse, not only with a different split.
+- Under B3 and B23, every Interpolating rule runs dry in 83–98 % of games, while the B3- and B23-trained planners run dry in 22–51 %.
+- The sampled policy moves the mean depletion round by at most 0.07 rounds under B1, and by at most 1.4 rounds in any planner cell (Planner[B23]@B2: 31.5 against 32.9).
+
 ### 6.6 Possible exploitation (diagnostics; labels pending)
 
 §9.5 labels a confirmed own-model gain "possible exploitation" if either holds in the planner's own column:
@@ -359,7 +387,7 @@ The max |w error| is ≤ 1.6e-7. The method is unbiased on rules from the family
 
 ## 8. E1: exploratory credibility check
 
-**E1 is exploratory** (`citizens-e1-ranking-v1`; code on branch `worktree-agent-a0b11da95451dae63`, commit `43439b7`). It was designed after the held-out outcomes had been seen. It is not part of any frozen protocol, and it cannot change a C2 label or a C4 verdict.
+**E1 is exploratory** (`citizens-e1-ranking-v1`, made at commit `43439b7`; code `src/phasespace/citizens/e1.py` and `e1_stage.py`, `just citizens-e1`). It was designed after the held-out outcomes had been seen. It is not part of any frozen protocol, and it cannot change a C2 label or a C4 verdict.
 
 It asks whether each simulator ranks pairs of human-tested mechanisms in the same direction as the published Wilcoxon comparisons. Pairs involving M1 are excluded (its surrogate was rejected), Exp 4 pairs are not scorable, and B4 has simulations only on held-out regimes.
 
@@ -417,7 +445,7 @@ Only one held-out pair discriminates among the trainable models: Exp 3 M2 > Inte
 - **Possible exploitation of B3/B23 is undetectable** with the frozen diagnostics (§6.6). Their planners' own-model gains (+803 and +717 coins), and their transfer to each other, may reflect shared model artefacts (both use EWA attractions over the same levels) rather than behaviour.
 - **Retention and horizon.** Retention is off the training distribution of every model. The planner can learn the 40-round horizon, while the rules cannot. Both favour planners in every planner-versus-rule comparison.
 - **Distillation is in sample,** and the one-parameter k family is misspecified for Planner[B1] and Planner[B23] (grid edge).
-- **Cross-play output gap.** `protocol.md` §8 and §9.8 list the depletion round and players active for every cell. `crossplay.json` and `crossplay_series.json` record total surplus, Gini, decisions, kept share and the diagnostics, but not the depletion round or players active.
+- **Cross-play output gap (fixed by a supplementary run).** `protocol.md` §8 and §9.8 list the depletion round and players active for every cell. `crossplay.json` and `crossplay_series.json` record total surplus, Gini, decisions, kept share and the diagnostics, but not the depletion round or players active. The supplementary run `citizens-c4-crossplay-metrics-v1` (§6.5a) adds them by exact re-simulation of every series, with bit-identical totals and Gini; it was made after the cross-play results were seen and changes no verdict.
 - **Commit at C4.** The C4 training, cross-play and distillation runs carry commit `4b1f1dd` (the D36 record commit), not the freeze commit `67f31a2` named in `protocol.md` §1 and §6.1. Between the two commits only `docs/` and `tests/` changed; `src/` is identical. The protocol SHA-256 (`319587d2…`) and both configuration hashes match.
 - **C3 configuration hash.** `citizens-c3-baselines-v1`, the source of every k\*, records the C3 hash `4b1c3f7c…`, not `4a312211…` (which `protocol.md` §1 calls "unchanged since C3"). The difference is four keys added later for diagnostics and reporting (`diagnostic_baselines`, `frac_bins`, `reproduction_atol`, `sampled_eval_key_seed`). No key used by the baselines or the k\* tuning changed.
 - **k\* tuning noise.** k\* was tuned on separate games (key 31001). On the C4 games, k\*[B3] beats k = 22 by only 4.6 coins on B3.
@@ -451,6 +479,7 @@ v1 suggests that the unit of validation for a simulator used in policy design is
 | `citizens-c4-train-*` (35) | computed_unvalidated | `4b1f1dd` | false | C4 `47ebefeb`, C3 `4a312211` | — | recorded in `citizens-c4-crossplay-v1` inputs |
 | `citizens-c4-crossplay-v1` | computed_unvalidated | `4b1f1dd` | false | C4 `47ebefeb` | C4 `319587d2` | `87a1dc8e` |
 | `citizens-c4-distill-v1` | computed_unvalidated | `4b1f1dd` | false | C4 `47ebefeb` | C4 `319587d2` | `9be7a5c6` |
+| `citizens-c4-crossplay-metrics-v1` (supplementary) | computed_unvalidated | `cd73850` | false | C4 `47ebefeb` | C4 `319587d2` | `a1af1a5a` |
 | `citizens-e1-ranking-v1` (exploratory) | computed_unvalidated | `43439b7` | false | C2 `75ed1f96` | — | `b025e9be` |
 | `citizens-c4-b4-*` (10) | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` |
 | `citizens-c4-hypotheses-v1` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` |
@@ -483,10 +512,11 @@ just citizens-c3-baselines citizens-c3-baselines-v1
 just citizens-c3-g3 citizens-c3-g3-v1 runs/citizens-c3-baselines-v1 runs/citizens-c3-train-b1-s1-v1 runs/citizens-c3-train-b1-s2-v1 runs/citizens-c3-train-b1-s3-v1
 just citizens-c4-train citizens-c4-train-<model>[-noret]-s<seed>-v1 <model> <seed> 1000 --confirm-frozen [--no-retention]
 just citizens-c4-crossplay citizens-c4-crossplay-v1 --confirm-frozen --train-run <the 35 runs>
+just citizens-c4-crossplay-metrics citizens-c4-crossplay-metrics-v1 --confirm-frozen --crossplay-run runs/citizens-c4-crossplay-v1   (supplementary)
 just citizens-c4-distill citizens-c4-distill-v1 --confirm-frozen --train-run <the 35 runs>
 just citizens-c4-b4 citizens-c4-b4-<variant>-<row>-v1 --confirm-frozen ... --cli-version-deviation <version>   (D37)
 just citizens-c4-hypotheses citizens-c4-hypotheses-v1 --confirm-frozen --crossplay-run ... --distill-run ... --train-run ... --b4-run ... --b4-eval-run runs/citizens-c2-b4-eval-v1
-just citizens-e1   (branch worktree-agent-a0b11da95451dae63; exploratory)
+just citizens-e1 citizens-e1-ranking-v1   (exploratory)
 ```
 
 The tables of §6, §7 and Appendix A were extracted from the artifacts with read-only scripts. No number in this report was edited by hand.
