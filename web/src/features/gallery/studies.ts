@@ -51,15 +51,6 @@ export const STUDIES: readonly StudySummary[] = [
     progress: "Specification only. No experiments have been run.",
     specPath: "docs/studies/algorithm-forge/README.md",
   },
-  {
-    study_id: "constitution-machine",
-    title: "Constitution Machine",
-    question:
-      "Do adaptive rules for governing a shared resource keep working when the behaviour of the governed population changes, compared with simple fixed rules?",
-    status: "conditional",
-    progress: "Specification only. Will run only if it passes a feasibility review after the other studies.",
-    specPath: "docs/studies/constitution-machine/README.md",
-  },
 ];
 
 export const STUDY_STATUS_LABEL: Record<StudyStatus, string> = {
