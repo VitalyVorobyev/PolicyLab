@@ -29,7 +29,7 @@ noise key); the rules are deterministic.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
@@ -38,7 +38,7 @@ import jax
 import numpy as np
 from jax import Array
 
-from phasespace.citizens.game import EXCLUSION_THRESHOLD
+from phasespace.citizens.game import DEPLETION_THRESHOLD, EXCLUSION_THRESHOLD
 from phasespace.citizens.models import b2_condcoop as b2
 from phasespace.citizens.models.base import Streams, streams_from_arrays
 from phasespace.citizens.rl import c4_config, checks, ppo, stage, twin
@@ -328,16 +328,16 @@ def _series(
     )
 
 
-def evaluate_column(
+def column_trajectories(
     policies: Sequence[Policy],
-    column: str,
     port: rc.JaxCitizen,
     citizen_key: Array,
     noise_key: Array,
     n_games: int,
-    diagnostics: Diagnostics,
-) -> list[Series]:
-    """Every policy against one citizen model on the same `n_games` games."""
+) -> Iterator[tuple[str, Mode, int | None, rc.Trajectory]]:
+    """(policy, mode, seed, trajectory) of every policy against one citizen model on the
+    same `n_games` games: per planner seed deterministic then sampled, then each rule
+    (deterministic, seed None), in policy order."""
     twin.require_x64()
     rounds = c3config.ROUNDS
 
@@ -358,29 +358,34 @@ def evaluate_column(
         )[0]
 
     rule = stage.weight_runner(port, n_games)
-    out: list[Series] = []
     for policy in policies:
         if policy.kind == "planner":
             for seed, planner in zip(policy.seeds, policy.planners, strict=True):
-                out.append(
-                    _series(
-                        policy.name,
-                        column,
-                        "deterministic",
-                        seed,
-                        deterministic(planner),
-                        diagnostics,
-                    )
-                )
-                out.append(
-                    _series(policy.name, column, "sampled", seed, sampled(planner), diagnostics)
-                )
+                yield policy.name, "deterministic", seed, deterministic(planner)
+                yield policy.name, "sampled", seed, sampled(planner)
         else:
             if policy.rule_kind is None or policy.rule_param is None:
                 raise ValueError(f"{policy.name}: a rule needs its kind and parameter")
             traj = rule(twin.f64(policy.rule_kind), twin.f64(policy.rule_param), citizen_key)
-            out.append(_series(policy.name, column, "deterministic", None, traj, diagnostics))
-    return out
+            yield policy.name, "deterministic", None, traj
+
+
+def evaluate_column(
+    policies: Sequence[Policy],
+    column: str,
+    port: rc.JaxCitizen,
+    citizen_key: Array,
+    noise_key: Array,
+    n_games: int,
+    diagnostics: Diagnostics,
+) -> list[Series]:
+    """Every policy against one citizen model on the same `n_games` games."""
+    return [
+        _series(name, column, mode, seed, traj, diagnostics)
+        for name, mode, seed, traj in column_trajectories(
+            policies, port, citizen_key, noise_key, n_games
+        )
+    ]
 
 
 # --- statistics -----------------------------------------------------------------------------------
@@ -625,3 +630,156 @@ def series_document(series: Sequence[Series]) -> list[dict[str, Any]]:
 def eval_keys() -> tuple[Array, Array]:
     """The C4 evaluation games' citizen key and the sampled policy's noise key."""
     return jax.random.key(c4_config.EVAL_KEY_SEED), jax.random.key(c4_config.SAMPLED_NOISE_KEY_SEED)
+
+
+# --- supplementary outcome metrics (protocol §8 / §9.8: depletion round, players active) ---------
+
+
+type IntArray = np.ndarray[tuple[int, ...], np.dtype[np.int64]]
+
+
+@dataclass
+class OutcomeSeries:
+    """One (policy, column, mode, seed) re-simulated for the §8 outcome metrics, with the
+    total surplus and Gini that identify it against the recorded series."""
+
+    policy: str
+    column: str
+    mode: Mode
+    seed: int | None
+    total_surplus: FloatArray
+    gini: FloatArray
+    depletion_round: IntArray
+    players_active: IntArray
+    depleted: BoolArray
+
+    def key(self) -> tuple[str, str, str, int | None]:
+        return (self.policy, self.column, self.mode, self.seed)
+
+
+def outcome_series(
+    policy: str, column: str, mode: Mode, seed: int | None, traj: rc.Trajectory
+) -> OutcomeSeries:
+    """Per-game metrics with the C2 definitions (`checks.trajectory_metrics`, i.e.
+    `metrics.depletion_round` and `metrics.last_players_active` of #{e >= 1}): the
+    depletion round is the 1-based first round whose pool before allocation is below 1,
+    else 40; players active is #{i : e_i >= 1} in the last round. `depleted` marks the
+    games whose pool fell below 1 in some round (a depletion round of 40 alone does not
+    tell a round-40 depletion from none)."""
+    m = checks.trajectory_metrics(traj)
+    pool = np.asarray(traj.pool)
+    return OutcomeSeries(
+        policy=policy,
+        column=column,
+        mode=mode,
+        seed=seed,
+        total_surplus=m["total_surplus"],
+        gini=m["gini"],
+        depletion_round=m["depletion_round"].astype(np.int64),
+        players_active=m["players_active"].astype(np.int64),
+        depleted=(pool < DEPLETION_THRESHOLD).any(axis=1),
+    )
+
+
+def evaluate_column_outcomes(
+    policies: Sequence[Policy],
+    column: str,
+    port: rc.JaxCitizen,
+    citizen_key: Array,
+    noise_key: Array,
+    n_games: int,
+) -> list[OutcomeSeries]:
+    """The games of `evaluate_column` (same order), with the outcome metrics only."""
+    return [
+        outcome_series(name, column, mode, seed, traj)
+        for name, mode, seed, traj in column_trajectories(
+            policies, port, citizen_key, noise_key, n_games
+        )
+    ]
+
+
+class SeriesMismatchError(ValueError):
+    """The re-simulated games are not the recorded cross-play games."""
+
+
+def check_against_recorded(
+    outcomes: Sequence[OutcomeSeries], recorded: Sequence[Mapping[str, Any]], atol: float
+) -> dict[str, Any]:
+    """Every re-simulated series must be the recorded one (`series_document`): the same
+    (policy, column, mode, seed) in the same order, and per-game total surplus and Gini
+    within `atol` (absolute). Raises `SeriesMismatchError` otherwise; returns the largest
+    absolute differences and whether every value was bit-identical."""
+    if len(outcomes) != len(recorded):
+        raise SeriesMismatchError(f"{len(outcomes)} series re-simulated, {len(recorded)} recorded")
+    worst = {"total_surplus": 0.0, "gini": 0.0}
+    exact = True
+    for o, r in zip(outcomes, recorded, strict=True):
+        key = (r["policy"], r["column"], r["mode"], r["seed"])
+        if o.key() != key:
+            raise SeriesMismatchError(f"series {o.key()} re-simulated where {key} is recorded")
+        for name, got in (("total_surplus", o.total_surplus), ("gini", o.gini)):
+            want = np.asarray(r[name], dtype=np.float64)
+            if want.shape != got.shape:
+                raise SeriesMismatchError(f"{key} {name}: {got.shape} games, {want.shape} recorded")
+            diff = float(np.max(np.abs(got - want))) if got.size else 0.0
+            if not diff <= atol:
+                raise SeriesMismatchError(f"{key} {name}: max |difference| {diff} > {atol}")
+            exact = exact and bool(np.array_equal(got, want))
+            worst[name] = max(worst[name], diff)
+    return {
+        "series": len(outcomes),
+        "atol": atol,
+        "max_abs_difference": worst,
+        "bit_identical": exact,
+    }
+
+
+def summarise_outcomes(
+    policies: Sequence[Policy], columns: Sequence[str], outcomes: Sequence[OutcomeSeries]
+) -> dict[str, Any]:
+    """Per policy, column and mode: mean and per-seed means of the depletion round, the
+    players active at the end and the fraction of depleted games (as `summarise`: the
+    mean pools every seed's games; seeds in input order)."""
+    cells: dict[str, dict[str, Any]] = {}
+    for p in policies:
+        row: dict[str, Any] = {}
+        for column in columns:
+            cell: dict[str, Any] = {}
+            for mode in MODES:
+                chosen = [
+                    s
+                    for s in outcomes
+                    if s.policy == p.name and s.column == column and s.mode == mode
+                ]
+                if not chosen:
+                    cell[mode] = None
+                    continue
+                out: dict[str, Any] = {"seeds": [s.seed for s in chosen]}
+                for name, label in (
+                    ("depletion_round", "depletion_round"),
+                    ("players_active", "players_active"),
+                    ("depleted", "depleted_fraction"),
+                ):
+                    values = np.stack([getattr(s, name) for s in chosen]).astype(np.float64)
+                    out[f"{label}_mean"] = float(values.mean())
+                    out[f"{label}_per_seed"] = [float(x) for x in values.mean(axis=1)]
+                cell[mode] = out
+            row[column] = cell
+        cells[p.name] = row
+    return {"columns": list(columns), "policies": [p.describe() for p in policies], "cells": cells}
+
+
+def outcomes_document(outcomes: Sequence[OutcomeSeries]) -> list[dict[str, Any]]:
+    """Per-game depletion round, players active and depleted flag of every series."""
+    return [
+        {
+            "policy": s.policy,
+            "column": s.column,
+            "mode": s.mode,
+            "seed": s.seed,
+            "depletion_round": [int(x) for x in s.depletion_round],
+            "players_active": [int(x) for x in s.players_active],
+            "depleted": [bool(x) for x in s.depleted],
+        }
+        for s in outcomes
+    ]

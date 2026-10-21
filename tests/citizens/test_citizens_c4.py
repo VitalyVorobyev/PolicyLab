@@ -700,6 +700,176 @@ def test_crossplay_matrix_on_toy_citizens() -> None:
         assert len(d["per_seed_difference"]) == 2
 
 
+# --- supplementary outcome metrics (depletion round, players active) --------------------------------------
+
+
+def _outcome_traj() -> rc.Trajectory:
+    """Three 5-round games built by hand (actions 0, so rewards are the offers):
+
+    - game 0: the pool never falls below 1 -> depletion round 40 (the notebook default),
+      not depleted; last-round offers (2, 0.5, 1, 3) -> 3 players with e >= 1;
+    - game 1: the pool first falls below 1 in round 3 (1-based) -> 3, depleted; last-round
+      offers all 0 -> 0 players active;
+    - game 2: the pool is exactly 1 in round 2 (not below) and first below 1 in round 5 ->
+      5, depleted; last-round offers (0.999, 1, 0, 0) -> 1 player active.
+    """
+    pool = np.array(
+        [
+            [200.0, 150.0, 120.0, 90.0, 60.0],
+            [200.0, 5.0, 0.5, 0.01, 0.01],
+            [200.0, 1.0, 3.0, 2.0, 0.9],
+        ]
+    )
+    offers = np.ones((3, 5, 4))
+    offers[0, -1] = [2.0, 0.5, 1.0, 3.0]
+    offers[1, 2:] = 0.0
+    offers[2, -1] = [0.999, 1.0, 0.0, 0.0]
+    return rc.Trajectory(
+        offers=twin.f64(offers), actions=twin.f64(np.zeros_like(offers)), pool=twin.f64(pool)
+    )
+
+
+def test_outcome_metrics_of_hand_built_games() -> None:
+    o = crossplay.outcome_series("P", "C", "deterministic", 7, _outcome_traj())
+    assert o.depletion_round.tolist() == [40, 3, 5]
+    assert o.players_active.tolist() == [3, 0, 1]
+    assert o.depleted.tolist() == [False, True, True]
+    # total surplus = sum of the offers (actions 0)
+    assert o.total_surplus.tolist() == pytest.approx([16.0 + 6.5, 8.0, 16.0 + 1.999])
+    assert o.key() == ("P", "C", "deterministic", 7)
+
+
+def test_depletion_in_the_last_round_is_told_from_none() -> None:
+    """A 40-round game depleted only in round 40 and one never depleted both have
+    depletion round 40 (notebook); only the depleted flag separates them."""
+    pool = np.full((2, ROUNDS), 100.0)
+    pool[1, -1] = 0.5
+    offers = np.ones((2, ROUNDS, 4))
+    traj = rc.Trajectory(
+        offers=twin.f64(offers), actions=twin.f64(np.zeros_like(offers)), pool=twin.f64(pool)
+    )
+    o = crossplay.outcome_series("P", "C", "deterministic", None, traj)
+    assert o.depletion_round.tolist() == [40, 40]
+    assert o.depleted.tolist() == [False, True]
+    assert o.players_active.tolist() == [4, 4]
+
+
+def _recorded(outcomes: list[crossplay.OutcomeSeries]) -> list[dict[str, Any]]:
+    return [
+        {
+            "policy": o.policy,
+            "column": o.column,
+            "mode": o.mode,
+            "seed": o.seed,
+            "total_surplus": [float(x) for x in o.total_surplus],
+            "gini": [float(x) for x in o.gini],
+        }
+        for o in outcomes
+    ]
+
+
+def test_consistency_check_rejects_a_perturbed_series() -> None:
+    traj = _outcome_traj()
+    outcomes = [
+        crossplay.outcome_series("P", "C", "deterministic", 1, traj),
+        crossplay.outcome_series("P", "C", "sampled", 1, traj),
+    ]
+    good = _recorded(outcomes)
+    ok = crossplay.check_against_recorded(outcomes, good, 1e-9)
+    assert ok["bit_identical"] and ok["series"] == 2
+    assert ok["max_abs_difference"] == {"total_surplus": 0.0, "gini": 0.0}
+    tiny = _recorded(outcomes)
+    tiny[1]["gini"][2] += 1e-12
+    ok = crossplay.check_against_recorded(outcomes, tiny, 1e-9)
+    assert not ok["bit_identical"] and 0.0 < ok["max_abs_difference"]["gini"] <= 1e-9
+    for name in ("total_surplus", "gini"):
+        bad = _recorded(outcomes)
+        bad[1][name][0] += 1e-6
+        with pytest.raises(crossplay.SeriesMismatchError, match=name):
+            crossplay.check_against_recorded(outcomes, bad, 1e-9)
+    with pytest.raises(crossplay.SeriesMismatchError, match="recorded"):
+        crossplay.check_against_recorded(outcomes, good[::-1], 1e-9)
+    with pytest.raises(crossplay.SeriesMismatchError, match="1 recorded"):
+        crossplay.check_against_recorded(outcomes, good[:1], 1e-9)
+    short = _recorded(outcomes)
+    short[0]["gini"] = short[0]["gini"][:2]
+    with pytest.raises(crossplay.SeriesMismatchError, match="games"):
+        crossplay.check_against_recorded(outcomes, short, 1e-9)
+
+
+def test_outcome_series_reproduce_the_crossplay_series_on_toy_citizens() -> None:
+    """The supplementary stage's games are the cross-play games: same series, same order,
+    bit-identical totals and Gini; the summary's means are the hand means."""
+    policies = [
+        crossplay.planner_policy("T1", True, [1, 2], [_planner(1), _planner(2)]),
+        *crossplay.rule_policies({"T1": 3.0}),
+    ]
+    columns = {"F": rc.FixedFraction(0.5), "U": UniformReturn()}
+    key, noise = jax.random.key(5), jax.random.key(6)
+    series: list[crossplay.Series] = []
+    outcomes: list[crossplay.OutcomeSeries] = []
+    for name, port in columns.items():
+        series += crossplay.evaluate_column(
+            policies, name, port, key, noise, 8, crossplay.Diagnostics()
+        )
+        outcomes += crossplay.evaluate_column_outcomes(policies, name, port, key, noise, 8)
+    recorded = crossplay.series_document(series)
+    assert crossplay.check_against_recorded(outcomes, recorded, 0.0)["bit_identical"]
+    summary = crossplay.summarise_outcomes(policies, list(columns), outcomes)
+    cell = summary["cells"]["Planner[T1]"]["U"]["sampled"]
+    chosen = [o for o in outcomes if o.key()[:3] == ("Planner[T1]", "U", "sampled")]
+    assert cell["seeds"] == [1, 2]
+    assert cell["depletion_round_per_seed"] == [float(o.depletion_round.mean()) for o in chosen]
+    assert cell["players_active_mean"] == pytest.approx(
+        (chosen[0].players_active.sum() + chosen[1].players_active.sum()) / 16.0
+    )
+    assert summary["cells"]["Equal"]["F"]["sampled"] is None
+    doc = crossplay.outcomes_document(outcomes)
+    assert len(doc) == len(outcomes) and len(doc[0]["depletion_round"]) == 8
+
+
+def _write_manifest(run_dir: Path, doc: dict[str, Any]) -> str:
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text(json.dumps(doc), "utf-8")
+    return stage.manifest_sha256(run_dir)
+
+
+def test_crossplay_inputs_are_the_recorded_runs(tmp_path: Path) -> None:
+    fit_sha = _write_manifest(tmp_path / "fit", {"run_id": "fit"})
+    fit = {"path": str(tmp_path / "fit"), "manifest_sha256": fit_sha}
+    base_sha = _write_manifest(tmp_path / "base", {"run_id": "base", "citizens": {"fit_run": fit}})
+    t_sha = [_write_manifest(tmp_path / f"t{i}", {"run_id": f"t{i}"}) for i in range(2)]
+    cp = {
+        "citizens": {
+            "fit_run": fit,
+            "inputs": {
+                "baselines_run": {"run_id": "base", "manifest_sha256": base_sha},
+                "train_runs": [
+                    {"run_id": "t1", "manifest_sha256": t_sha[1]},
+                    {"run_id": "t0", "manifest_sha256": t_sha[0]},
+                ],
+            },
+        }
+    }
+    base_dir, _, train_dirs, trains, fit_run = c4.crossplay_inputs(cp, tmp_path)
+    assert base_dir == tmp_path / "base" and fit_run == tmp_path / "fit"
+    assert train_dirs == [tmp_path / "t1", tmp_path / "t0"]  # the recorded order
+    assert [t["run_id"] for t in trains] == ["t1", "t0"]
+    (tmp_path / "t0" / "manifest.json").write_text(json.dumps({"run_id": "t0", "x": 1}))
+    with pytest.raises(stage.RunMismatchError, match="t0"):
+        c4.crossplay_inputs(cp, tmp_path)
+
+
+def test_crossplay_metrics_refuse_before_the_freeze(tmp_path: Path) -> None:
+    with pytest.raises(data.ProtocolNotFrozenError, match="confirm"):
+        c4.main(
+            [
+                "--runs-dir", str(tmp_path), "crossplay-metrics",
+                "--crossplay-run", str(tmp_path), "--run-id", "x",
+            ]
+        )  # fmt: skip
+
+
 def test_group_bootstrap_of_a_constant_shift_is_exact() -> None:
     """Identical seeds in both groups, shifted by 5: every resample's difference is 5."""
     row = np.random.default_rng(3).normal(1000.0, 30.0, (1, 50))
