@@ -1132,10 +1132,13 @@ def test_c4_evidence_commands_refuse_before_the_freeze(tmp_path: Path) -> None:
                     "x",
                 ]
             )
-    with pytest.raises(Exception, match=r"does not exist|status"):
+    # the draft-protocol refusal of the shared guard is tested on a temporary file in
+    # test_c4_training_refuses_undeclared_seeds_and_the_unfrozen_protocol (the real
+    # protocol is frozen since 6917485)
+    with pytest.raises(data.ProtocolNotFrozenError, match="confirm"):
         c4.main(
             [
-                "--runs-dir", str(tmp_path), "b4", "--confirm-frozen", "--train-run",
+                "--runs-dir", str(tmp_path), "b4", "--train-run",
                 str(tmp_path), "--variant", "plain", "--run-id", "x",
             ]
         )  # fmt: skip
@@ -1252,14 +1255,77 @@ def test_b4_rule_row_guards() -> None:
         c4.check_b4_rule_row(c4.B4_RULE_ROW, base)
 
 
+def _cli(version: str | None) -> dict[str, Any]:
+    return {
+        "kind": "claude_cli",
+        "cli_version": None if version is None else f"{version} (Claude Code)",
+    }
+
+
+def test_b4_cli_guard_without_a_deviation_is_the_pinned_version() -> None:
+    assert c4.b4_cli_check(_cli("2.1.304"), None) is None
+    for found in ("2.1.306", "2.1.305", None):
+        with pytest.raises(SystemExit, match=r"pins Claude Code 2\.1\.304 \(A26\)"):
+            c4.b4_cli_check(_cli(found), None)
+
+
+def test_b4_cli_deviation_accepts_exactly_the_declared_version() -> None:
+    record = c4.b4_cli_check(_cli("2.1.306"), "2.1.306")
+    assert record == {"pinned": "2.1.304", "used": "2.1.306 (Claude Code)", "decision": "D37"}
+    for found in ("2.1.307", "2.1.304", None):
+        with pytest.raises(SystemExit, match=r"accepts only 2\.1\.306 \(D37\)"):
+            c4.b4_cli_check(_cli(found), "2.1.306")
+    with pytest.raises(SystemExit, match="pinned version; omit the flag"):
+        c4.b4_cli_check(_cli("2.1.304"), "2.1.304")
+
+
+def _b4_rule_argv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli_version: str) -> list[str]:
+    """The b4 stage up to its version guard: the freeze guard and the CLI faked, a clean
+    baselines run with the protocol's k*[B1], and B4-calibrated without a calibration run,
+    so a passed guard stops at the next check, before any game or call."""
+
+    def frozen(confirm: bool) -> tuple[data.FrozenProtocol, str]:
+        return data.FrozenProtocol(path="p", sha256=PROTOCOL_SHA, status=data.FROZEN), "c0ffee"
+
+    monkeypatch.setattr(c4, "require_c4_freeze", frozen)
+
+    def describe(self: ClaudeCLI) -> dict[str, Any]:
+        return _cli(cli_version)
+
+    monkeypatch.setattr(ClaudeCLI, "describe", describe)
+    base = _base_manifest()
+    base["citizens"]["k_star"]["B1"]["k"] = c4_config.B4_COMPARATOR_K
+    (tmp_path / "base").mkdir()
+    (tmp_path / "base" / "manifest.json").write_text(json.dumps(base))
+    return [
+        "--runs-dir", str(tmp_path / "runs"), "b4", "--confirm-frozen",
+        "--rule", c4.B4_RULE_ROW, "--variant", "calibrated",
+        "--baselines-run", str(tmp_path / "base"),
+        "--run-id", c4.b4_run_id("calibrated", c4.B4_RULE_ROW),
+    ]  # fmt: skip
+
+
+def test_b4_stage_refuses_another_cli_unless_the_deviation_is_declared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    argv = _b4_rule_argv(tmp_path, monkeypatch, "2.1.306")
+    with pytest.raises(SystemExit, match=r"pins Claude Code 2\.1\.304"):
+        c4.main(argv)
+    with pytest.raises(SystemExit, match="--calibration-run is required"):  # guard passed
+        c4.main([*argv, "--cli-version-deviation", "2.1.306"])
+    with pytest.raises(SystemExit, match=r"accepts only 2\.1\.307"):
+        c4.main([*argv, "--cli-version-deviation", "2.1.307"])
+    assert not (tmp_path / "runs").exists()
+
+
 # --- the hypothesis stage's inputs (P4) --------------------------------------------------------------
 
 
 def test_hypotheses_refuse_before_the_freeze(tmp_path: Path) -> None:
-    with pytest.raises(data.ProtocolNotFrozenError):
+    with pytest.raises(data.ProtocolNotFrozenError, match="confirm"):
         c4.main(
             [
-                "--runs-dir", str(tmp_path), "hypotheses", "--confirm-frozen",
+                "--runs-dir", str(tmp_path), "hypotheses",
                 "--crossplay-run", str(tmp_path), "--distill-run", str(tmp_path),
                 "--train-run", str(tmp_path), "--run-id", "x",
             ]
@@ -1330,14 +1396,16 @@ def _b4_run(tmp_path: Path, run_id: str, citizens: dict[str, Any], surplus: list
 
 
 def test_b4_rows_from_runs(tmp_path: Path) -> None:
+    deviation = {"pinned": "2.1.304", "used": "2.1.306 (Claude Code)", "decision": "D37"}
     c4_run = _b4_run(
         tmp_path,
         "citizens-c4-b4-plain-b2-v1",
         {
             "stage": c4.B4_PLANNER_STAGE,
-            "config": {"variant": "plain"},
+            "config": {"variant": "plain", "backend": {"cli_version": "2.1.306 (Claude Code)"}},
             "c4_protocol": {"sha256": PROTOCOL_SHA},
             "c4_row": {"kind": "planner", "name": "Planner[B2]"},
+            "cli_version_deviation": deviation,
         },
         [8.0, 9.0],
     )
@@ -1358,3 +1426,11 @@ def test_b4_rows_from_runs(tmp_path: Path) -> None:
     assert rows[c4.B4_REFERENCE_ROW].total_surplus.tolist() == [1120.0]
     with pytest.raises(stage.RunMismatchError, match="this protocol"):
         c4.b4_rows_from_runs([c4_run], "q" * 64)
+    # the hypothesis stage reports each run's CLI version and recorded deviation (D37)
+    record = c4.b4_run_record(c4_run, PROTOCOL_SHA)
+    assert record["row"] == "Planner[B2]" and record["variant"] == "plain"
+    assert record["cli_version"] == "2.1.306 (Claude Code)"
+    assert record["cli_version_deviation"] == deviation
+    ref = c4.b4_run_record(reference, PROTOCOL_SHA)
+    assert ref["row"] == c4.B4_REFERENCE_ROW
+    assert ref["cli_version"] is None and ref["cli_version_deviation"] is None
