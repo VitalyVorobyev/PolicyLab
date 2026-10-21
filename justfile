@@ -250,6 +250,16 @@ citizens-c4-distill run_id *args:
 citizens-c4-b4 run_id *args:
     uv run python -m phasespace.citizens.rl.c4 --runs-dir runs b4 --run-id {{run_id}} {{args}}
 
+# Example (final id citizens-web-demo-v1):
+# just citizens-web-export citizens-web-demo-v1 --confirm-frozen --crossplay-run runs/citizens-c4-crossplay-v1
+#   --distill-run runs/citizens-c4-distill-v1 --baselines-run runs/citizens-c3-baselines-v1
+#   --train-run runs/citizens-c4-train-{b1,b2,b3,b23}-s1001-v1 runs/citizens-c4-train-mix-s3001-v1
+#   --heldout-eval-run runs/citizens-c2-heldout-eval-v1 --b4-eval-run runs/citizens-c2-b4-eval-v1
+#   [--b4-run runs/<B4 runs> ...] [--hypotheses-run runs/<hypotheses>] [--e1-run runs/<E1>]
+# Model Citizens public demo: re-simulated traces (must reproduce cross-play within 1e-9) and copied summaries.
+citizens-web-export run_id *args:
+    uv run python -m phasespace.citizens.web_export --runs-dir runs --run-id {{run_id}} {{args}}
+
 # Hypothesis stage (protocol §9; recorded runs only):
 # just citizens-c4-hypotheses citizens-c4-hypotheses-v1 --confirm-frozen --crossplay-run runs/<cp> --distill-run runs/<d> --train-run runs/<all> [--b4-run ... --b4-eval-run runs/<c2 b4-evaluate>]
 citizens-c4-hypotheses run_id *args:

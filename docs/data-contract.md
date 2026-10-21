@@ -764,4 +764,72 @@ type CitizensStage = /* ... */ | "c4_pilot" | "c4_train" | "c4_crossplay" | "c4_
 
 **Scope (additive; `python -m phasespace.citizens.e1_stage`, `just citizens-e1`, pure parts in `phasespace.citizens.e1`).** E1 asks whether each citizen model's closed-loop simulation orders the mechanisms of the published within-experiment comparisons (C1 audit and G1b z-value tables) the way humans did. The run follows the C1 and C2 addenda. It reads stored runs only: the C1 audit, G1b, C2 held-out evaluation and B4 evaluation runs, each table verified by its manifest SHA-256. It also reads the processed training games. It loads no held-out game, simulates nothing and calls no LLM. It refuses a dirty tree. Its status is always `computed_unvalidated`. Its `validation.checks` are input-consistency checks, and a failing check aborts the run. `simulator` and `random_seed` are `null`. `citizens` holds `stage: "e1_ranking"`, `exploratory` (held-out outcomes already seen, no frozen protocol, cannot change a C4 verdict), `can_change_c4_verdict: false`, `inputs` (path, run id, manifest sha256, commit, status, stage of each input run), `dataset`, `surrogate_accepted`, `models`, `matching`, `exclusions`, `definitions` and `ranking_groups`. Artifacts (`sample_table`): `e1_pairs.json` (one row per pair and model), `e1_scores.json` (per-model agreement counts) and `e1_tau.json` (Kendall tau-b per experiment, endpoint and model).
 
+## Model Citizens addendum (web demo)
+
+**Scope (additive; `python -m phasespace.citizens.web_export`, `just citizens-web-export`).** One curated, published run, `citizens-web-demo-v1` (`web/public/research/model-citizens/<run-id>/`, catalog kind `"citizens_demo"`), for the public page `/citizens`. It follows the C4 addendum's manifest (`experiment_id` `citizens-web-demo-v1`, `citizens.stage` `"web_export"`, `random_seed` the C4 evaluation key 41000) and reads recorded runs only: the cross-play, distillation and C3 baselines runs, the pre-declared training runs (Planner[B1], [B2], [B3], [B23] seed 1001 and Planner[Mix] seed 3001; each must be an input of the cross-play run), and optionally the C2 held-out evaluation, C2 B4 evaluation, B4 game runs, the hypothesis run, an E1 run and a supplementary cross-play metrics run (`--crossplay-metrics-run`: numeric `depletion_round*` and `players_active*` fields of `cells[policy][column].deterministic` in its JSON artifacts are copied into each cell's `extra_metrics`; field names are provisional until that run exists). `citizens.inputs` lists each with its manifest sha256, commit and dirty flag.
+
+- **Traces.** The cross-play run stores per-game totals only, so every traced (governor, citizen model) cell is re-simulated on the full C4 evaluation batch (`crossplay.deterministic_trajectories`, the same rollouts as `evaluate_column`). The export fails, writing nothing, unless every re-simulated per-game total surplus equals `crossplay_series.json` within 1e-9 coins (all 1,000 games of every cell). Kept games: 0, 1 and 2 (fixed in advance), deterministic policy; governors Equal, Proportional, Interpolating k = 22 and the five planners above.
+- **Human games** are read through `data.load_training` and `data.load_heldout(confirm_frozen=True)` (`--confirm-frozen`; `citizens.held_out_access` records the protocol sha256). Selection: per mechanism (Equal, Proportional, Interpolating, M2) the first two by (launch id, CSV row) among the human games of Exps 1–3 with exactly 40 recorded rounds and all four players present in every round. Attribution: Koster et al. (2025), doi 10.1038/s41467-025-58043-7, CC BY 4.0.
+- **LLM games** (`--b4-run`): the first three complete games of each B4 run, from `rounds.json` (parsed actions only; call records are never read or published). Their totals are checked against `games.json`.
+- Checks (`validation.checks`, status stays `computed_unvalidated`): `trace_totals_reproduce_crossplay` (≤ 1e-9), `trace_pool_update_residual` (≤ 1e-9), `trace_offers_above_pool` (≤ 1e-9), `trace_returns_outside_offer` (0) and, with B4 runs, `b4_totals_match_games` (≤ 1e-6).
+
+```ts
+type ArtifactKind = /* ... */ | "citizens_demo";   // citizens_demo.json, compact JSON
+
+interface CitizensDemo {
+  schema_version: 1; run_id: string;
+  game: { players: 4; rounds: 40; max_pool: 200; growth_factor: 1.4; pool_floor: 0.01; pool_rule: string };
+  trace_games: number[];                       // [0, 1, 2]
+  traces: GameTrace[];                         // model citizens (seed set) and LLM citizens (source set)
+  human_games: (GameRecord & { governor: string; mechanism: string; cohort: string;
+                               game_id: string; split: "training" | "heldout" })[];
+  human_selection_rule: string; data_attribution: string;
+  crossplay: { columns: string[]; policies: string[]; mode: "deterministic"; games: number;
+               k_star: Record<string, number>;
+               cells: { policy: string; column: string; total_surplus_mean: number;
+                        total_surplus_per_seed: number[]; seeds: (number | null)[]; gini_mean: number;
+                        vs_k_star: Difference; vs_k22: Difference;
+                        extra_metrics?: Record<string, number> | null }[];
+               robustness: {} | { definition: string;          // {} without every home planner
+                 policies: Record<string, { ratios: Record<string, number>;   // mean / Planner[col]@col mean
+                                            worst_ratio: number; worst_column: string }> } };
+  k_tuning: { ln_k: number[]; curves: Record<string, number[]>;     // per model, one per ln k
+              k_star: Record<string, { k: number; ln_k: number }>; k_published: number;
+              games: number; key_seed: number; definition: string };
+  distilled: { bins: number; bin_edges: number[]; definition: string;
+               planners: { policy: string; seeds: number[]; w_mean: (number | null)[];
+                           kept_share_mean: (number | null)[]; w_per_seed: (number | null)[][];
+                           r2_per_seed: (number | null)[]; fitted_k_per_seed: number[] }[];
+               reference: { rule: string; pool_fraction: number[]; w: number[] } };
+  exams: null | { regimes: string[]; closed_loop_tier: Record<string, boolean>;
+                  rows: { regime: string; model: string; delta_ell: number; delta_ci: [number, number];
+                          pass_likelihood: boolean; metrics_in_range: number; pass_outcomes: boolean;
+                          mean_normalised_w1: number; label: string; units: number }[];
+                  metrics: object[]; rule_likelihood: string; rule_outcomes: string };
+  b4_c2: null | { records: object[]; metrics: object[] };          // C2 b4-evaluate, verbatim fields
+  b4_rows: null | { governor: string; variant: string; source: "c2" | "c4"; games_complete: number;
+                    games_discarded: number; total_surplus_mean: number | null;
+                    total_surplus_sd: number | null; cli_version: string | null }[];
+  hypotheses: null | { verdicts: object; confirmed: Record<string, string[]>; rows: object;
+                       delta: number; h2_b4?: object };
+  e1: null | { run_id: string; experiment_id: string; tables: Record<string, { columns: object[]; rows: unknown[][] }> };
+}
+interface GameRecord {          // coin values rounded to 2 decimals after the checks
+  rounds: number;
+  pool: number[];               // rounds + 1: before each round, then after the last
+  offers: number[][]; returns: number[][]; kept: number[][];   // rounds x 4; kept = offers - returns
+  cumulative_surplus: number[]; // running sum of kept over players, per round
+  total_surplus: number;        // the exact per-game total, rounded
+}
+interface GameTrace extends GameRecord {
+  governor: string; citizens: string;    // "B1" | "B2" | "B3" | "B23" | "B4-<variant>"
+  game: number; seed?: number | null; source?: "c2" | "c4";
+}
+interface Difference {          // against the column's k* or k = 22, same games
+  versus: string; difference: number; relative: number;
+  ci: [number, number] | null;  // the cross-play paired record (planners); null for rules
+  seeds_positive: number | null; seeds_negative: number | null;
+}
+```
+
 Prefer schema validation on producer and consumer sides (Python + TypeScript). Avoid generating a complicated cross-language framework before first two consumers exist.

@@ -388,6 +388,35 @@ def evaluate_column(
     ]
 
 
+def deterministic_trajectories(
+    policies: Sequence[Policy], port: rc.JaxCitizen, citizen_key: Array, n_games: int
+) -> list[tuple[str, int | None, rc.Trajectory]]:
+    """(policy, seed, trajectory) of every policy's deterministic mode against one citizen
+    model: the same rollouts as `evaluate_column`'s deterministic series (same citizen
+    key, jitted the same way), kept whole instead of reduced to totals. The citizen draws
+    are made for the whole batch, so pass the full `n_games` and slice afterwards.
+    """
+    twin.require_x64()
+    rounds = c3config.ROUNDS
+
+    @eqx.filter_jit
+    def deterministic(p: Planner) -> rc.Trajectory:
+        return ppo.evaluate_planner(p, port, citizen_key, n_games, rounds)[0]
+
+    rule = stage.weight_runner(port, n_games)
+    out: list[tuple[str, int | None, rc.Trajectory]] = []
+    for policy in policies:
+        if policy.kind == "planner":
+            for seed, planner in zip(policy.seeds, policy.planners, strict=True):
+                out.append((policy.name, seed, deterministic(planner)))
+        else:
+            if policy.rule_kind is None or policy.rule_param is None:
+                raise ValueError(f"{policy.name}: a rule needs its kind and parameter")
+            traj = rule(twin.f64(policy.rule_kind), twin.f64(policy.rule_param), citizen_key)
+            out.append((policy.name, None, traj))
+    return out
+
+
 # --- statistics -----------------------------------------------------------------------------------
 
 

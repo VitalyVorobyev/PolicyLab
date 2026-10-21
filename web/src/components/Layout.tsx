@@ -11,7 +11,7 @@ function Wordmark() {
         <circle cx="14" cy="14" r="2.4" fill="var(--color-canvas-strong)" />
         <circle cx="22.2" cy="9.4" r="2" fill="var(--color-accent)" />
       </svg>
-      <span className="font-serif text-xl font-semibold tracking-tight">Phase Space</span>
+      <span className="font-serif text-xl font-semibold tracking-tight whitespace-nowrap">Phase Space</span>
     </Link>
   );
 }
@@ -28,9 +28,14 @@ export function Layout({ children }: { children: ReactNode }) {
       <header className="border-b border-rule">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-4 py-4 sm:px-8">
           <Wordmark />
-          <nav aria-label="Site" className="flex items-center gap-5 text-[0.95rem] text-graphite">
-            <Link to="/gravity" className="hover:text-ink">
-              Gravity Atlas
+          <nav aria-label="Site" className="flex items-center gap-3 text-sm text-graphite sm:gap-5 sm:text-[0.95rem]">
+            <Link to="/citizens" aria-label="Model Citizens" className="whitespace-nowrap hover:text-ink">
+              <span className="sm:hidden">Citizens</span>
+              <span className="max-sm:hidden">Model Citizens</span>
+            </Link>
+            <Link to="/gravity" aria-label="Gravity Atlas" className="whitespace-nowrap hover:text-ink">
+              <span className="sm:hidden">Gravity</span>
+              <span className="max-sm:hidden">Gravity Atlas</span>
             </Link>
             <a href={REPOSITORY_URL} className="hover:text-ink" rel="noreferrer">
               Source
@@ -43,7 +48,7 @@ export function Layout({ children }: { children: ReactNode }) {
       </main>
       <footer className="mt-24 border-t border-rule">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-8 text-sm text-graphite sm:flex-row sm:justify-between sm:px-8">
-          <p>Every trajectory on this site is computed and published with its manifest and checksum.</p>
+          <p>Every result on this site is computed and published with its manifest and checksums.</p>
           <p>
             <a className="prose-link" href={REPOSITORY_URL} rel="noreferrer">
               VitalyVorobyev/PolicyLab

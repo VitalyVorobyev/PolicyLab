@@ -7,6 +7,7 @@ The frontend is the primary way to **understand** a research result. Design for 
 ## Navigation / pages in the first viewer milestone (M2)
 
 - **Gallery `/`**: short mission statement and curated tiles for Model Citizens (active), Gravity Atlas (closed, D29), Last Library and Algorithm Forge (planned); Constitution Machine is superseded by Model Citizens (D31). Planned pages must not masquerade as live demos.
+- **Model Citizens `/citizens`**: the hero is an interactive game (governor × citizens, 40 rounds, play/scrub, ghost comparison; real and LLM players where games exist), followed by the game rules, the two held-out exams, the cross-play matrix (cells open in the hero), the k tuning curves, LLM players and limits; a single technical-report link and data attribution at the bottom. Data: one `citizens_demo` run (data contract, web demo addendum).
 - **Gravity `/gravity`**: concise question, dominant orbital viewer, controls and physical/data assumptions; subsections for trajectories, robustness and comparisons as data becomes real.
 - **Research article `/gravity/report`**: later, M4; a readable experimental narrative with figures that link back to runs. Before then a clearly labeled forthcoming report is enough, not an invented publication.
 

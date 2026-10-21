@@ -47,8 +47,8 @@ const manifest = parseManifest(goodManifest);
 describe("good fixtures (the published reference run)", () => {
   it("parses the catalog", () => {
     const catalog = parseCatalog(goodCatalog);
-    expect(catalog.studies.map((s) => s.study_id)).toEqual(["gravity-atlas", "last-library", "algorithm-forge", "constitution-machine"]);
-    expect(catalog.studies[0]?.runs.find((r) => r.run_id === "gravity-l1-lyapunov-reference-v2")).toEqual({
+    expect(catalog.studies.map((s) => s.study_id)).toEqual(["model-citizens", "gravity-atlas", "last-library", "algorithm-forge"]);
+    expect(catalog.studies.find((s) => s.study_id === "gravity-atlas")?.runs.find((r) => r.run_id === "gravity-l1-lyapunov-reference-v2")).toEqual({
       run_id: "gravity-l1-lyapunov-reference-v2",
       path: RUN_PATH,
       kind: "trajectory",

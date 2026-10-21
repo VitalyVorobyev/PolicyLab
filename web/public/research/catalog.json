@@ -2,6 +2,19 @@
   "schema_version": 1,
   "studies": [
     {
+      "study_id": "model-citizens",
+      "title": "Model Citizens",
+      "status": "active",
+      "runs": [
+        {
+          "run_id": "citizens-web-demo-dev2",
+          "path": "model-citizens/web-demo-dev2",
+          "kind": "citizens_demo",
+          "label": "Governors versus citizen models: traced games and summaries (development export)"
+        }
+      ]
+    },
+    {
       "study_id": "gravity-atlas",
       "title": "Gravity Atlas",
       "status": "complete",
@@ -54,12 +67,6 @@
       "study_id": "algorithm-forge",
       "title": "Algorithm Forge",
       "status": "planned",
-      "runs": []
-    },
-    {
-      "study_id": "constitution-machine",
-      "title": "Constitution Machine",
-      "status": "conditional",
       "runs": []
     }
   ]

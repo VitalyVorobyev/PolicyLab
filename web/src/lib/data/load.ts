@@ -1,3 +1,4 @@
+import { parseCitizensDemo, parseCitizensManifest, type LoadedCitizensRun } from "./citizens";
 import { DataError } from "./errors";
 import { isSafeRelativePath, researchUrl } from "./paths";
 import { sha256Hex } from "./sha256";
@@ -115,6 +116,30 @@ export async function loadGridRun(runPath: string, fetcher: Fetcher = defaultFet
 export async function loadAtlasRun(runPath: string, fetcher: Fetcher = defaultFetch, expectedRunId?: string): Promise<LoadedAtlasRun> {
   const { manifest, json, manifestUrl, artifactUrl } = await loadVerified(runPath, "atlas", fetcher, expectedRunId);
   return { manifest, atlas: parseAtlas(json, manifest, artifactUrl), manifestUrl, artifactUrl };
+}
+
+/**
+ * A Model Citizens web demo run: its own manifest layout (no CR3BP model or solver), one
+ * `citizens_demo` artifact verified against the manifest's SHA-256 before it is parsed.
+ */
+export async function loadCitizensRun(runPath: string, fetcher: Fetcher = defaultFetch, expectedRunId?: string): Promise<LoadedCitizensRun> {
+  if (!isSafeRelativePath(runPath)) {
+    throw new DataError("unsafe_path", runPath, `"${runPath}" is not a plain relative path inside the research directory.`);
+  }
+  const manifestUrl = researchUrl(runPath, "manifest.json");
+  const manifest = parseCitizensManifest(parseJson(await fetchBytes(manifestUrl, fetcher), manifestUrl), manifestUrl);
+  if (expectedRunId !== undefined && manifest.run_id !== expectedRunId) {
+    throw new DataError("invalid", manifestUrl, `The catalog lists run "${expectedRunId}" here, but the manifest's run_id is "${manifest.run_id}".`);
+  }
+  const artifact = manifest.artifacts[0];
+  if (artifact === undefined) throw new DataError("invalid", manifestUrl, "The manifest lists no artifact.");
+  const artifactUrl = researchUrl(runPath, artifact.path);
+  const bytes = await fetchBytes(artifactUrl, fetcher);
+  const actual = await sha256Hex(bytes);
+  if (actual !== artifact.sha256) {
+    throw new DataError("checksum", artifactUrl, `SHA-256 of ${artifact.path} is ${actual}, but the manifest records ${artifact.sha256}.`);
+  }
+  return { manifest, demo: parseCitizensDemo(parseJson(bytes, artifactUrl), manifest, artifactUrl), manifestUrl, artifactUrl };
 }
 
 /** One arm's error fan from an atlas run, verified against the manifest's checksum for that file. */

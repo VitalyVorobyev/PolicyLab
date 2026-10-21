@@ -2,6 +2,7 @@ import { CheckCircleIcon, DashedCircleIcon, ExternalIcon } from "../../component
 import { docUrl } from "../../lib/links";
 import { Link } from "../../lib/router";
 import { usePageTitle } from "../../lib/usePageTitle";
+import { CitizensThumbnail } from "../citizens/CitizensThumbnail";
 import { FeaturedCaption, OrbitThumbnail, useFeaturedRun } from "./OrbitThumbnail";
 import { STUDIES, STUDY_STATUS_LABEL, type StudySummary } from "./studies";
 
@@ -16,13 +17,40 @@ function StudyStatus({ study }: { study: StudySummary }) {
   );
 }
 
-function FeaturedStudy({ study }: { study: StudySummary }) {
+function GravityFigure({ study }: { study: StudySummary }) {
   const featured = useFeaturedRun();
   return (
-    <article aria-labelledby="featured-title" className="grid gap-8 border-y border-rule py-10 lg:grid-cols-12 lg:gap-12">
+    <figure className="lg:col-span-7">
+      <Link to={study.route ?? "/"} tabIndex={-1} aria-hidden="true" className="block">
+        <OrbitThumbnail />
+      </Link>
+      <figcaption className="mt-3 text-sm text-graphite">{featured !== undefined && <FeaturedCaption run={featured} />}</figcaption>
+    </figure>
+  );
+}
+
+function CitizensFigure({ study }: { study: StudySummary }) {
+  return (
+    <figure className="lg:col-span-7">
+      <Link to={study.route ?? "/"} tabIndex={-1} aria-hidden="true" className="block">
+        <CitizensThumbnail />
+      </Link>
+      <figcaption className="mt-3 text-sm text-graphite">
+        Every governor against every model of people: surplus per game against the simple rule tuned for those citizens (blue more, red less).
+      </figcaption>
+    </figure>
+  );
+}
+
+const CALL_TO_ACTION: Record<string, string> = { "gravity-atlas": "Explore the atlas", "model-citizens": "Watch the games" };
+
+function FeaturedStudy({ study }: { study: StudySummary }) {
+  const titleId = `featured-${study.study_id}`;
+  return (
+    <article aria-labelledby={titleId} className="grid gap-8 border-t border-rule py-10 last:border-b lg:grid-cols-12 lg:gap-12">
       <div className="lg:col-span-5">
         <StudyStatus study={study} />
-        <h2 id="featured-title" className="mt-3 text-4xl sm:text-5xl">
+        <h2 id={titleId} className="mt-3 text-4xl sm:text-5xl">
           {study.title}
         </h2>
         <p className="mt-5 text-lg leading-relaxed">{study.question}</p>
@@ -32,7 +60,7 @@ function FeaturedStudy({ study }: { study: StudySummary }) {
             to={study.route ?? "/"}
             className="inline-flex items-center rounded-sm bg-ink px-4 py-2.5 font-medium text-sheet no-underline hover:bg-canvas-raised"
           >
-            Explore the atlas
+            {CALL_TO_ACTION[study.study_id] ?? "Open the study"}
           </Link>
           <a className="prose-link inline-flex items-center gap-1.5 text-graphite" href={docUrl(study.specPath)} rel="noreferrer">
             Study specification
@@ -40,12 +68,7 @@ function FeaturedStudy({ study }: { study: StudySummary }) {
           </a>
         </div>
       </div>
-      <figure className="lg:col-span-7">
-        <Link to={study.route ?? "/"} tabIndex={-1} aria-hidden="true" className="block">
-          <OrbitThumbnail />
-        </Link>
-        <figcaption className="mt-3 text-sm text-graphite">{featured !== undefined && <FeaturedCaption run={featured} />}</figcaption>
-      </figure>
+      {study.study_id === "gravity-atlas" ? <GravityFigure study={study} /> : <CitizensFigure study={study} />}
     </article>
   );
 }
@@ -75,7 +98,8 @@ function PlannedStudy({ study }: { study: StudySummary }) {
 
 export function GalleryPage() {
   usePageTitle("Phase Space");
-  const [featured, ...planned] = STUDIES;
+  const featured = STUDIES.filter((s) => s.route !== undefined);
+  const planned = STUDIES.filter((s) => s.route === undefined);
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-8">
       <section aria-labelledby="mission" className="max-w-4xl pb-14 pt-14 sm:pt-20">
@@ -89,7 +113,11 @@ export function GalleryPage() {
         </p>
       </section>
 
-      {featured !== undefined && <FeaturedStudy study={featured} />}
+      <div>
+        {featured.map((study) => (
+          <FeaturedStudy key={study.study_id} study={study} />
+        ))}
+      </div>
 
       <section aria-labelledby="planned" className="mt-16">
         <h2 id="planned" className="text-3xl">
