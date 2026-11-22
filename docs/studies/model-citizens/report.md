@@ -1,12 +1,12 @@
-# Model Citizens v1 — Technical report (draft, verdicts pending)
+# Model Citizens v1 — Technical report (trainable-model verdicts recorded; B4 arm pending)
 
-Status: **draft**. Every number below is read from a run artifact under `runs/` (§12). The cross-play and distillation numbers are **descriptive**. The confirmatory verdicts of `protocol.md` §9 (both tests, Holm per family) come from the hypothesis stage `citizens-c4-hypotheses-v1`, which has not run yet, and the C4 B4 runs (`citizens-c4-b4-*`) are still in progress. Their places are marked `<<TBD: …>>`; §13 lists them.
+Status: **draft (trainable-model verdicts complete; C4 B4 arm pending)**. Every number below is read from a run artifact under `runs/` (§12). The confirmatory verdicts of `protocol.md` §9 (both tests, Holm per family) for the trainable-model comparison come from `citizens-c4-hypotheses-v1` (run without `--b4-run`, §12). The C4 B4 runs (`citizens-c4-b4-*`) remain in progress (1 of 10 completed so far: `citizens-c4-b4-calibrated-b1-v1`); their places remain marked `<<TBD: …>>` in §6.10, §12 and §13.
 
 Coins are totals per game (4 players × 40 rounds) unless stated otherwise. δ = 16 coins is the protocol's minimum effect. "k\*[Y]" is the Interpolating rule re-tuned on model Y. "Planner[X]@Y" is a PPO planner trained on model X and evaluated on model Y.
 
 ## 1. Summary
 
-Model Citizens asks whether RL policy designers trained against different behavioural models of people, all fitted to the same human data (Koster et al. 2025), arrive at the same mechanism. Four citizen models fitted only on baseline-mechanism play all pass a pre-registered held-out one-step likelihood test; only the GRU clone B1 also passes the closed-loop outcome test, on the Interpolating regime (§4). In cross-play under B1, the planners trained on the three one-step-only models lose 315–364 coins per game (24–28 %) to B1's re-tuned Interpolating rule, every seed of each, and the two models with the best next-choice likelihood (B3, B23) lose the most (§6, descriptive). Planners transfer between the two sister learning models (B3 ↔ B23) but not otherwise: 7 of the 12 off-diagonal cells have a crossed-bootstrap 95 % CI entirely below −δ. The published Interpolating rule (k = 22) stays within 0.6–2.1 % of each model's re-tuned rule and beats every planner trained on a different model under B1 and B2; under B3 and B23, whose closed-loop realism was rejected, the B3/B23-trained and mixture planners exceed it by 80–122 %. Confirmatory verdicts: H1 `<<TBD: hypotheses-v1 H1 verdict>>`; H2 `<<TBD: hypotheses-v1 H2 verdict (H2a) and H2b>>`; H2-B4 `<<TBD: hypotheses-v1 H2-B4 verdict, B4-calibrated>>`. The judge of every policy is a simulator; no planner was tested with people.
+Model Citizens asks whether RL policy designers trained against different behavioural models of people, all fitted to the same human data (Koster et al. 2025), arrive at the same mechanism. Four citizen models fitted only on baseline-mechanism play all pass a pre-registered held-out one-step likelihood test; only the GRU clone B1 also passes the closed-loop outcome test, on the Interpolating regime (§4). In cross-play under B1, the planners trained on the three one-step-only models lose 315–364 coins per game (24–28 %) to B1's re-tuned Interpolating rule, every seed of each, and the two models with the best next-choice likelihood (B3, B23) lose the most (§6). Planners transfer between the two sister learning models (B3 ↔ B23) but not otherwise: 7 of the 12 off-diagonal cells are confirmed reversals below −δ. The published Interpolating rule (k = 22) stays within 0.6–2.1 % of each model's re-tuned rule and beats every planner trained on a different model under B1 and B2; under B3 and B23, whose closed-loop realism was rejected, the B3/B23-trained and mixture planners exceed it by 80–122 %. Confirmatory verdicts (`citizens-c4-hypotheses-v1`): **H1 refuted** (7 confirmed reversals, 2 confirmed transfers); **H2 supported** (all 3 H2a-loss and all 3 H2b-loss cells confirmed); **H2-B4** `<<TBD: hypotheses-v1 H2-B4 verdict, B4-calibrated>>`. The judge of every policy is a simulator; no planner was tested with people.
 
 **Working headline, checked against the artifacts.**
 - "Models that best predict the next move yield the policies that do worst under the only closed-loop-validated model" holds descriptively for B3 and B23. But Planner[B2] also loses 24 %, and B2's next-choice likelihood equals B1's on R-I. The cleaner statement is: every one-step-only model yields a planner that loses about a quarter of surplus under B1.
@@ -140,10 +140,8 @@ Controls: B0 (payoff-maximising: always returns 0), M0 (marginal frequencies; M0
 Each run has 1,000 iterations (40.96 M planner decisions) and took 0.82–1.17 h, 33.9 h in total. The runs were concurrent (the protocol planned 5 at a time); they finished between 2026-10-20 18:45 and 2026-10-21 00:48 UTC. The non-LLM ceiling was 40 h wall-clock.
 
 **Convergence labels.** By §6.1, a run is "not converged" if the plateau iteration of its monitoring curve exceeds 900, or its tail slope exceeds 16 coins per 100 iterations.
-- The training manifests do not record these labels; the hypothesis stage computes them.
-- A preview with the same definition (Appendix A) marks 3 of 35 runs: `citizens-c4-train-b2-noret-s2001-v1` (plateau 930), `citizens-c4-train-b23-s1002-v1` (plateau 960) and `citizens-c4-train-mix-s3002-v1` (plateau 920).
-- Record: `<<TBD: hypotheses-v1 convergence labels (not converged) per run>>`.
-- Optimiser-limited rows: `<<TBD: hypotheses-v1 own-model-limited family>>`.
+- Record (`citizens-c4-hypotheses-v1`, Appendix A): 3 of 35 runs are labelled "not converged" (all by plateau iteration > 900; none exceeds the tail-slope limit of 16): `citizens-c4-train-b2-noret-s2001-v1` (plateau 930, tail slope +14.6), `citizens-c4-train-b23-s1002-v1` (plateau 960, tail slope +15.8) and `citizens-c4-train-mix-s3002-v1` (plateau 920, tail slope +10.4).
+- Optimiser-limited rows (`own-model-limited`, `citizens-c4-hypotheses-v1`): **none confirmed** (0 of 4; every diagonal row has a positive seed-mean difference +20.8 to +803.2 coins, Holm `p_boot` ≥ 0.988 and Holm `p_t` ≥ 0.975).
 
 ## 6. C4 cross-play
 
@@ -159,7 +157,7 @@ Each run has 1,000 iterations (40.96 M planner decisions) and took 0.82–1.17 h
   - the secondary S1 and S2 families.
 - **δ = 16 coins:** C2's surplus tolerance, and about one B1 seed SD.
 
-The numbers below are point estimates, crossed-bootstrap 95 % CIs and per-seed counts recorded in `citizens-c4-crossplay-v1` (`crossplay.json`). They are **not verdicts**.
+The numbers below are point estimates, crossed-bootstrap 95 % CIs and per-seed counts recorded in `citizens-c4-crossplay-v1` (`crossplay.json`), together with the pre-registered tests and verdicts from `citizens-c4-hypotheses-v1` (`hypotheses.json`).
 
 ### 6.2 Surplus matrix
 
@@ -195,10 +193,24 @@ Relative to k\*[Y]:
 - under B1: Planner[B2] −24.2 %, Planner[B3] −27.9 %, Planner[B23] −28.0 %; Planner[B1] +21.3 %;
 - under B2: Planner[B1] −14.4 %, Planner[B3] −26.2 %, Planner[B23] −27.3 %.
 
-Descriptive reading:
-- **H1 cells.** 7 of the 12 off-diagonal cells have a CI entirely below −δ: Planner[B1]@B2 and @B3; Planner[B2]@B1; Planner[B3]@B1 and @B2; Planner[B23]@B1 and @B2. 2 cells have a CI entirely above +δ: Planner[B3]@B23 and Planner[B23]@B3. This CI leaves 3 cells unresolved: Planner[B1]@B23, Planner[B2]@B3 and Planner[B2]@B23. Verdict: `<<TBD: hypotheses-v1 H1 verdict; confirmed H1-reversal and H1-transfer cells; raw and Holm p-values, both tests>>`.
-- **H2 cells** (column B1). Planner[B2], [B3] and [B23] lie 315–364 coins below k\*[B1], and every seed is more than δ below. Verdict: `<<TBD: hypotheses-v1 H2a-loss / H2a-noninferior verdicts and p-values>>`.
-- **Own-model cells.** The gains are large for B1 (+276), B3 (+803) and B23 (+717). B2's gain (+21 [−10, +50]) is about δ. Verdict: `<<TBD: hypotheses-v1 own-model-gain and own-model-limited verdicts>>`.
+Confirmatory verdicts (`citizens-c4-hypotheses-v1`, both tests reject under Holm at α = 0.05):
+- **H1 verdict: refuted.**
+  - *Confirmed H1-reversal cells (7 of 12):*
+    - `Planner[B1]@B2 vs k*[B2]`: −201.4 (raw `p_boot` = 9.999e-5, Holm 1.200e-3; `t` = −10.00, `df` = 4, raw `p_t` = 2.808e-4, Holm 1.966e-3);
+    - `Planner[B1]@B3 vs k*[B3]`: −155.8 (raw `p_boot` = 9.999e-5, Holm 1.200e-3; `t` = −4.27, `df` = 4, raw `p_t` = 6.498e-3, Holm 3.899e-2);
+    - `Planner[B2]@B1 vs k*[B1]`: −314.8 (raw `p_boot` = 9.999e-5, Holm 1.200e-3; `t` = −28.41, `df` = 4, raw `p_t` = 4.565e-6, Holm 4.565e-5);
+    - `Planner[B3]@B1 vs k*[B1]`: −362.5 (raw `p_boot` = 9.999e-5, Holm 1.200e-3; `t` = −17.67, `df` = 4, raw `p_t` = 3.015e-5, Holm 2.412e-4);
+    - `Planner[B3]@B2 vs k*[B2]`: −365.6 (raw `p_boot` = 9.999e-5, Holm 1.200e-3; `t` = −85.69, `df` = 4, raw `p_t` = 5.559e-8, Holm 6.671e-7);
+    - `Planner[B23]@B1 vs k*[B1]`: −364.1 (raw `p_boot` = 9.999e-5, Holm 1.200e-3; `t` = −23.24, `df` = 4, raw `p_t` = 1.016e-5, Holm 9.143e-5);
+    - `Planner[B23]@B2 vs k*[B2]`: −381.2 (raw `p_boot` = 9.999e-5, Holm 1.200e-3; `t` = −33.96, `df` = 4, raw `p_t` = 2.242e-6, Holm 2.467e-5).
+  - *Unconfirmed H1-reversal cells:* `Planner[B1]@B23` (−38.1, raw `p_boot` = 0.190 / Holm 0.570, `t` = −0.87 / raw `p_t` = 0.218 / Holm 0.653), `Planner[B2]@B3` (−99.9, raw `p_boot` = 0.0418 / Holm 0.167, `t` = −1.57 / raw `p_t` = 0.0954 / Holm 0.385), `Planner[B2]@B23` (−58.9, raw `p_boot` = 0.0326 / Holm 0.163, `t` = −1.76 / raw `p_t` = 0.0770 / Holm 0.385), and the 2 sister transfer cells (`p_boot` = 1.0, `p_t` = 1.0).
+  - *Confirmed H1-transfer cells (2 of 12):* `Planner[B3]@B23 vs k*[B23]` (+647.6, raw `p_boot` = 9.999e-5 / Holm 1.200e-3, `t` = 46.58 / raw `p_t` = 6.354e-7 / Holm 7.625e-6) and `Planner[B23]@B3 vs k*[B3]` (+726.7, raw `p_boot` = 9.999e-5 / Holm 1.200e-3, `t` = 34.09 / raw `p_t` = 2.210e-6 / Holm 2.431e-5). The remaining 10 off-diagonal cells all have Holm `p_boot` = 1.0 and Holm `p_t` = 1.0 (`transfer_not_shown`).
+- **H2 verdict (column B1): supported** (one-step validation was not enough).
+  - *H2a-loss:* all 3 cells confirmed (`Planner[B2]@B1` −314.8, `Planner[B3]@B1` −362.5, `Planner[B23]@B1` −364.1 vs `k*[B1]`; raw `p_boot` = 9.999e-5 / Holm 3.000e-4 for all 3; raw `p_t` = 4.565e-6, 3.015e-5, 1.016e-5 / Holm 1.370e-5, 3.015e-5, 2.032e-5).
+  - *H2a-noninferior:* 0 of 3 confirmed (Holm `p_boot` = 1.0, Holm `p_t` = 1.0 for all 3).
+- **Own-model cells.**
+  - *own-model-gain:* 3 of 4 confirmed — `Planner[B1]@B1` (+276.4, raw `p_boot` = 9.999e-5 / Holm 4.000e-4, `t` = 65.22 / raw `p_t` = 1.655e-7 / Holm 4.966e-7), `Planner[B3]@B3` (+803.2, raw `p_boot` = 9.999e-5 / Holm 4.000e-4, `t` = 102.61 / raw `p_t` = 2.705e-8 / Holm 1.082e-7) and `Planner[B23]@B23` (+717.5, raw `p_boot` = 9.999e-5 / Holm 4.000e-4, `t` = 59.05 / raw `p_t` = 2.462e-7 / Holm 4.966e-7). `Planner[B2]@B2` (+20.8) is not confirmed (raw/Holm `p_boot` = 0.383, `t` = 0.36, raw/Holm `p_t` = 0.368, signs 3/2).
+  - *own-model-limited:* 0 of 4 confirmed (no row is optimiser-limited).
 
 ### 6.4 Regret and the Interpolating rule
 
@@ -212,7 +224,7 @@ Regret Planner[Y]@Y − Planner[X]@Y, deterministic, with crossed-bootstrap 95 %
 | Planner[B23] | +641 [+602, +678] | +402 [+363, +439] | +77 [+38, +121] | — |
 | Planner[Mix] | +290 [+215, +391] | +112 [+68, +155] | +160 [+126, +197] | +150 [+116, +185] |
 
-The H2b-loss cells are the column-B1 regrets of Planner[B2], [B3] and [B23]: 591, 639 and 641 coins. Verdict: `<<TBD: hypotheses-v1 H2b-loss verdict>>`.
+The H2b-loss cells are the column-B1 regrets of Planner[B2], [B3] and [B23]: 591, 639 and 641 coins. Verdict (`citizens-c4-hypotheses-v1`): **all 3 H2b-loss cells confirmed** (`Planner[B2]@B1 vs Planner[B1]` −591.2, `t` = −51.14, `df` = 5.13, raw `p_t` = 1.898e-8 / Holm 5.694e-8; `Planner[B3]@B1` −638.9, `t` = −31.13, `df` = 4.33, raw `p_t` = 1.466e-6 / Holm 1.466e-6; `Planner[B23]@B1` −640.5, `t` = −40.29, `df` = 4.57, raw `p_t` = 2.642e-7 / Holm 5.284e-7; all raw `p_boot` = 9.999e-5 / Holm 3.000e-4, signs 0/5).
 
 **Interpolating k = 22.**
 - In every column it is within 5–22 coins (0.6–2.1 %) of the column's re-tuned k\* on the C4 games: B1 −16.9, B2 −22.4, B3 −4.6, B23 −13.0.
@@ -259,7 +271,7 @@ Descriptive reading:
 - Under B3 and B23, every Interpolating rule runs dry in 83–98 % of games, while the B3- and B23-trained planners run dry in 22–51 %.
 - The sampled policy moves the mean depletion round by at most 0.07 rounds under B1, and by at most 1.4 rounds in any planner cell (Planner[B23]@B2: 31.5 against 32.9).
 
-### 6.6 Possible exploitation (diagnostics; labels pending)
+### 6.6 Possible exploitation (diagnostics)
 
 §9.5 labels a confirmed own-model gain "possible exploitation" if either holds in the planner's own column:
 - its mean B1-member total-variation (TV) disagreement exceeds 1.5 × that of k = 22 in the same column;
@@ -273,12 +285,12 @@ Descriptive reading:
 | Planner[B23]@B23 | 0.214 (× 1.24) | state novelty: 0.0002 / 0.0017 (k = 22: 0.0000 / 0.0015) |
 
 - The largest TV ratio in the whole main matrix is 1.37 (Planner[B2]@B23 and Planner[B3]@B23), and no input-support difference reaches 0.05.
-- Labels: `<<TBD: hypotheses-v1 possible-exploitation labels and "on novel states" annotations>>`.
+- Labels (`citizens-c4-hypotheses-v1`): `possible_exploitation = false` for all 4 main rows, and no H1 cell carries the "on novel states" annotation (`annotations = {}`). Every TV ratio is ≤ 1.37 (< 1.5), and B2's input-support differences are ≤ 0.0009 (< 0.05).
 - **Weakness.** The TV index measures disagreement among B1's members. For B3 and B23, the support diagnostics cover inputs those models do not read. Neither can detect a planner exploiting the internal dynamics of B3 or B23. So the absence of a flag on their own-model gains (+98 % and +118 % over k\*) is not evidence against exploitation.
 
 ### 6.7 Sampled policy
 
-The sampled policy (noise key 41001) gives the same signs in every main cell. Its means differ from the deterministic ones by at most 14 coins: for example, Planner[B1]@B1 1563 against 1577, and Planner[B2]@B2 +15 [−15, +44] against +21 over k\*[B2]. Secondary verdicts, and any disagreement with the deterministic ones: `<<TBD: hypotheses-v1 sampled-mode families>>`.
+The sampled policy (noise key 41001) gives the same signs in every main cell. Its means differ from the deterministic ones by at most 14 coins: for example, Planner[B1]@B1 1563 against 1577, and Planner[B2]@B2 +15 [−15, +44] against +21 over k\*[B2]. Secondary verdicts (`citizens-c4-hypotheses-v1`): **zero disagreement** with the deterministic mode (`sampled_policy_disagreement = {}`). H1 is **refuted** (the exact same 7 reversals and 2 transfers are confirmed), H2 is **supported** (all 3 H2a-loss and all 3 H2b-loss cells confirmed), and own-model gains are confirmed for B1 (+262.6), B3 (+800.9) and B23 (+714.7), with B2 (+15.1) unconfirmed and 0 optimiser-limited rows.
 
 ### 6.8 S1, no-retention ablation (secondary, 3 seeds)
 
@@ -295,17 +307,17 @@ Planner-noret minus k\*[Y], deterministic, mean [CI]:
 - It accounts for part of Planner[B1]'s own-model gain: +276 with retention, +155 without.
 - It does not account for the B3/B23 planners' losses under B1 and B2: −354 to −375 without retention.
 - *Confound (§9.7):* with entropy coefficient 0, the 4-way head still explores in fewer dimensions than the 5-way head.
-- Verdict ("attributable to retention" or not): `<<TBD: hypotheses-v1 S1 families and retention verdict>>`.
+- Verdict (`citizens-c4-hypotheses-v1`): **not attributable to retention** (`attributable_to_retention = false`). In S1, H1 remains **refuted**: 4 reversal cells are confirmed (`Planner-noret[B3]@B1`, `[B3]@B2`, `[B23]@B1` and `[B23]@B2`; all `p_boot_holm` = 1.200e-3, `p_t_holm` = 1.863e-3 to 2.950e-2), and the same 2 sister transfers (`[B3]@B23` and `[B23]@B3`; `p_boot_holm` = 1.200e-3, `p_t_holm` = 4.357e-4 and 5.082e-4) are confirmed. (`Planner-noret[B1]@B2` at −157.4 and `Planner-noret[B2]@B3` at −170.2 pass `p_boot_holm` = 1.200e-3 but not the 3-seed `t`-test, `df` = 2, `p_t_holm` = 0.0748 and 0.2236.) Meanwhile the mean between-model `w(R)` L1 is larger without retention (0.174 vs 0.162 with retention).
 
 ### 6.9 S2, robust mixture planner (secondary, 3 seeds)
 
 Planner[Mix] minus k\*[Y]: B1 −13 [−114, +62] (2 seeds above +δ, 1 below −δ); B2 −91 [−130, −54]; B3 +643 [+600, +686]; B23 +567 [+530, +605]. Its regret against each column's own planner is 290, 112, 160 and 150 coins (§6.4).
 
-On the closed-loop-validated model, the mixture planner neither gains nor loses against k\*[B1] beyond its seed spread; its gains are on B3 and B23. Verdicts: `<<TBD: hypotheses-v1 S2-reversal and S2-transfer families>>`.
+On the closed-loop-validated model, the mixture planner neither gains nor loses against k\*[B1] beyond its seed spread; its gains are on B3 and B23. Verdicts (`citizens-c4-hypotheses-v1`, secondary): **not refuted** (0 confirmed reversals; 2 of 4 confirmed transfers). Under B1 (−13.3, `p_boot_holm` = 1.0, `p_t_holm` = 1.0) and B2 (−90.8, `p_boot_holm` = 4.000e-4 but 3-seed `df` = 2 `p_t_holm` = 0.1434), neither reversal nor transfer is confirmed by both tests; under B3 (+642.9) and B23 (+567.0), transfer is confirmed (`p_boot_holm` = 4.000e-4; `p_t_holm` = 8.497e-4 and 7.990e-4).
 
 ### 6.10 Planners on LLM citizens (B4)
 
-Rows (`protocol.md` §6.5): Planner[B1], [B2], [B3] and [B23] (seed 1001) and k\*[B1], each on B4-plain and on B4-calibrated, with 40 games per row. The C2 k = 22 runs are reference rows. All C4 B4 runs use the current CLI, under the D37 deviation. None of these runs exists yet in `runs/`.
+Rows (`protocol.md` §6.5): Planner[B1], [B2], [B3] and [B23] (seed 1001) and k\*[B1], each on B4-plain and on B4-calibrated, with 40 games per row. The C2 k = 22 runs are reference rows. All C4 B4 runs use the current CLI, under the D37 deviation. One of the ten runs (`citizens-c4-b4-calibrated-b1-v1`, 40 games, CLI 2.1.306 under D37) has completed so far; the remaining nine are still pending, so the full B4 arm awaits completion before re-running `hypotheses` with `--b4-run`.
 
 | Row | B4-calibrated (confirmatory) | B4-plain (descriptive) |
 |---|---|---|
@@ -363,7 +375,20 @@ Descriptively, the four planners differ in shape:
 - B3- and B23-trained planners are almost purely Proportional at middle pool levels.
 - Every planner is more Equal than k = 22 at low pool.
 
-Every bin has at least 1,288 informative rows per seed. Pairwise L1 distances, within-model references and the "same / different / mixed" summary: `<<TBD: hypotheses-v1 mechanism-agreement block (L1 matrix, labels, κ L1, summary sentence)>>`.
+Every bin (0–9) has at least 1,288 informative rows per seed (≥ 200 threshold met in all 10 bins). Mechanism agreement (`citizens-c4-hypotheses-v1`, §9.6):
+- **Summary:** **"different mechanisms"** (all 4 planners meet adequate fidelity, `low_fidelity = false`; mean between-model `w(R)` L1 = **0.162**, vs **0.174** for the 4-way no-retention head which is also **"different mechanisms"**).
+- **Within-model mean pairwise `w(R)` L1:** B1 0.079, B2 0.076, B3 0.031, B23 0.066 (no-retention: 0.087, 0.081, 0.038, 0.033).
+
+| Pair | `w(R)` L1 | Threshold | Label | `κ(R)` L1 |
+|---|---|---|---|---|
+| B1 vs B2 | 0.156 | 0.157 | same w(R) | 0.0252 |
+| B1 vs B3 | 0.187 | 0.157 | **different** | 0.0084 |
+| B1 vs B23 | 0.139 | 0.157 | same w(R) | 0.0099 |
+| B2 vs B3 | 0.224 | 0.152 | **different** | 0.0276 |
+| B2 vs B23 | 0.206 | 0.152 | **different** | 0.0269 |
+| B3 vs B23 | 0.059 | 0.131 | same w(R) | 0.0041 |
+
+(No-retention 4-way head: B1 vs B2, B2 vs B3 and B2 vs B23 are **different** at L1 = 0.192, 0.287 and 0.283; B1 vs B3, B1 vs B23 and B3 vs B23 are `same w(R)` at 0.130, 0.110 and 0.041; `κ(R)` L1 ≤ 5e-6.)
 
 **Recovery test (method bias).** On trajectories of the deployed, quantised rules, the distiller recovers:
 - k\*[X] exactly, on every model (ln k bias 0.000);
@@ -418,7 +443,7 @@ Only one held-out pair discriminates among the trainable models: Exp 3 M2 > Inte
 - Predictively adequate learner models can disagree on the best policy (RankCert, Kadir 2026, preprint).
 - The Lucas-critique framing for AI mechanism design is in Tacchetti et al. 2025.
 
-**What v1 adds** is a pre-registered demonstration on real institutional data. Four citizen models, fitted on baseline mechanisms only, all pass the same held-out-mechanism one-step test. Each trains an RL planner, and the planners are cross-played under a frozen protocol. Under the only closed-loop-validated model, the planners trained on one-step-only models lose about a quarter of surplus to a simple published rule (descriptive; verdict `<<TBD: hypotheses-v1 H2>>`), and planners transfer only between sister models.
+**What v1 adds** is a pre-registered demonstration on real institutional data. Four citizen models, fitted on baseline mechanisms only, all pass the same held-out-mechanism one-step test. Each trains an RL planner, and the planners are cross-played under a frozen protocol. Under the only closed-loop-validated model, the planners trained on one-step-only models lose about a quarter of surplus to a simple published rule (confirmed: **H2 supported**, all 3 **H2a** and **H2b** loss cells confirmed, `citizens-c4-hypotheses-v1`), and planners transfer only between sister models (**H1 refuted**).
 
 **Contrast with SUQR.** In Nguyen et al. 2013, a better-predicting adversary model (SUQR) gave a better defender policy, judged with 547 human subjects. There the decision is one-shot: the attacker best-responds once to a committed strategy, so one-step choice prediction *is* the whole closed loop. Our 40-round game feeds the policy back into behaviour, and that is where one-step fit and policy validity separate. v1 does not claim that predictive fit never helps.
 
@@ -481,8 +506,8 @@ v1 suggests that the unit of validation for a simulator used in policy design is
 | `citizens-c4-distill-v1` | computed_unvalidated | `4b1f1dd` | false | C4 `47ebefeb` | C4 `319587d2` | `9be7a5c6` |
 | `citizens-c4-crossplay-metrics-v1` (supplementary) | computed_unvalidated | `cd73850` | false | C4 `47ebefeb` | C4 `319587d2` | `a1af1a5a` |
 | `citizens-e1-ranking-v1` (exploratory) | computed_unvalidated | `43439b7` | false | C2 `75ed1f96` | — | `b025e9be` |
-| `citizens-c4-b4-*` (10) | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` |
-| `citizens-c4-hypotheses-v1` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` |
+| `citizens-c4-b4-*` (1 completed: `-calibrated-b1-v1`, `73f3907`, `4426ef53`; 9 remaining) | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` | `<<TBD>>` |
+| `citizens-c4-hypotheses-v1` (trainable-model run, without `--b4-run`) | computed_unvalidated | `ae57067` | false | C4 `47ebefeb` | C4 `319587d2` | `14a6c25c` |
 
 **Full hashes.**
 - C2 config: `75ed1f96fc76ef76ee466c51c7fc553566fe8ed39164ac8465864ad539ac16ee`.
@@ -521,28 +546,20 @@ just citizens-e1 citizens-e1-ranking-v1   (exploratory)
 
 The tables of §6, §7 and Appendix A were extracted from the artifacts with read-only scripts. No number in this report was edited by hand.
 
-## 13. Pending (to fill from `citizens-c4-hypotheses-v1` and the C4 B4 runs)
+## 13. Pending (to fill once the C4 B4 arm completes)
 
-1. §1 and §6.3: the H1 verdict, with the confirmed H1-reversal and H1-transfer cells and raw and Holm p-values for both tests.
-2. §1 and §6.3: the H2 verdict (H2a-loss, H2a-noninferior).
-3. §6.4: the H2b-loss verdict.
-4. §6.3: the own-model-gain and own-model-limited (optimiser-limited) verdicts.
-5. §5 and Appendix A: the convergence labels per run, replacing the preview.
-6. §6.6: the possible-exploitation labels and "on novel states" annotations.
-7. §6.7: the sampled-mode families, and any disagreement with the deterministic verdicts.
-8. §6.8: the S1 families and the "attributable to retention" verdict.
-9. §6.9: the S2 families.
-10. §7: the mechanism-agreement block (L1 matrix, within-model references, labels, κ L1, summary sentence).
-11. §1 and §6.10: the H2-B4 verdicts for B4-calibrated; the descriptive B4-plain table; B4 call counts, discards, infrastructure errors, CLI versions and deviations.
-12. §12: the manifests of the 10 C4 B4 runs and of `citizens-c4-hypotheses-v1`.
+Items 1–10 (H1, H2a, H2b, own-model adequacy, convergence labels, exploitation diagnostics, sampled-mode agreement, S1 retention verdict, S2 mixture verdict and §7 mechanism agreement) were filled from `citizens-c4-hypotheses-v1`. Only the B4 C4 arm remains pending:
+
+1. §1 and §6.10: the H2-B4 verdicts for B4-calibrated; the descriptive B4-plain table; B4 call counts, discards, infrastructure errors, CLI versions and deviations (`citizens-c4-b4-*` and a final `hypotheses` run including `--b4-run` and `--b4-eval-run`).
+2. §12: the full manifest table for all 10 `citizens-c4-b4-*` runs and the updated `hypotheses` run.
 
 ## Appendix A. C4 training runs
 
 - **Eval:** own-model evaluation on the C3 evaluation games (key 31000, deterministic policy). The mixture rows show the mean over the four models.
-- **Plateau iteration and tail slope** apply the §6.1 definition (`c4.plateau_iteration`: trailing mean of 5 points; final level = mean of the last 10; tolerance 0.02; tail = the last 20 % of the curve) to the recorded monitoring curve. **This is a preview**; the hypotheses-v1 labels are the record.
+- **Plateau iteration and tail slope** apply the §6.1 definition (`c4.plateau_iteration`: trailing mean of 5 points; final level = mean of the last 10; tolerance 0.02; tail = the last 20 % of the curve) to the recorded monitoring curve. Confirmed against `citizens-c4-hypotheses-v1` (`convergence`): the three bolded rows match its `not_converged = true` labels.
 - All runs: 1,000 iterations, commit `4b1f1dd`, `git_dirty = false`, status `computed_unvalidated`.
 
-| Run | Eval | Hours | Plateau it. | Tail slope / 100 it. | Final log σ | Not converged (preview) |
+| Run | Eval | Hours | Plateau it. | Tail slope / 100 it. | Final log σ | Not converged |
 |---|---|---|---|---|---|---|
 | `citizens-c4-train-b1-s1001-v1` | 1569 | 1.02 | 550 | −1.6 | −2.30 | no |
 | `citizens-c4-train-b1-s1002-v1` | 1562 | 1.03 | 360 | +7.3 | −2.24 | no |
