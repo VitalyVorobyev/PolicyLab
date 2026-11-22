@@ -67,7 +67,16 @@ export const FREE_RETURN_OUTCOMES = [
 ] as const;
 export type FreeReturnOutcome = (typeof FREE_RETURN_OUTCOMES)[number];
 
-export const ARTIFACT_KINDS = ["trajectory", "sample_table", "outcome_grid", "atlas", "error_fan", "citizens_demo"] as const;
+export const ARTIFACT_KINDS = [
+  "trajectory",
+  "sample_table",
+  "outcome_grid",
+  "atlas",
+  "error_fan",
+  "citizens_demo",
+  "confirmatory_results",
+  "sample_lineages",
+] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 export const COMPARISON_ROLES = ["tight_tolerance", "independent_integrator"] as const;

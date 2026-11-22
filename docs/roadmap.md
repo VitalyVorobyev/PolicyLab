@@ -128,16 +128,15 @@ The owner chose to reframe and continue (D35). The B4 held-out runs are still in
 - Confirmatory trainable-model verdicts (`citizens-c4-hypotheses-v1`: H1 refuted, H2 supported) recorded in `docs/studies/model-citizens/report.md` and surfaced on `/citizens` (`citizens-web-demo-dev4`) and `/citizens/report`; C4 B4 LLM runs remain open (1 of 10 complete).
 - Public site updated with in-app readable research reports (`/citizens/report`, `/gravity/report`), verified bibliography, and `/method` live artifact & checksum inspector.
 
-## Active world: The Last Library (D38; Stage L1 started 2026-11-22)
+## Completed study: The Last Library (D38–D40; Stages L1–L3 complete 2026-11-22)
 
 **Goal:** demonstrate that the site is a research lab, not a cislunar microsite.
 
-- Literature scan complete (`docs/studies/last-library/literature.md`); D38 sharpens the question to **Q1** (rule vs. bit-matched pedagogical examples under stationary vs. unannounced rule change, plus **Q3** multi-generation ratchet test) using exact bit budgets around latent-rule entropy ($H = 16$ bits).
-- Stage L1 implements the pure deterministic domain (`src/phasespace/library/`), analytical/invariant unit tests (`tests/library/`), and pre-protocol feasibility gate (`just library-feasibility`) prior to freezing `docs/studies/last-library/protocol.md`.
-- Reuse run/provenance/report *format*, not gravitational rendering or physics APIs.
-- Later (after frozen protocol experiments): publish an interactive generational lineage visualization and comparison with controls.
+- Literature scan (`docs/studies/last-library/literature.md`), v1 specification (`README.md`), and frozen comparison protocol (`protocol.md` v1, D39) complete.
+- Pure deterministic domain (`src/phasespace/library/`), feasibility gate (`runs/library-feasibility-dev2`, F1–F3 validated), and frozen confirmatory sweep (`runs/library-main-v1`, 200 stationary + 200 rule-change lineages across 0–60 bits, `status = validated`, `git_dirty = false`) complete.
+- Key verdicts recorded in [`docs/studies/last-library/report.md`](studies/last-library/report.md) and published at `/library` and `/library/report`: H1 passes right at the 19-bit dense rule capacity (`B = 20`: `+3.122`), H2a/H2b confirm severe post-change overshoot at `B = 20` (`+4.112` vs examples, `+7.509` vs `none`), H3a refutes sender confidence calibration (`-0.265`), H3b confirms receiver hazard hedging mitigates shock (`+2.552`) while keeping `B = 20` stationary gains (`+2.339`), and H4 confirms cumulative improvement for `unlimited` and `rule@20` while `example_pedagogical@20` plateaus.
 
-## Later, only after The Last Library
+## Later, next study
 
 - Algorithm Forge, provided it passes a short feasibility review. (Constitution Machine is retired, superseded by Model Citizens: D31.)
 - Community contributions through GitHub issues/PRs and reproducible offline experiments.

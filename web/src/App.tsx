@@ -6,6 +6,8 @@ import { CitizensReportPage } from "./features/citizens/CitizensReportPage";
 import { GalleryPage } from "./features/gallery/GalleryPage";
 import { GravityPage } from "./features/gravity/GravityPage";
 import { GravityReportPage } from "./features/gravity/GravityReportPage";
+import { LibraryPage } from "./features/library/LibraryPage";
+import { LibraryReportPage } from "./features/library/LibraryReportPage";
 import { MethodPage } from "./features/method/MethodPage";
 import { NotFoundPage } from "./features/NotFoundPage";
 import { usePathname } from "./lib/router";
@@ -22,6 +24,10 @@ function Route({ path }: { path: string }) {
       return <CitizensPage />;
     case "/citizens/report":
       return <CitizensReportPage />;
+    case "/library":
+      return <LibraryPage />;
+    case "/library/report":
+      return <LibraryReportPage />;
     case "/method":
       return <MethodPage />;
     default:

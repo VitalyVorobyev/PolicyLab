@@ -60,8 +60,15 @@
     {
       "study_id": "last-library",
       "title": "The Last Library",
-      "status": "planned",
-      "runs": []
+      "status": "complete",
+      "runs": [
+        {
+          "run_id": "library-main-v1",
+          "path": "last-library/main-v1",
+          "kind": "confirmatory_results",
+          "label": "Bit-budgeted cultural transmission: 200 stationary & 200 rule-change lineages, verdicts and sample paths"
+        }
+      ]
     },
     {
       "study_id": "algorithm-forge",

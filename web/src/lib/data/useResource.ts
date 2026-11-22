@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { LoadedCitizensRun } from "./citizens";
-import { loadAtlasRun, loadCatalog, loadCitizensRun, loadErrorFan, loadGridRun, loadRun, loadTableRun } from "./load";
+import type { LoadedLibraryRun } from "./library";
+import { loadAtlasRun, loadCatalog, loadCitizensRun, loadErrorFan, loadGridRun, loadLibraryRun, loadRun, loadTableRun } from "./load";
 import type { Catalog, ErrorFan, LoadedAtlasRun, LoadedGridRun, LoadedRun, LoadedTableRun } from "./types";
 import { checkFanMatchesArm } from "./validate";
 
@@ -92,6 +93,13 @@ const citizensLoader = keyed(loadCitizensRun);
 /** The Model Citizens web demo run (manifest, verified artifact and parsed demo data). */
 export function useCitizensRun(runId: string, path: string): Resource<LoadedCitizensRun> {
   return useResource(`citizens_demo:${runId}@${path}`, citizensLoader);
+}
+
+const libraryLoader = keyed(loadLibraryRun);
+
+/** The Last Library confirmatory run (manifest + verified results & sample lineages). */
+export function useLibraryRun(runId: string, path: string): Resource<LoadedLibraryRun> {
+  return useResource(`confirmatory_results:${runId}@${path}`, libraryLoader);
 }
 
 const atlasLoader = keyed(loadAtlasRun);

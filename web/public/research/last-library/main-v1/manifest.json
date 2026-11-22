@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "run_id": "library-main-v1",
+  "study_id": "last-library",
+  "experiment_id": "library-confirmatory-v1",
+  "status": "validated",
+  "created_at": "2026-11-22T20:08:16Z",
+  "source": {
+    "repository": "VitalyVorobyev/PolicyLab",
+    "git_commit": "3ed302d71ef9270a1a2edda07dd1c49c246bc118",
+    "git_dirty": false,
+    "generator": "phasespace.library.experiment",
+    "generator_version": "0.1.0"
+  },
+  "protocol": {
+    "version": "v1",
+    "status": "frozen",
+    "path": "docs/studies/last-library/protocol.md",
+    "config_sha256": "6ef5f432eeb3cfac79d5303d5fba2ca030b6fb5c984333bd6392da1f66c679ee",
+    "confirmed_frozen": true
+  },
+  "environment": {
+    "python": "3.12.12",
+    "python_implementation": "CPython",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "platform": "macOS-27.2.1-arm64-arm-64bit",
+    "machine": "arm64"
+  },
+  "model": {
+    "name": "voronoi-terrain-navigation",
+    "config_sha256": "6ef5f432eeb3cfac79d5303d5fba2ca030b6fb5c984333bd6392da1f66c679ee",
+    "active_terrains_per_layout": 4,
+    "bit_budgets": [
+      0,
+      5,
+      10,
+      15,
+      20,
+      25,
+      30,
+      40,
+      60
+    ],
+    "change_generation": 5,
+    "confidence_thresholds": [
+      0.35,
+      0.65,
+      0.85
+    ],
+    "confidence_trusts": [
+      0.25,
+      0.55,
+      0.78,
+      0.92
+    ],
+    "episodes_per_generation": 2,
+    "grid_size": 9,
+    "hedge_discount": 0.3,
+    "heldout_layouts_per_gen": 10,
+    "level_costs": [
+      1.0,
+      3.0,
+      7.0,
+      16.0
+    ],
+    "n_generations": 10,
+    "n_levels": 4,
+    "n_terrains": 8,
+    "n_voronoi_patches": 8,
+    "noise_beta": 1.0,
+    "rule_trust": 0.88
+  },
+  "random_seed": 300000,
+  "artifacts": [
+    {
+      "kind": "confirmatory_results",
+      "path": "results.json",
+      "sha256": "db7805447c311830005ddccaaeb4ac6bcf47e45f19747aed6366cd4072bcc55c"
+    },
+    {
+      "kind": "sample_lineages",
+      "path": "samples.json",
+      "sha256": "02dbba8b0c5b77e8c5be722a5a60e0e9539ef655e2c9e67df489bbdeed168426"
+    }
+  ],
+  "metrics": {
+    "h1_rule_vs_ped_b20_diff": {
+      "value": 3.1221262951592963,
+      "unit": "dimensionless",
+      "definition": "stationary gen-9 example_pedagogical@20 - rule@20"
+    },
+    "h2a_rule_vs_ped_b20_change_diff": {
+      "value": 4.11159167131394,
+      "unit": "dimensionless",
+      "definition": "change gen-5 rule@20 - example_pedagogical@20"
+    },
+    "h2b_rule_vs_none_b20_change_diff": {
+      "value": 7.508670319652952,
+      "unit": "dimensionless",
+      "definition": "change gen-5 rule@20 - none"
+    },
+    "h3a_conf_vs_rule_b40_change_diff": {
+      "value": -0.26518804454396677,
+      "unit": "dimensionless",
+      "definition": "change gen-5 rule@40 - rule_confidence@40"
+    },
+    "h3b_hedged_vs_rule_b20_change_diff": {
+      "value": 2.551619633898874,
+      "unit": "dimensionless",
+      "definition": "change gen-5 rule@20 - rule_hedged@20"
+    },
+    "h3b_hedged_vs_ped_b20_stat_diff": {
+      "value": 2.3389999629576117,
+      "unit": "dimensionless",
+      "definition": "stationary gen-9 example_pedagogical@20 - rule_hedged@20"
+    },
+    "h4_rule_b20_gen1_to_9_drop": {
+      "value": 2.5301009866944577,
+      "unit": "dimensionless",
+      "definition": "stationary rule@20 gen-1 minus gen-9 regret drop"
+    }
+  },
+  "limitations": [
+    "Finite 9x9 Voronoi terrain navigation gridworld under Bayesian path-cost inference.",
+    "Confirmatory hedge_discount=0.30 is a fixed pre-registered constant rather than meta-learned online."
+  ],
+  "validation": {
+    "checks": [
+      {
+        "name": "oracle_zero_regret_max",
+        "observed": 0.0,
+        "threshold": 1e-12,
+        "passed": true,
+        "definition": "max held-out regret across oracle lineages and generations"
+      },
+      {
+        "name": "single_lifetime_unlimited_abs_diff_max",
+        "observed": 0.0,
+        "threshold": 1e-12,
+        "passed": true,
+        "definition": "max abs regret difference between single_lifetime and unlimited"
+      },
+      {
+        "name": "none_gen0_regret_deficit",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "max(0, 5.0 - none_gen0_stationary_heldout_regret)"
+      },
+      {
+        "name": "unlimited_post_gen2_drop_deficit",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "max(0, 1.0 - (unlimited_gen1 - unlimited_gen_final))"
+      },
+      {
+        "name": "placebo_advantage_over_none_max",
+        "observed": 0.0,
+        "threshold": 0.5,
+        "passed": true,
+        "definition": "max(0, none_post_gen0 - min(placebo_random@20, placebo_shuffled@20))"
+      },
+      {
+        "name": "bit_budget_violation_max",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "max bits_used overshoot above configured budget_bits across all runs"
+      },
+      {
+        "name": "protocol_config_sha256_mismatch",
+        "observed": 0.0,
+        "threshold": 0.0,
+        "passed": true,
+        "definition": "0 if frozen protocol.md config_sha256 matches code config_sha256()"
+      }
+    ],
+    "validated_by": "phasespace.library.experiment automated sanity checks (pass: observed <= threshold)",
+    "validated_at": "2026-11-22T20:08:16Z"
+  }
+}

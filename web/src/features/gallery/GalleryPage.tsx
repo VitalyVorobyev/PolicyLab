@@ -3,6 +3,7 @@ import { docUrl } from "../../lib/links";
 import { Link } from "../../lib/router";
 import { usePageTitle } from "../../lib/usePageTitle";
 import { CitizensThumbnail } from "../citizens/CitizensThumbnail";
+import { LibraryThumbnail } from "../library/LibraryThumbnail";
 import { FeaturedCaption, OrbitThumbnail, useFeaturedRun } from "./OrbitThumbnail";
 import { STUDIES, STUDY_STATUS_LABEL, type StudySummary } from "./studies";
 
@@ -42,7 +43,24 @@ function CitizensFigure({ study }: { study: StudySummary }) {
   );
 }
 
-const CALL_TO_ACTION: Record<string, string> = { "gravity-atlas": "Explore the atlas", "model-citizens": "Watch the games" };
+function LibraryFigure({ study }: { study: StudySummary }) {
+  return (
+    <figure className="lg:col-span-7">
+      <Link to={study.route ?? "/"} tabIndex={-1} aria-hidden="true" className="block">
+        <LibraryThumbnail />
+      </Link>
+      <figcaption className="mt-3 text-sm text-graphite">
+        Held-out regret across 0–60 inherited bits: compressed rules cross a sharp 19-bit dense threshold yet need receiver hedging when world rules invert.
+      </figcaption>
+    </figure>
+  );
+}
+
+const CALL_TO_ACTION: Record<string, string> = {
+  "gravity-atlas": "Explore the atlas",
+  "model-citizens": "Watch the games",
+  "last-library": "Explore the library",
+};
 
 function FeaturedStudy({ study }: { study: StudySummary }) {
   const titleId = `featured-${study.study_id}`;
@@ -73,7 +91,13 @@ function FeaturedStudy({ study }: { study: StudySummary }) {
           </a>
         </div>
       </div>
-      {study.study_id === "gravity-atlas" ? <GravityFigure study={study} /> : <CitizensFigure study={study} />}
+      {study.study_id === "gravity-atlas" ? (
+        <GravityFigure study={study} />
+      ) : study.study_id === "last-library" ? (
+        <LibraryFigure study={study} />
+      ) : (
+        <CitizensFigure study={study} />
+      )}
     </article>
   );
 }

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArticleBody, ArticleHeader, ArticleSection, Callout, CitationList, ProvenanceBlock, StatusBadge, type TocItem } from "../../components/Article";
 import { ErrorState, LoadingState } from "../../components/DataState";
-import { DashedCircleIcon, ExternalIcon } from "../../components/icons";
+import { CheckCircleIcon, ExternalIcon } from "../../components/icons";
 import { loadAnyManifest, type AnyManifest } from "../../lib/data/load";
 import type { CatalogRun } from "../../lib/data/types";
 import { useCatalog } from "../../lib/data/useResource";
@@ -15,7 +15,7 @@ const TOC: readonly TocItem[] = [
   { id: "architecture", label: "Static-first architecture" },
   { id: "ledger", label: "Live artifact & checksum inspector" },
   { id: "reproduce", label: "Local reproduction" },
-  { id: "upcoming", label: "Up next: The Last Library" },
+  { id: "latest-study", label: "Latest published study: The Last Library" },
 ];
 
 type InspectEntry =
@@ -133,6 +133,9 @@ export function MethodPage() {
             <Link to="/citizens/report" className="prose-link text-sm font-medium text-ink">
               Model Citizens report
             </Link>
+            <Link to="/library/report" className="prose-link text-sm font-medium text-ink">
+              The Last Library report
+            </Link>
             <Link to="/gravity/report" className="prose-link text-sm font-medium text-ink">
               Gravity Atlas report
             </Link>
@@ -214,6 +217,10 @@ just gravity-m4-demo-export --confirm-frozen --workers 10
 just citizens-c4-hypotheses citizens-c4-hypotheses-v1 --confirm-frozen ...
 just citizens-web-export citizens-web-demo-dev4 --confirm-frozen ...
 
+# The Last Library feasibility gate & frozen confirmatory sweep
+just library-feasibility library-feasibility-dev2
+just library-run library-main-v1 --confirm-frozen --workers 8
+
 # Start local interactive site preview
 just web-dev`}</code>
             </pre>
@@ -245,13 +252,15 @@ just web-dev`}</code>
             </ul>
           </ArticleSection>
 
-          <ArticleSection id="upcoming" number="5" title="Up Next: The Last Library (Planned)">
-            <Callout title="Planned — specification and literature scan complete; no computed results yet" tone="ink">
+          <ArticleSection id="latest-study" number="5" title="Latest Published Study: The Last Library (Complete)">
+            <Callout title="Published &amp; Validated — confirmatory verdicts across 0–60 bits" tone="ink">
               <p className="flex items-center gap-2">
-                <DashedCircleIcon className="shrink-0 text-graphite" />
+                <CheckCircleIcon className="shrink-0 text-valid" />
                 <span>
-                  No simulations have run yet for The Last Library. Below is the sharpened hypothesis formed after completing its literature scan; an
-                  interactive generational replay will open only after the feasibility gate passes.
+                  The Last Library confirmatory sweep (<code className="font-mono text-xs">library-main-v1</code>, 200 stationary &amp; 200 rule-change
+                  lineages) is validated and published. It documents a sharp 19-bit dense rule capacity cliff (H1 at B=20), sender confidence
+                  backfiring under rule change (H3a refuted), and 30% receiver hazard hedging cutting post-change overshoot (H3b).{" "}
+                  <strong>Algorithm Forge</strong> remains the next planned study.
                 </span>
               </p>
             </Callout>
@@ -262,27 +271,29 @@ just web-dev`}</code>
               256 bytes (2,048 bits) would fail to bind in a small gridworld.
             </p>
             <p>
-              The sharpened experiment sweeps the inherited record capacity <em>in exact bits</em> around the latent-rule entropy (e.g., 0 to 64 bits),
-              tests every fresh generation on <strong>held-out grid layouts</strong> governed by the latent rule family, compares rule records against
-              pedagogically selected example records and shuffled/random placebos, and measures whether rule-based inheritance turns into{" "}
-              <strong>negative transfer</strong> when the latent rules change unannounced mid-lineage.
+              The published experiment sweeps the inherited record capacity <em>in exact bits</em> around the 16-bit latent entropy (0 to 60 bits),
+              evaluates every fresh generation on <strong>held-out grid layouts</strong> governed by the latent rule family, compares rule records
+              against pedagogically selected example records and shuffled/random placebos, and tests both sender confidence weights and receiver hazard
+              hedging when latent rules invert unannounced at generation 5.
             </p>
-            <ul className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-graphite">
-              <li>
-                <a className="prose-link inline-flex items-center gap-1" href={docUrl("docs/studies/last-library/README.md")} rel="noreferrer">
-                  Last Library specification
-                  <ExternalIcon className="size-3.5" />
-                </a>
-              </li>
-              <li>
-                <a className="prose-link inline-flex items-center gap-1" href={docUrl("docs/studies/last-library/literature.md")} rel="noreferrer">
-                  Verified literature scan
-                  <ExternalIcon className="size-3.5" />
-                </a>
-              </li>
-            </ul>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+              <Link to="/library" className="rounded-sm bg-ink px-4 py-2 font-medium text-sheet no-underline hover:bg-canvas-raised">
+                Open interactive workbench
+              </Link>
+              <Link to="/library/report" className="prose-link font-medium text-ink">
+                Read full study report
+              </Link>
+              <a className="prose-link inline-flex items-center gap-1 text-graphite" href={docUrl("docs/studies/last-library/protocol.md")} rel="noreferrer">
+                Frozen protocol (D39)
+                <ExternalIcon className="size-3.5" />
+              </a>
+              <a className="prose-link inline-flex items-center gap-1 text-graphite" href={docUrl("docs/studies/last-library/report.md")} rel="noreferrer">
+                Markdown report
+                <ExternalIcon className="size-3.5" />
+              </a>
+            </div>
             <div className="pt-4">
-              <h3 className="mb-4 font-serif text-xl text-ink">Starting verified literature</h3>
+              <h3 className="mb-4 font-serif text-xl text-ink">Verified literature</h3>
               <CitationList citations={LAST_LIBRARY_LITERATURE} />
             </div>
           </ArticleSection>

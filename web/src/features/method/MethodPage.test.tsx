@@ -19,11 +19,12 @@ afterEach(() => {
 });
 
 describe("Method & Documentation page", () => {
-  it("lists catalog runs, inspects a run manifest on click, and shows The Last Library planned section", async () => {
+  it("lists catalog runs, inspects a run manifest on click, and links The Last Library study", async () => {
     const user = userEvent.setup();
     render(<MethodPage />);
     await screen.findByText("citizens-web-demo-dev4");
     expect(screen.getByText("gravity-l1-lyapunov-reference-v2")).toBeInTheDocument();
+    expect(screen.getAllByText("library-main-v1").length).toBeGreaterThanOrEqual(1);
 
     const [firstButton] = screen.getAllByRole("button", { name: "Inspect manifest & checks" });
     if (firstButton === undefined) throw new Error("expected an inspect button");
@@ -31,7 +32,7 @@ describe("Method & Documentation page", () => {
 
     await screen.findByText(/trace_totals_reproduce_crossplay/);
     expect(screen.getByText(/sha256:ebfb572cd19b/)).toBeInTheDocument();
-    expect(screen.getByText(/Planned — specification and literature scan complete; no computed results yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Published & Validated — confirmatory verdicts across 0–60 bits/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /doi:10\.31234\/osf\.io\/q4tz8/ })).toHaveAttribute("href", "https://doi.org/10.31234/osf.io/q4tz8");
   });
 });

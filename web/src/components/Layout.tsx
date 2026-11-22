@@ -43,6 +43,15 @@ export function Layout({ children }: { children: ReactNode }) {
               <span className="max-sm:hidden">Model Citizens</span>
             </Link>
             <Link
+              to="/library"
+              aria-label="The Last Library"
+              aria-current={path === "/library" ? "page" : undefined}
+              className={navClass("/library")}
+            >
+              <span className="sm:hidden">Library</span>
+              <span className="max-sm:hidden">The Last Library</span>
+            </Link>
+            <Link
               to="/gravity"
               aria-label="Gravity Atlas"
               aria-current={path === "/gravity" ? "page" : undefined}

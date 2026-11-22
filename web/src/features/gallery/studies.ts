@@ -37,10 +37,12 @@ export const STUDIES: readonly StudySummary[] = [
     study_id: "last-library",
     title: "The Last Library",
     question:
-      "When does a strictly bounded inherited memory, at most 256 bytes passed between otherwise fresh agents, enable cumulative improvement on unseen but related tasks?",
-    status: "planned",
-    progress: "Specification only. It follows Model Citizens.",
+      "At exact bit budgets swept across a latent rule's entropy (H = 16 bits), when do abstract rules beat bit-matched pedagogical examples—and when do they cause harmful lock-in after environmental shift?",
+    status: "complete",
+    progress:
+      "Finished. Across 200 stationary & 200 rule-change lineages, rules unlock a steep cumulative edge at the 19-bit dense threshold (B = 20) yet lock successors into costly mistakes after rule shift; sender confidence backfires while 30% receiver hedging recovers. Explore the budget curves, trajectories, and Voronoi grids.",
     specPath: "docs/studies/last-library/README.md",
+    route: "/library",
   },
   {
     study_id: "algorithm-forge",

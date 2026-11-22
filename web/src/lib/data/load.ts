@@ -1,8 +1,9 @@
 import { parseCitizensDemo, parseCitizensManifest, type CitizensManifest, type LoadedCitizensRun } from "./citizens";
 import { DataError } from "./errors";
+import { parseLibraryManifest, parseLibraryResults, parseLibrarySamples, type LibraryManifest, type LoadedLibraryRun } from "./library";
 import { isSafeRelativePath, researchUrl } from "./paths";
 import { sha256Hex } from "./sha256";
-import type { ArtifactKind, Catalog, ErrorFan, LoadedAtlasRun, LoadedGridRun, LoadedRun, LoadedTableRun, Manifest } from "./types";
+import type { Artifact, ArtifactKind, Catalog, ErrorFan, LoadedAtlasRun, LoadedGridRun, LoadedRun, LoadedTableRun, Manifest } from "./types";
 import { artifactOf, parseAtlas, parseCatalog, parseErrorFan, parseManifest, parseOutcomeGrid, parseSampleTable, parseTrajectory } from "./validate";
 
 export type Fetcher = (url: string) => Promise<Response>;
@@ -118,6 +119,20 @@ export async function loadAtlasRun(runPath: string, fetcher: Fetcher = defaultFe
   return { manifest, atlas: parseAtlas(json, manifest, artifactUrl), manifestUrl, artifactUrl };
 }
 
+async function fetchCheckedArtifact(
+  runPath: string,
+  artifact: Artifact,
+  fetcher: Fetcher,
+): Promise<{ artifactUrl: string; json: unknown }> {
+  const artifactUrl = researchUrl(runPath, artifact.path);
+  const bytes = await fetchBytes(artifactUrl, fetcher);
+  const actual = await sha256Hex(bytes);
+  if (actual !== artifact.sha256) {
+    throw new DataError("checksum", artifactUrl, `SHA-256 of ${artifact.path} is ${actual}, but the manifest records ${artifact.sha256}.`);
+  }
+  return { artifactUrl, json: parseJson(bytes, artifactUrl) };
+}
+
 /**
  * A Model Citizens web demo run: its own manifest layout (no CR3BP model or solver), one
  * `citizens_demo` artifact verified against the manifest's SHA-256 before it is parsed.
@@ -133,13 +148,40 @@ export async function loadCitizensRun(runPath: string, fetcher: Fetcher = defaul
   }
   const artifact = manifest.artifacts[0];
   if (artifact === undefined) throw new DataError("invalid", manifestUrl, "The manifest lists no artifact.");
-  const artifactUrl = researchUrl(runPath, artifact.path);
-  const bytes = await fetchBytes(artifactUrl, fetcher);
-  const actual = await sha256Hex(bytes);
-  if (actual !== artifact.sha256) {
-    throw new DataError("checksum", artifactUrl, `SHA-256 of ${artifact.path} is ${actual}, but the manifest records ${artifact.sha256}.`);
+  const { artifactUrl, json } = await fetchCheckedArtifact(runPath, artifact, fetcher);
+  return { manifest, demo: parseCitizensDemo(json, manifest, artifactUrl), manifestUrl, artifactUrl };
+}
+
+/**
+ * A The Last Library confirmatory run: verifies SHA-256 digests of both `results.json` and `samples.json`
+ * before parsing either artifact.
+ */
+export async function loadLibraryRun(runPath: string, fetcher: Fetcher = defaultFetch, expectedRunId?: string): Promise<LoadedLibraryRun> {
+  if (!isSafeRelativePath(runPath)) {
+    throw new DataError("unsafe_path", runPath, `"${runPath}" is not a plain relative path inside the research directory.`);
   }
-  return { manifest, demo: parseCitizensDemo(parseJson(bytes, artifactUrl), manifest, artifactUrl), manifestUrl, artifactUrl };
+  const manifestUrl = researchUrl(runPath, "manifest.json");
+  const manifest = parseLibraryManifest(parseJson(await fetchBytes(manifestUrl, fetcher), manifestUrl), manifestUrl);
+  if (expectedRunId !== undefined && manifest.run_id !== expectedRunId) {
+    throw new DataError("invalid", manifestUrl, `The catalog lists run "${expectedRunId}" here, but the manifest's run_id is "${manifest.run_id}".`);
+  }
+  const resultsArt = manifest.artifacts.find((a) => a.kind === "confirmatory_results");
+  const samplesArt = manifest.artifacts.find((a) => a.kind === "sample_lineages");
+  if (resultsArt === undefined || samplesArt === undefined) {
+    throw new DataError("invalid", manifestUrl, 'Expected both "confirmatory_results" and "sample_lineages" artifacts.');
+  }
+  const [resLoaded, sampLoaded] = await Promise.all([
+    fetchCheckedArtifact(runPath, resultsArt, fetcher),
+    fetchCheckedArtifact(runPath, samplesArt, fetcher),
+  ]);
+  return {
+    manifest,
+    results: parseLibraryResults(resLoaded.json, manifest, resLoaded.artifactUrl),
+    samples: parseLibrarySamples(sampLoaded.json, manifest, sampLoaded.artifactUrl),
+    manifestUrl,
+    resultsUrl: resLoaded.artifactUrl,
+    samplesUrl: sampLoaded.artifactUrl,
+  };
 }
 
 /** One arm's error fan from an atlas run, verified against the manifest's checksum for that file. */
@@ -148,7 +190,7 @@ export async function loadErrorFan(runPath: string, fileName: string, fetcher: F
   return parseErrorFan(json, manifest, artifactUrl);
 }
 
-export type AnyManifest = Manifest | CitizensManifest;
+export type AnyManifest = Manifest | CitizensManifest | LibraryManifest;
 
 /**
  * Load and validate a run's `manifest.json` without downloading large data artifacts unless inspected separately.
@@ -164,7 +206,12 @@ export async function loadAnyManifest(
   }
   const manifestUrl = researchUrl(runPath, "manifest.json");
   const json = parseJson(await fetchBytes(manifestUrl, fetcher), manifestUrl);
-  const manifest: AnyManifest = kind === "citizens_demo" ? parseCitizensManifest(json, manifestUrl) : parseManifest(json, manifestUrl);
+  const manifest: AnyManifest =
+    kind === "citizens_demo"
+      ? parseCitizensManifest(json, manifestUrl)
+      : kind === "confirmatory_results" || kind === "sample_lineages"
+        ? parseLibraryManifest(json, manifestUrl)
+        : parseManifest(json, manifestUrl);
   if (expectedRunId !== undefined && manifest.run_id !== expectedRunId) {
     throw new DataError(
       "invalid",
