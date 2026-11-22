@@ -16,6 +16,7 @@ from phasespace.library.records import (
     decode_examples,
     decode_rule,
     decode_rule_confidence,
+    decode_rule_hedged,
     encode_examples_pedagogical,
     encode_examples_random,
     encode_placebo_random,
@@ -124,3 +125,31 @@ def test_pedagogical_examples_beat_random_on_kl() -> None:
         kl_rands.append(kl_divergence_nats(sender, rand_belief))
 
     assert kl_ped < float(np.mean(kl_rands))
+
+
+def test_decode_rule_hedged_analytical() -> None:
+    obs = observation_matrix(DEFAULT_CONFIG.n_levels, DEFAULT_CONFIG.noise_beta)
+    belief = bayes_update_batch(uniform_belief(), [(2, 0)] * 4 + [(5, 3)] * 2, obs)
+    rec_dense = encode_rule(belief, budget_bits=20)
+    hedged = decode_rule_hedged(rec_dense)
+
+    h = DEFAULT_CONFIG.hedge_discount
+    expected_map_p = (1.0 - h) * DEFAULT_CONFIG.rule_trust + h * 0.25
+    expected_off_p = (1.0 - h) * ((1.0 - DEFAULT_CONFIG.rule_trust) / 3.0) + h * 0.25
+    np.testing.assert_allclose(hedged.sum(axis=1), 1.0, atol=1e-15)
+    np.testing.assert_allclose(
+        hedged[2],
+        [expected_map_p, expected_off_p, expected_off_p, expected_off_p],
+        atol=1e-15,
+    )
+    np.testing.assert_allclose(
+        hedged[5],
+        [expected_off_p, expected_off_p, expected_off_p, expected_map_p],
+        atol=1e-15,
+    )
+    np.testing.assert_allclose(hedged[0], np.full(4, 0.25), atol=1e-15)
+
+    rec_sparse = encode_rule(belief, budget_bits=5)
+    hedged_sparse = decode_rule_hedged(rec_sparse)
+    assert np.isclose(float(hedged_sparse[2, 0]), expected_map_p, atol=1e-15)
+    np.testing.assert_allclose(hedged_sparse[5], np.full(4, 0.25), atol=1e-15)

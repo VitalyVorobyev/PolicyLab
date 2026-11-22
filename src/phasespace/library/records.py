@@ -136,6 +136,13 @@ def decode_rule(record: BitRecord, cfg: LibraryConfig = DEFAULT_CONFIG) -> Float
     return belief
 
 
+def decode_rule_hedged(record: BitRecord, cfg: LibraryConfig = DEFAULT_CONFIG) -> FloatArray:
+    """Decode a `rule` record with receiver hazard hedging toward uniform."""
+    rule_prior = decode_rule(record, cfg)
+    uni = uniform_belief(cfg.n_terrains, cfg.n_levels)
+    return (1.0 - cfg.hedge_discount) * rule_prior + cfg.hedge_discount * uni
+
+
 def encode_rule_confidence(
     belief: FloatArray, budget_bits: int, cfg: LibraryConfig = DEFAULT_CONFIG
 ) -> BitRecord:

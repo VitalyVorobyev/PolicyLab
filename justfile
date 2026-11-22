@@ -269,3 +269,7 @@ citizens-c4-hypotheses run_id *args:
 # The Last Library Stage L1: run the pre-protocol feasibility gate (F1-F3) and stationary/change diagnostics.
 library-feasibility run_id="library-feasibility-dev1" *args:
     uv run python -m phasespace.library.feasibility --runs-dir runs --run-id {{run_id}} {{args}}
+
+# The Last Library Stage L2: run frozen confirmatory protocol (requires --confirm-frozen and clean git tree).
+library-run run_id="library-main-v1" *args:
+    uv run python -m phasespace.library.experiment --runs-dir runs --run-id {{run_id}} {{args}}

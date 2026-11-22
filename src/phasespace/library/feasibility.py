@@ -23,7 +23,7 @@ from phasespace.gravity.export import (
 )
 from phasespace.library.config import DEFAULT_CONFIG, LibraryConfig, config_sha256, config_to_dict
 from phasespace.library.simulate import LineageFixture, make_lineage_fixture, run_lineage
-from phasespace.library.world import expected_level_costs, observation_matrix
+from phasespace.library.world import FloatArray, expected_level_costs, observation_matrix
 
 SCHEMA_VERSION: Final = 1
 STUDY_ID: Final = "last-library"
@@ -68,6 +68,37 @@ class ArmSummary:
         }
 
 
+def arm_summary_from_arrays(
+    arm: str,
+    budget_bits: int,
+    rule_changed: bool,
+    heldout: FloatArray,
+    train: FloatArray,
+    entropy: FloatArray,
+    accuracy: FloatArray,
+    bits: FloatArray,
+) -> ArmSummary:
+    """Aggregate `(n_lineages, n_generations)` lineage metric matrices into `ArmSummary`."""
+    n_lin, n_gen = heldout.shape
+    se_list: list[float] = (
+        [float(x) for x in (heldout.std(axis=0, ddof=1) / np.sqrt(n_lin))]
+        if n_lin > 1
+        else [0.0] * n_gen
+    )
+    return ArmSummary(
+        arm=arm,
+        budget_bits=budget_bits,
+        rule_changed=rule_changed,
+        n_lineages=n_lin,
+        heldout_regret_mean_by_gen=[float(x) for x in heldout.mean(axis=0)],
+        heldout_regret_se_by_gen=se_list,
+        train_regret_mean_by_gen=[float(x) for x in train.mean(axis=0)],
+        entropy_bits_mean_by_gen=[float(x) for x in entropy.mean(axis=0)],
+        map_accuracy_mean_by_gen=[float(x) for x in accuracy.mean(axis=0)],
+        bits_used_mean_by_gen=[float(x) for x in bits.mean(axis=0)],
+    )
+
+
 def _summarize_arm(
     arm: str,
     budget_bits: int,
@@ -104,22 +135,15 @@ def _summarize_arm(
             accuracy[i, g] = gm.map_accuracy
             bits[i, g] = float(gm.bits_used)
 
-    se_list: list[float] = (
-        [float(x) for x in (heldout.std(axis=0, ddof=1) / np.sqrt(n_lin))]
-        if n_lin > 1
-        else [0.0] * n_gen
-    )
-    return ArmSummary(
+    return arm_summary_from_arrays(
         arm=arm,
         budget_bits=budget_bits,
         rule_changed=rule_changed,
-        n_lineages=n_lin,
-        heldout_regret_mean_by_gen=[float(x) for x in heldout.mean(axis=0)],
-        heldout_regret_se_by_gen=se_list,
-        train_regret_mean_by_gen=[float(x) for x in train.mean(axis=0)],
-        entropy_bits_mean_by_gen=[float(x) for x in entropy.mean(axis=0)],
-        map_accuracy_mean_by_gen=[float(x) for x in accuracy.mean(axis=0)],
-        bits_used_mean_by_gen=[float(x) for x in bits.mean(axis=0)],
+        heldout=heldout,
+        train=train,
+        entropy=entropy,
+        accuracy=accuracy,
+        bits=bits,
     )
 
 

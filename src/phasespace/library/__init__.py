@@ -21,6 +21,7 @@ from phasespace.library.records import (
     decode_examples,
     decode_rule,
     decode_rule_confidence,
+    decode_rule_hedged,
     encode_examples_pedagogical,
     encode_examples_random,
     encode_placebo_random,
@@ -36,6 +37,7 @@ from phasespace.library.simulate import (
     make_lineage_fixture,
     run_lifetime,
     run_lineage,
+    run_lineage_with_posteriors,
 )
 from phasespace.library.world import (
     GridLayout,
@@ -74,6 +76,7 @@ __all__ = [
     "decode_examples",
     "decode_rule",
     "decode_rule_confidence",
+    "decode_rule_hedged",
     "encode_examples_pedagogical",
     "encode_examples_random",
     "encode_placebo_random",
@@ -92,6 +95,7 @@ __all__ = [
     "oracle_cost",
     "run_lifetime",
     "run_lineage",
+    "run_lineage_with_posteriors",
     "sample_rule",
     "shortest_path",
     "terrain_entropy_bits",

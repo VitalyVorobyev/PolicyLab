@@ -25,6 +25,10 @@ def test_oracle_zero_regret_and_determinism() -> None:
     assert r1.generations[0].bits_used == 0
     assert all(gm.bits_used == 19 for gm in r1.generations[1:])
 
+    r_hedged = run_lineage("rule_hedged", 20, fix, rule_changed=False)
+    assert r_hedged.generations[0] == r1.generations[0]
+    assert [gm.bits_used for gm in r_hedged.generations] == [gm.bits_used for gm in r1.generations]
+
 
 def test_unlimited_matches_single_lifetime_and_beats_none() -> None:
     n_lin = 20

@@ -20,6 +20,7 @@ class LibraryConfig:
     level_costs: tuple[float, ...] = (1.0, 3.0, 7.0, 16.0)
     noise_beta: float = 1.0
     rule_trust: float = 0.88
+    hedge_discount: float = 0.30
     confidence_trusts: tuple[float, ...] = (0.25, 0.55, 0.78, 0.92)
     confidence_thresholds: tuple[float, ...] = (0.35, 0.65, 0.85)
     episodes_per_generation: int = 2
@@ -47,6 +48,8 @@ class LibraryConfig:
             raise ValueError("n_voronoi_patches must be >= active_terrains_per_layout")
         if not (0.25 < self.rule_trust < 1.0):
             raise ValueError(f"rule_trust must be in (0.25, 1.0), got {self.rule_trust}")
+        if not (0.0 < self.hedge_discount < 1.0):
+            raise ValueError(f"hedge_discount must be in (0.0, 1.0), got {self.hedge_discount}")
         if len(self.confidence_trusts) != 4:
             raise ValueError("confidence_trusts must have 4 entries")
         if len(self.confidence_thresholds) != 3:
@@ -82,6 +85,7 @@ def config_to_dict(cfg: LibraryConfig) -> dict[str, Any]:
         "confidence_trusts": list(cfg.confidence_trusts),
         "episodes_per_generation": cfg.episodes_per_generation,
         "grid_size": cfg.grid_size,
+        "hedge_discount": cfg.hedge_discount,
         "heldout_layouts_per_gen": cfg.heldout_layouts_per_gen,
         "level_costs": list(cfg.level_costs),
         "n_generations": cfg.n_generations,

@@ -21,6 +21,7 @@ from phasespace.library.records import (
     decode_examples,
     decode_rule,
     decode_rule_confidence,
+    decode_rule_hedged,
     encode_examples_pedagogical,
     encode_examples_random,
     encode_placebo_random,
@@ -51,6 +52,7 @@ ARMS: Final = (
     "example_pedagogical",
     "rule",
     "rule_confidence",
+    "rule_hedged",
     "placebo_random",
     "placebo_shuffled",
 )
@@ -224,7 +226,7 @@ def _encode_outgoing(
     obs_matrix: FloatArray,
     decoy_record: BitRecord | None,
 ) -> BitRecord | None:
-    if arm == "rule":
+    if arm in ("rule", "rule_hedged"):
         return encode_rule(belief, budget_bits, cfg)
     if arm == "rule_confidence":
         return encode_rule_confidence(belief, budget_bits, cfg)
@@ -252,6 +254,8 @@ def _decode_incoming(
         return uniform_belief(cfg.n_terrains, cfg.n_levels), [], 0, ()
     if arm in ("rule", "placebo_random", "placebo_shuffled"):
         return decode_rule(record, cfg), [], record.n_bits, record.summary
+    if arm == "rule_hedged":
+        return decode_rule_hedged(record, cfg), [], record.n_bits, record.summary
     if arm == "rule_confidence":
         return decode_rule_confidence(record, cfg), [], record.n_bits, record.summary
     if arm in ("example_random", "example_pedagogical"):
@@ -260,7 +264,7 @@ def _decode_incoming(
     return uniform_belief(cfg.n_terrains, cfg.n_levels), [], 0, ()
 
 
-def run_lineage(
+def run_lineage_with_posteriors(
     arm: str,
     budget_bits: int,
     fixture: LineageFixture,
@@ -268,8 +272,8 @@ def run_lineage(
     cfg: LibraryConfig = DEFAULT_CONFIG,
     obs_matrix: FloatArray | None = None,
     exp_level_costs_arr: FloatArray | None = None,
-) -> LineageResult:
-    """Simulate a single multi-generation lineage on `fixture` for `(arm, budget_bits)`."""
+) -> tuple[LineageResult, tuple[FloatArray, ...]]:
+    """Simulate one multi-generation lineage and return `(LineageResult, posteriors_by_gen)`."""
     if arm not in ARMS:
         raise ValueError(f"Unknown arm {arm!r}; expected one of {ARMS}")
     if budget_bits < 0:
@@ -286,6 +290,7 @@ def run_lineage(
     )
 
     metrics: list[GenerationMetrics] = []
+    posteriors: list[FloatArray] = []
     incoming_record: BitRecord | None = None
     carried_belief: FloatArray | None = None
 
@@ -296,6 +301,8 @@ def run_lineage(
             else fixture.rule_initial
         )
         if arm == "oracle":
+            oracle_belief = np.eye(cfg.n_levels, dtype=np.float64)[np.asarray(active_rule.levels)]
+            posteriors.append(oracle_belief)
             metrics.append(
                 GenerationMetrics(
                     generation=g,
@@ -322,6 +329,7 @@ def run_lineage(
             obs_matrix,
             exp_level_costs_arr,
         )
+        posteriors.append(posterior.copy())
         heldout_regret = evaluate_heldout(
             posterior,
             active_rule,
@@ -357,9 +365,32 @@ def run_lineage(
                 arm, posterior, obs_pool, budget_bits, gen_rng, cfg, obs_matrix, decoy_rec
             )
 
-    return LineageResult(
+    result = LineageResult(
         arm=arm,
         budget_bits=budget_bits,
         rule_changed=rule_changed,
         generations=tuple(metrics),
     )
+    return result, tuple(posteriors)
+
+
+def run_lineage(
+    arm: str,
+    budget_bits: int,
+    fixture: LineageFixture,
+    rule_changed: bool,
+    cfg: LibraryConfig = DEFAULT_CONFIG,
+    obs_matrix: FloatArray | None = None,
+    exp_level_costs_arr: FloatArray | None = None,
+) -> LineageResult:
+    """Simulate a single multi-generation lineage on `fixture` for `(arm, budget_bits)`."""
+    result, _ = run_lineage_with_posteriors(
+        arm=arm,
+        budget_bits=budget_bits,
+        fixture=fixture,
+        rule_changed=rule_changed,
+        cfg=cfg,
+        obs_matrix=obs_matrix,
+        exp_level_costs_arr=exp_level_costs_arr,
+    )
+    return result
