@@ -1,4 +1,5 @@
 import { useSyncExternalStore, type AnchorHTMLAttributes, type MouseEvent } from "react";
+import { basePrefix } from "./data/paths";
 
 /** A minimal history-API router: the site has three routes and needs nothing more. */
 
@@ -18,17 +19,36 @@ export function normalizePath(pathname: string): string {
   return pathname.length > 1 ? pathname.replace(/\/+$/, "") || "/" : pathname;
 }
 
+/** Strip a deployment base prefix (e.g. "/PolicyLab/") so routes match "/", "/gravity", "/citizens". */
+export function stripBase(pathname: string, baseUrl: string = import.meta.env.BASE_URL): string {
+  const normalized = normalizePath(pathname);
+  const prefix = basePrefix(baseUrl);
+  if (prefix === "") return normalized;
+  if (normalized === prefix) return "/";
+  if (normalized.startsWith(`${prefix}/`)) return normalizePath(normalized.slice(prefix.length));
+  return normalized;
+}
+
+/** Prefix an app-relative route ("/", "/citizens") with the deployment base path. */
+export function withBase(to: string, baseUrl: string = import.meta.env.BASE_URL): string {
+  if (!to.startsWith("/")) return to;
+  const prefix = basePrefix(baseUrl);
+  if (prefix === "") return to;
+  return `${prefix}${to}`;
+}
+
 export function usePathname(): string {
   return useSyncExternalStore(
     subscribe,
-    () => normalizePath(window.location.pathname),
+    () => stripBase(window.location.pathname),
     () => "/",
   );
 }
 
 export function navigate(to: string): void {
-  if (to === window.location.pathname + window.location.hash) return;
-  window.history.pushState(null, "", to);
+  const target = withBase(to);
+  if (target === window.location.pathname + window.location.hash) return;
+  window.history.pushState(null, "", target);
   window.dispatchEvent(new Event(NAVIGATE_EVENT));
 }
 
@@ -44,5 +64,5 @@ export function Link({ to, onClick, ...rest }: LinkProps) {
     event.preventDefault();
     navigate(to);
   };
-  return <a href={to} onClick={handleClick} {...rest} />;
+  return <a href={withBase(to)} onClick={handleClick} {...rest} />;
 }
