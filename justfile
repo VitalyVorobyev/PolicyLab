@@ -265,3 +265,7 @@ citizens-web-export run_id *args:
 # just citizens-c4-hypotheses citizens-c4-hypotheses-v1 --confirm-frozen --crossplay-run runs/<cp> --distill-run runs/<d> --train-run runs/<all> [--b4-run ... --b4-eval-run runs/<c2 b4-evaluate>]
 citizens-c4-hypotheses run_id *args:
     uv run python -m phasespace.citizens.rl.c4 --runs-dir runs hypotheses --run-id {{run_id}} {{args}}
+
+# The Last Library Stage L1: run the pre-protocol feasibility gate (F1-F3) and stationary/change diagnostics.
+library-feasibility run_id="library-feasibility-dev1" *args:
+    uv run python -m phasespace.library.feasibility --runs-dir runs --run-id {{run_id}} {{args}}

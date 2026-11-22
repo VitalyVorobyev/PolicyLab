@@ -123,18 +123,19 @@ The owner chose to reframe and continue (D35). The B4 held-out runs are still in
 
 **G4:** all evidence runs carry the frozen config hash and `git_dirty = false`; H1 and H2 are decided as declared, and either outcome is reported.
 
-### C5 — Report and public page
+### C4 & C5 — Report and public page
 
-- `studies/model-citizens/report.md` with method, evidence, limitations and reproducibility metadata.
-- Story-first public page: replay real human games (CC-BY attribution), choose who the citizens are and who governs, explore the cross-play matrix and the distilled rules.
+- Confirmatory trainable-model verdicts (`citizens-c4-hypotheses-v1`: H1 refuted, H2 supported) recorded in `docs/studies/model-citizens/report.md` and surfaced on `/citizens` (`citizens-web-demo-dev4`) and `/citizens/report`; C4 B4 LLM runs remain open (1 of 10 complete).
+- Public site updated with in-app readable research reports (`/citizens/report`, `/gravity/report`), verified bibliography, and `/method` live artifact & checksum inspector.
 
-## Later world: The Last Library (after Model Citizens)
+## Active world: The Last Library (D38; Stage L1 started 2026-11-22)
 
 **Goal:** demonstrate that the site is a research lab, not a cislunar microsite.
 
-- Implement the narrowly scoped inherited-memory experiment specified in `studies/last-library/README.md`, after its own literature scan.
+- Literature scan complete (`docs/studies/last-library/literature.md`); D38 sharpens the question to **Q1** (rule vs. bit-matched pedagogical examples under stationary vs. unannounced rule change, plus **Q3** multi-generation ratchet test) using exact bit budgets around latent-rule entropy ($H = 16$ bits).
+- Stage L1 implements the pure deterministic domain (`src/phasespace/library/`), analytical/invariant unit tests (`tests/library/`), and pre-protocol feasibility gate (`just library-feasibility`) prior to freezing `docs/studies/last-library/protocol.md`.
 - Reuse run/provenance/report *format*, not gravitational rendering or physics APIs.
-- Publish an interactive generational lineage visualization and comparison with no-inheritance baseline.
+- Later (after frozen protocol experiments): publish an interactive generational lineage visualization and comparison with controls.
 
 ## Later, only after The Last Library
 
