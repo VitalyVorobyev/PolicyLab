@@ -19,7 +19,7 @@ export const STUDIES: readonly StudySummary[] = [
     question: "Do AI governors trained against different models of people discover the same rule for sharing a common pool?",
     status: "active",
     progress:
-      "Running. Four models of people were built from a published experiment and an AI governor was trained against each; every governor was then played against every model. The pre-registered verdicts are being computed. Explore the games in the demonstration.",
+      "Active. Four models of people were built from a published experiment and an AI governor was trained against each. Pre-registered verdicts are in for all trainable models (H1 refuted, H2 supported); LLM-player games are still in progress. Explore the games in the demonstration.",
     specPath: "docs/studies/model-citizens/README.md",
     route: "/citizens",
   },

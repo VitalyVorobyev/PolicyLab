@@ -66,7 +66,10 @@ describe("Model Citizens page", () => {
     expect(screen.getByText("Each AI governor is the best at home.")).toBeInTheDocument();
     expect(screen.getByText(/produced a governor that loses 24–28 % of the surplus to the simple rule on B1/)).toBeInTheDocument();
     expect(screen.getByText(/82 % of what that world's own AI governor earns, against 45 % for the simple rule/)).toBeInTheDocument();
-    expect(screen.getByText(/the pre-registered verdicts are being computed/)).toBeInTheDocument();
+    expect(screen.queryByText(/the pre-registered verdicts are being computed/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Refuted: at least one AI governor loses to the simple rule on another model/)).toBeInTheDocument();
+    expect(screen.getByText(/Supported: a governor designed on a model that only passed the next-move exam loses to the simple rule on B1/)).toBeInTheDocument();
+    expect(screen.getByText(/confirmed by a pre-registered test/)).toBeInTheDocument();
     expect(screen.getByText(/All four models pass the next-move exam, but only B1 passes the whole-game exam/)).toBeInTheDocument();
   });
 
