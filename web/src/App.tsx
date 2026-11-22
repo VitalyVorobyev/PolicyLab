@@ -2,8 +2,11 @@ import { useEffect, useRef } from "react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Layout } from "./components/Layout";
 import { CitizensPage } from "./features/citizens/CitizensPage";
+import { CitizensReportPage } from "./features/citizens/CitizensReportPage";
 import { GalleryPage } from "./features/gallery/GalleryPage";
 import { GravityPage } from "./features/gravity/GravityPage";
+import { GravityReportPage } from "./features/gravity/GravityReportPage";
+import { MethodPage } from "./features/method/MethodPage";
 import { NotFoundPage } from "./features/NotFoundPage";
 import { usePathname } from "./lib/router";
 
@@ -13,8 +16,14 @@ function Route({ path }: { path: string }) {
       return <GalleryPage />;
     case "/gravity":
       return <GravityPage />;
+    case "/gravity/report":
+      return <GravityReportPage />;
     case "/citizens":
       return <CitizensPage />;
+    case "/citizens/report":
+      return <CitizensReportPage />;
+    case "/method":
+      return <MethodPage />;
     default:
       return <NotFoundPage />;
   }

@@ -87,6 +87,11 @@ export function GravityPage() {
           <p className="mt-2 max-w-[36ch] font-serif text-[1.3rem] leading-snug sm:text-[1.5rem]">
             Which search method finds the free returns that survive a bad launch?
           </p>
+          <p className="mt-3 text-sm text-graphite">
+            <Link to="/gravity/report" className="prose-link font-medium text-ink">
+              Read full report &amp; references
+            </Link>
+          </p>
         </div>
         {/* On wide screens the problem sits beside the title; on phones it moves below the demonstration. */}
         <p className="max-w-[78ch] text-[0.925rem] leading-relaxed text-graphite max-lg:hidden lg:col-span-7 lg:pt-6">{PROBLEM}</p>
@@ -133,6 +138,12 @@ export function GravityPage() {
       </Section>
 
       <p className="mt-16 text-sm text-graphite">
+        <Link className="prose-link font-medium text-ink" to="/gravity/report">
+          Research report &amp; references
+        </Link>
+        <span aria-hidden="true" className="mx-2 text-quiet">
+          ·
+        </span>
         <a className="prose-link inline-flex items-center gap-1" href={REPOSITORY_URL} rel="noreferrer">
           Code
           <ExternalIcon className="size-3.5" />

@@ -62,6 +62,11 @@ function FeaturedStudy({ study }: { study: StudySummary }) {
           >
             {CALL_TO_ACTION[study.study_id] ?? "Open the study"}
           </Link>
+          {study.route !== undefined && (
+            <Link className="prose-link font-medium text-ink" to={`${study.route}/report`}>
+              Read report &amp; references
+            </Link>
+          )}
           <a className="prose-link inline-flex items-center gap-1.5 text-graphite" href={docUrl(study.specPath)} rel="noreferrer">
             Study specification
             <ExternalIcon className="size-3.5" />
@@ -111,6 +116,9 @@ export function GalleryPage() {
           falsifiable question, compares against credible baselines at matched compute, and publishes its evidence as
           versioned data you can inspect here, null results included.
         </p>
+        <Link to="/method" className="prose-link mt-4 inline-block text-sm text-graphite">
+          Methodology, documentation &amp; artifact ledger
+        </Link>
       </section>
 
       <div>

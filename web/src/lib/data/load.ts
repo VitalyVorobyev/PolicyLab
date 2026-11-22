@@ -1,4 +1,4 @@
-import { parseCitizensDemo, parseCitizensManifest, type LoadedCitizensRun } from "./citizens";
+import { parseCitizensDemo, parseCitizensManifest, type CitizensManifest, type LoadedCitizensRun } from "./citizens";
 import { DataError } from "./errors";
 import { isSafeRelativePath, researchUrl } from "./paths";
 import { sha256Hex } from "./sha256";
@@ -146,4 +146,31 @@ export async function loadCitizensRun(runPath: string, fetcher: Fetcher = defaul
 export async function loadErrorFan(runPath: string, fileName: string, fetcher: Fetcher = defaultFetch, expectedRunId?: string): Promise<ErrorFan> {
   const { manifest, json, artifactUrl } = await loadVerified(runPath, "error_fan", fetcher, expectedRunId, fileName);
   return parseErrorFan(json, manifest, artifactUrl);
+}
+
+export type AnyManifest = Manifest | CitizensManifest;
+
+/**
+ * Load and validate a run's `manifest.json` without downloading large data artifacts unless inspected separately.
+ */
+export async function loadAnyManifest(
+  runPath: string,
+  kind: ArtifactKind,
+  fetcher: Fetcher = defaultFetch,
+  expectedRunId?: string,
+): Promise<{ manifest: AnyManifest; manifestUrl: string }> {
+  if (!isSafeRelativePath(runPath)) {
+    throw new DataError("unsafe_path", runPath, `"${runPath}" is not a plain relative path inside the research directory.`);
+  }
+  const manifestUrl = researchUrl(runPath, "manifest.json");
+  const json = parseJson(await fetchBytes(manifestUrl, fetcher), manifestUrl);
+  const manifest: AnyManifest = kind === "citizens_demo" ? parseCitizensManifest(json, manifestUrl) : parseManifest(json, manifestUrl);
+  if (expectedRunId !== undefined && manifest.run_id !== expectedRunId) {
+    throw new DataError(
+      "invalid",
+      manifestUrl,
+      `The catalog lists run "${expectedRunId}" here, but the manifest's run_id is "${manifest.run_id}".`,
+    );
+  }
+  return { manifest, manifestUrl };
 }

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { REPOSITORY_URL } from "../lib/links";
-import { Link } from "../lib/router";
+import { Link, usePathname } from "../lib/router";
 
 function Wordmark() {
   return (
@@ -17,6 +17,10 @@ function Wordmark() {
 }
 
 export function Layout({ children }: { children: ReactNode }) {
+  const path = usePathname();
+  const navClass = (target: string): string =>
+    `whitespace-nowrap hover:text-ink ${path === target || path.startsWith(`${target}/`) ? "font-medium text-ink" : ""}`;
+
   return (
     <div className="flex min-h-dvh flex-col">
       <a
@@ -29,13 +33,30 @@ export function Layout({ children }: { children: ReactNode }) {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-4 py-4 sm:px-8">
           <Wordmark />
           <nav aria-label="Site" className="flex items-center gap-3 text-sm text-graphite sm:gap-5 sm:text-[0.95rem]">
-            <Link to="/citizens" aria-label="Model Citizens" className="whitespace-nowrap hover:text-ink">
+            <Link
+              to="/citizens"
+              aria-label="Model Citizens"
+              aria-current={path === "/citizens" ? "page" : undefined}
+              className={navClass("/citizens")}
+            >
               <span className="sm:hidden">Citizens</span>
               <span className="max-sm:hidden">Model Citizens</span>
             </Link>
-            <Link to="/gravity" aria-label="Gravity Atlas" className="whitespace-nowrap hover:text-ink">
+            <Link
+              to="/gravity"
+              aria-label="Gravity Atlas"
+              aria-current={path === "/gravity" ? "page" : undefined}
+              className={navClass("/gravity")}
+            >
               <span className="sm:hidden">Gravity</span>
               <span className="max-sm:hidden">Gravity Atlas</span>
+            </Link>
+            <Link
+              to="/method"
+              aria-current={path === "/method" ? "page" : undefined}
+              className={navClass("/method")}
+            >
+              Method
             </Link>
             <a href={REPOSITORY_URL} className="hover:text-ink" rel="noreferrer">
               Source

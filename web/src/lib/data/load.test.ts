@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { publicBytes, publishedRunPath, RUN_PATH, staticFetcher } from "../../test/fixtures";
 import { DataError } from "./errors";
-import { loadAtlasRun, loadCatalog, loadCitizensRun, loadGridRun, loadRun, loadTableRun } from "./load";
+import { loadAnyManifest, loadAtlasRun, loadCatalog, loadCitizensRun, loadGridRun, loadRun, loadTableRun } from "./load";
 import { sha256Hex } from "./sha256";
 
 const TRAJECTORY_URL = `/research/${RUN_PATH}/trajectory.json`;
@@ -110,5 +110,25 @@ describe("loadCatalog", () => {
       expect(loaded.manifest.study_id).toBe(catalog.studies.find((s) => s.runs.includes(run))?.study_id);
     }
     expect(new Set(runs.map((r) => r.kind))).toEqual(new Set(["trajectory", "sample_table", "outcome_grid", "atlas", "citizens_demo"]));
+  });
+});
+
+describe("loadAnyManifest", () => {
+  it("loads every published catalog manifest with its expected parser", async () => {
+    const catalog = await loadCatalog(staticFetcher());
+    for (const study of catalog.studies) {
+      for (const run of study.runs) {
+        const { manifest, manifestUrl } = await loadAnyManifest(run.path, run.kind, staticFetcher(), run.run_id);
+        expect(manifest.run_id).toBe(run.run_id);
+        expect(manifestUrl).toBe(`/research/${run.path}/manifest.json`);
+      }
+    }
+  });
+
+  it("refuses unsafe paths and mismatched run ids", async () => {
+    const badPath = await rejection(loadAnyManifest("../bad", "trajectory", staticFetcher()));
+    expect(badPath.kind).toBe("unsafe_path");
+    const mismatch = await rejection(loadAnyManifest(RUN_PATH, "trajectory", staticFetcher(), "wrong-run-id"));
+    expect(mismatch.kind).toBe("invalid");
   });
 });

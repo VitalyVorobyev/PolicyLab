@@ -230,8 +230,11 @@ function Content({ run }: { run: LoadedCitizensRun }) {
 
       <footer className="mt-16 border-t border-rule pt-6 text-sm text-graphite">
         <p className="flex flex-wrap items-center gap-x-5 gap-y-2">
-          <a className="prose-link inline-flex items-center gap-1 font-medium text-ink" href={docUrl("docs/studies/model-citizens/report.md")} rel="noreferrer">
-            Technical report
+          <Link className="prose-link font-medium text-ink" to="/citizens/report">
+            Research report &amp; references
+          </Link>
+          <a className="prose-link inline-flex items-center gap-1 text-graphite" href={docUrl("docs/studies/model-citizens/report.md")} rel="noreferrer">
+            Technical report (Markdown)
             <ExternalIcon className="size-3.5" />
           </a>
           <span>
@@ -304,6 +307,11 @@ export function CitizensPage() {
           <h1 className="mt-1 text-[2.5rem] sm:text-5xl">Model Citizens</h1>
           <p className="mt-2 max-w-[36ch] font-serif text-[1.3rem] leading-snug sm:text-[1.5rem]">
             Do AI governors trained on different models of people learn the same rule?
+          </p>
+          <p className="mt-3 text-sm text-graphite">
+            <Link to="/citizens/report" className="prose-link font-medium text-ink">
+              Read full report &amp; references
+            </Link>
           </p>
         </div>
         <p className="max-w-[78ch] text-[0.925rem] leading-relaxed text-graphite max-lg:hidden lg:col-span-7 lg:pt-6">{PROBLEM}</p>
